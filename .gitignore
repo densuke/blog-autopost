@@ -9,8 +9,6 @@ __pycache__/
 venv/
 env/
 
-# uv lock file
-uv.lock
 
 # Data directory
 data/
@@ -25,6 +23,13 @@ data/
 # Test coverage
 .coverage
 .pytest_cache/
+htmlcov/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
 
 # 設定ファイル
 config.yml
