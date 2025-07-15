@@ -6,6 +6,7 @@ import yaml
 import json
 import os
 import importlib
+import argparse
 
 DATA_DIR = "data"
 ARTICLES_FILE = os.path.join(DATA_DIR, "articles.json")
@@ -109,7 +110,21 @@ def main():
     """
     メイン処理
     """
-    config = load_config()
+    parser = argparse.ArgumentParser(description="ブログの更新をチェックし、SNSにポストします。")
+    parser.add_argument(
+        "--config", 
+        type=str, 
+        default="config.yml", 
+        help="設定ファイルのパス (デフォルト: config.yml)"
+    )
+    parser.add_argument(
+        "--dry-run", 
+        action="store_true", 
+        help="SNSに実際に投稿せず、ドライランを実行します。"
+    )
+    args = parser.parse_args()
+
+    config = load_config(args.config)
     feed_url = config['blog']['feed_url']
     
     latest_articles = get_latest_articles(feed_url)
@@ -119,15 +134,19 @@ def main():
     
     if new_articles:
         print("新しい記事が見つかりました:")
-        plugins = load_plugins(config)
+        if not args.dry_run:
+            plugins = load_plugins(config)
         for article in new_articles:
             print(f"Title: {article['title']}")
             print(f"Link: {article['link']}\n")
-            for plugin_name, plugin_instance in plugins.items():
-                try:
-                    plugin_instance.post(article['title'], article['link'])
-                except Exception as e:
-                    print(f"{plugin_name} への投稿中にエラーが発生しました: {e}")
+            if not args.dry_run:
+                for plugin_name, plugin_instance in plugins.items():
+                    try:
+                        plugin_instance.post(article['title'], article['link'])
+                    except Exception as e:
+                        print(f"{plugin_name} への投稿中にエラーが発生しました: {e}")
+            else:
+                print(f"[ドライラン] SNSに投稿: Title: {article['title']}, Link: {article['link']}")
         
         # 新しい記事を保存済みの記事リストに追加し、保存する
         # 最新の記事リストを保存することで、次回実行時に重複投稿を防ぐ
