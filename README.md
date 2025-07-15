@@ -63,6 +63,27 @@ sns:
 3.  Appの設定で、必要な権限（例: `Read and Write`）を付与します。
 4.  `Keys and tokens` セクションから、`Consumer Key (API Key)`、`Consumer Secret (API Secret)`、`Access Token`、`Access Token Secret` を取得し、`config.yml` に設定します。
 
+#### Bluesky (AT Protocol)
+
+Blueskyに投稿するには、`identifier`（ユーザー名またはメールアドレス）と`password`（**アプリパスワード**の使用を強く推奨）が必要です。
+
+**アプリパスワードの取得方法:**
+
+1.  Blueskyのウェブサイトまたは公式アプリにログインします。
+2.  設定画面に移動します。
+3.  「App Passwords」または「アプリパスワード」のような項目を探します。
+4.  新しいアプリパスワードを生成します。このパスワードは一度しか表示されないため、安全な場所に控えてください。
+5.  生成されたアプリパスワードを`config.yml`の`sns.bluesky.password`に設定します。
+
+`config.yml`の例:
+
+```yaml
+sns:
+  bluesky:
+    identifier: "YOUR_BLUESKY_IDENTIFIER" # あなたのBlueskyハンドル（例: @yourhandle.bsky.social）または登録メールアドレス
+    password: "YOUR_BLUESKY_APP_PASSWORD" # 生成したアプリパスワード
+```
+
 ## 使い方
 
 設定が完了したら、以下のコマンドでツールを実行できます。
