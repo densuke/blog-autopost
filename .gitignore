@@ -26,5 +26,5 @@ data/
 .coverage
 .pytest_cache/
 
-# Config file (if sensitive info is present)
-# config.yml
+# 設定ファイル
+config.yml
