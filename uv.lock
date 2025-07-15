@@ -5,12 +5,13 @@ requires-python = ">=3.12"
 [[package]]
 name = "blog-autopost"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "feedparser" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pyyaml" },
+    { name = "requests" },
     { name = "tweepy" },
 ]
 
@@ -20,6 +21,7 @@ requires-dist = [
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytest-cov", specifier = ">=6.2.1" },
     { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "requests", specifier = ">=2.31.0" },
     { name = "tweepy", specifier = ">=4.16.0" },
 ]
 

@@ -9,10 +9,21 @@ dependencies = [
     "pytest>=8.4.1",
     "pytest-cov>=6.2.1",
     "pyyaml>=6.0.2",
+    "requests>=2.31.0",
     "tweepy>=4.16.0",
 ]
 
 [project.scripts]
-blog-autopost = "src.main:main"
+blog-autopost = "main:main"
 
 [tool.uv]
+package = true
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
