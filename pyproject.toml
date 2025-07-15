@@ -11,6 +11,7 @@ dependencies = [
     "pyyaml>=6.0.2",
     "requests>=2.31.0",
     "tweepy>=4.16.0",
+    "atproto>=0.0.61",
 ]
 
 [project.scripts]
@@ -27,3 +28,4 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
