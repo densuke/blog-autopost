@@ -1,110 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import feedparser
-import yaml
-import json
-import os
-import importlib
 import argparse
 
-DATA_DIR = "data"
-ARTICLES_FILE = os.path.join(DATA_DIR, "articles.json")
-PLUGINS_DIR = "src.plugins"
-
-def load_config(config_path="config.yml"):
-    """
-    設定ファイルを読み込みます。
-
-    Args:
-        config_path (str): 設定ファイルのパス。
-
-    Returns:
-        dict: 設定内容。
-    """
-    with open(config_path, 'r', encoding='utf-8') as f:
-        return yaml.safe_load(f)
-
-def get_latest_articles(feed_url):
-    """
-    指定されたRSS/Atomフィードから最新の記事リストを取得します。
-
-    Args:
-        feed_url (str): RSS/AtomフィードのURL。
-
-    Returns:
-        list: 記事のリスト。各記事はタイトルとリンクを持つ辞書です。
-    """
-    feed = feedparser.parse(feed_url)
-    articles = []
-    for entry in feed.entries:
-        articles.append({
-            'title': entry.title,
-            'link': entry.link
-        })
-    return articles
-
-def load_saved_articles():
-    """
-    保存された記事リストを読み込みます。
-
-    Returns:
-        list: 保存された記事のリスト。
-    """
-    if os.path.exists(ARTICLES_FILE):
-        with open(ARTICLES_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return []
-
-def save_articles(articles):
-    """
-    記事リストを保存します。
-
-    Args:
-        articles (list): 保存する記事のリスト。
-    """
-    with open(ARTICLES_FILE, 'w', encoding='utf-8') as f:
-        json.dump(articles, f, ensure_ascii=False, indent=4)
-
-def get_new_articles(latest_articles, saved_articles):
-    """
-    新しい記事を検出します。
-
-    Args:
-        latest_articles (list): 最新の記事リスト。
-        saved_articles (list): 保存された記事リスト。
-
-    Returns:
-        list: 新しい記事のリスト。
-    """
-    new_articles = []
-    saved_links = {article['link'] for article in saved_articles}
-    for article in latest_articles:
-        if article['link'] not in saved_links:
-            new_articles.append(article)
-    return new_articles
-
-def load_plugins(config):
-    """
-    SNS投稿プラグインを読み込みます。
-
-    Args:
-        config (dict): 設定内容。
-
-    Returns:
-        dict: 読み込まれたプラグインのインスタンス。
-    """
-    plugins = {}
-    for plugin_name, plugin_config in config.get('sns', {}).items():
-        try:
-            module = importlib.import_module(f"{PLUGINS_DIR}.{plugin_name}")
-            # クラス名をプラグイン名から推測 (例: x -> X)
-            class_name = plugin_name.capitalize()
-            plugin_class = getattr(module, class_name)
-            plugins[plugin_name] = plugin_class(**plugin_config)
-        except Exception as e:
-            print(f"プラグイン {plugin_name} の読み込み中にエラーが発生しました: {e}")
-    return plugins
+from .config_manager import load_config
+from .article_manager import get_latest_articles, load_saved_articles, save_articles, get_new_articles
+from .plugin_loader import load_plugins
 
 def main():
     """
@@ -122,17 +23,51 @@ def main():
         action="store_true", 
         help="SNSに実際に投稿せず、ドライランを実行します。"
     )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        help="直近のN個の記事のみを処理します。"
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="デバッグ情報を表示します。"
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
     feed_url = config['blog']['feed_url']
     
-    latest_articles = get_latest_articles(feed_url)
+    if args.debug:
+        print(f"フィードURL: {feed_url}")
+    
+    latest_articles = get_latest_articles(feed_url, args.debug)
+    
+    if args.debug:
+        print(f"フィードから取得した記事数: {len(latest_articles)}")
+        if latest_articles:
+            print("取得した記事一覧:")
+            for i, article in enumerate(latest_articles[:10]):  # 最初の10個を表示
+                print(f"  {i+1}. {article['title']}")
+                print(f"     URL: {article['link']}")
+        else:
+            print("フィードから記事を取得できませんでした。")
+    
     saved_articles = load_saved_articles()
+    
+    if args.debug:
+        print(f"保存済み記事数: {len(saved_articles)}")
+        if saved_articles:
+            print("保存済み記事一覧:")
+            for i, article in enumerate(saved_articles[:5]):  # 最初の5個を表示
+                print(f"  {i+1}. {article['title']}")
     
     new_articles = get_new_articles(latest_articles, saved_articles)
     
     if new_articles:
+        if args.limit:
+            new_articles = new_articles[:args.limit]
+            print(f"直近の{args.limit}個の記事のみを処理します。")
         print("新しい記事が見つかりました:")
         if not args.dry_run:
             plugins = load_plugins(config)
