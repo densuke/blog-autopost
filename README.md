@@ -32,9 +32,13 @@ Blog AutoPost CLIは、指定したブログの更新を定期的にチェック
     uv sync
     ```
 
+    **注意**: 現在、エントリーポイントの設定により、`uv run blog-autopost`での実行は正常に動作しません。代わりに`uv run -m src.main`を使用してください。
+
 ## 設定
 
-プロジェクトルートにある `config.yml` ファイルを編集して、ブログのフィードURLやSNSのAPIキーを設定します。
+プロジェクトルートにある `config.yml.template` ファイルをコピーして `config.yml` を作成します。
+そして、以下の内容を編集してブログのフィードURLやSNSのAPIキーを設定します。
+
 
 ### `config.yml` の例
 
@@ -44,10 +48,10 @@ blog:
 
 sns:
   x: # X (旧Twitter) の設定
-    consumer_key: "YOUR_CONSUMER_KEY" # X Developer Portalで取得
-    consumer_secret: "YOUR_CONSUMER_SECRET" # X Developer Portalで取得
-    access_token: "YOUR_ACCESS_TOKEN" # X Developer Portalで取得
-    access_token_secret: "YOUR_ACCESS_TOKEN_SECRET" # X Developer Portalで取得
+    consumer_key: "CONSUMER_KEY" # X Developer Portalで取得
+    consumer_secret: "CONSUMER_SECRET" # X Developer Portalで取得
+    access_token: "ACCESS_TOKEN" # X Developer Portalで取得
+    access_token_secret: "ACCESS_TOKEN_SECRET" # X Developer Portalで取得
 ```
 
 ### 各種APIキーの取得方法
@@ -63,11 +67,40 @@ sns:
 
 設定が完了したら、以下のコマンドでツールを実行できます。
 
+### 基本的な実行
+
 ```bash
-uv run blog-autopost
+uv run -m src.main
 ```
 
+### オプション
+
+- `--config <ファイル名>`: 設定ファイルを指定（デフォルト: config.yml）
+- `--dry-run`: 実際にSNSに投稿せず、投稿内容のみを表示
+- `--limit <数>`: 処理する記事数を制限（新しい記事から指定した数まで）
+- `--debug`: 詳細なデバッグ情報を表示
+
+### 使用例
+
+```bash
+# 通常の実行
+uv run -m src.main
+
+# ドライラン（テスト実行）
+uv run -m src.main --dry-run
+
+# 最新2記事のみをドライランで確認
+uv run -m src.main --dry-run --limit 2
+
+# デバッグ情報を表示して実行
+uv run -m src.main --debug --dry-run
+```
+
+### 初回実行について
+
 初回実行時には、ブログの既存記事がすべて検出され、SNSにポストされます。2回目以降は、前回実行時以降に新しく投稿された記事のみが検出され、ポストされます。
+
+初回実行時に大量の記事を投稿したくない場合は、`--dry-run`オプションを使用して記事リストを保存してから、実際の投稿を開始することをお勧めします。
 
 ## プラグインの追加
 
