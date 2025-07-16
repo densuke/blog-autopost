@@ -21,3 +21,17 @@ def test_mastodon_post(mock_post):
         headers={"Authorization": "Bearer test_token"},
         json={"status": f"{title} {link}"}
     )
+
+@patch('requests.post')
+def test_mastodon_post_error(mock_post):
+    """Mastodonプラグインの投稿エラー時テスト"""
+    from src.plugins.mastodon import Mastodon
+    mock_response = MagicMock()
+    mock_response.status_code = 400
+    mock_response.text = "Bad Request"
+    mock_response.json.return_value = {}
+    mock_post.return_value = mock_response
+
+    mastodon_plugin = Mastodon("https://mastodon.example", "test_token")
+    mastodon_plugin.post("Test Title", "http://test.com/link")
+    mock_post.assert_called_once()
