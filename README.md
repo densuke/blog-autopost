@@ -1,6 +1,6 @@
 # Blog AutoPost CLI
 
-Blog AutoPost CLIは、指定したブログの更新を定期的にチェックし、新しい記事が投稿された場合に各種SNSへ自動的にポストするコマンドラインツールです。
+Blog AutoPost CLIは、指定したブログの更新を定期的にチェックし、新しい記事が投稿された場合に各種SNS（X、Bluesky、Misskey）へ自動的にポストするコマンドラインツールです。
 
 ## 概要
 
@@ -8,7 +8,7 @@ Blog AutoPost CLIは、指定したブログの更新を定期的にチェック
 
 - RSS/Atomフィードを介したブログの更新チェック
 - 新着記事の検出と記録
-- プラグイン形式による各種SNSへの自動ポスト
+- プラグイン形式による各種SNS（X、Bluesky、Misskey）への自動ポスト
 
 ## 動作要件
 
@@ -52,6 +52,12 @@ sns:
     consumer_secret: "CONSUMER_SECRET" # X Developer Portalで取得
     access_token: "ACCESS_TOKEN" # X Developer Portalで取得
     access_token_secret: "ACCESS_TOKEN_SECRET" # X Developer Portalで取得
+  bluesky: # Blueskyの設定
+    identifier: "YOUR_BLUESKY_IDENTIFIER" # あなたのBlueskyハンドル（例: @yourhandle.bsky.social）または登録メールアドレス
+    password: "YOUR_BLUESKY_APP_PASSWORD" # 生成したアプリパスワード
+  misskey: # Misskeyの設定
+    instance_url: "https://misskey.io" # 使用するMisskeyインスタンスのURL
+    access_token: "YOUR_MISSKEY_ACCESS_TOKEN" # 生成したアクセストークン
 ```
 
 ### 各種APIキーの取得方法
@@ -82,6 +88,44 @@ sns:
   bluesky:
     identifier: "YOUR_BLUESKY_IDENTIFIER" # あなたのBlueskyハンドル（例: @yourhandle.bsky.social）または登録メールアドレス
     password: "YOUR_BLUESKY_APP_PASSWORD" # 生成したアプリパスワード
+```
+
+#### Misskey
+
+Misskeyに投稿するには、インスタンスURLとアクセストークンが必要です。
+
+**アクセストークンの取得方法:**
+
+1. Misskeyインスタンス（例: https://misskey.io）にログインします。
+2. 右上のユーザーアイコンをクリックし、「設定」を選択します。
+3. 左側のメニューから「API」を選択します。
+4. 「アクセストークン」タブを選択します。
+5. 「アクセストークンを作成」ボタンをクリックします。
+6. トークンの名前を入力（例: 「Blog Auto Post」）します。
+7. 必要な権限を選択します：
+   - `ノートを作成・削除する` - 投稿するために必要
+8. 「作成」ボタンをクリックしてトークンを生成します。
+9. 生成されたトークンをコピーして、`config.yml`の`sns.misskey.access_token`に設定します。
+
+**注意**: アクセストークンは秘密情報なので、公開リポジトリにコミットしないよう注意してください。
+
+`config.yml`の例:
+
+```yaml
+sns:
+  misskey:
+    instance_url: "https://misskey.io" # 使用するMisskeyインスタンスのURL
+    access_token: "YOUR_MISSKEY_ACCESS_TOKEN" # 生成したアクセストークン
+```
+
+**他のMisskeyインスタンスを使用する場合:**
+`instance_url`を変更することで、misskey.io以外のMisskeyインスタンスでも使用できます。
+
+```yaml
+sns:
+  misskey:
+    instance_url: "https://your-misskey-instance.com"
+    access_token: "そのインスタンスで生成したアクセストークン"
 ```
 
 ## 使い方
@@ -122,6 +166,14 @@ uv run -m src.main --debug --dry-run
 初回実行時には、ブログの既存記事がすべて検出され、SNSにポストされます。2回目以降は、前回実行時以降に新しく投稿された記事のみが検出され、ポストされます。
 
 初回実行時に大量の記事を投稿したくない場合は、`--dry-run`オプションを使用して記事リストを保存してから、実際の投稿を開始することをお勧めします。
+
+## 対応SNS
+
+このツールは現在、以下のSNSに対応しています：
+
+- **X (旧Twitter)**: consumer_key、consumer_secret、access_token、access_token_secretが必要
+- **Bluesky**: identifier（ユーザー名またはメールアドレス）とpassword（アプリパスワード推奨）が必要
+- **Misskey**: instance_urlとaccess_tokenが必要
 
 ## プラグインの追加
 
