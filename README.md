@@ -58,9 +58,31 @@ sns:
   misskey: # Misskeyの設定
     instance_url: "https://misskey.io" # 使用するMisskeyインスタンスのURL
     access_token: "YOUR_MISSKEY_ACCESS_TOKEN" # 生成したアクセストークン
+  mastodon: # Mastodonの設定
+    instance_url: "https://mastodon.social" # 使用するMastodonインスタンスのURL
+    access_token: "YOUR_MASTODON_ACCESS_TOKEN" # 生成したアクセストークン
+
+---
+
+## Mastodonアクセストークンの取得方法
+
+1. MastodonのWebサイトでログインし、右上の「ユーザー設定」→「開発」→「新機アプリ」をクリックします。
+2. 「アプリケーション名」を入力し、必要に応じて権限（"投稿の作成" など）を有効にします。
+3. アプリ作成後、「アクセストークン」が表示されるのでコピーします。
+4. `config.yml` の `sns.mastodon.access_token` に貼り付けてください。
+5. `sns.mastodon.instance_url` には、あなたが利用するMastodonインスタンスのURL（例: https://mastodon.social）を設定してください。
+
+### 例
+```yaml
+sns:
+  mastodon:
+    instance_url: "https://mastodon.social"
+    access_token: "取得したアクセストークン"
 ```
 
-### 各種APIキーの取得方法
+---
+
+## 各種APIキーの取得方法
 
 #### X (旧Twitter)
 
@@ -174,6 +196,7 @@ uv run -m src.main --debug --dry-run
 - **X (旧Twitter)**: consumer_key、consumer_secret、access_token、access_token_secretが必要
 - **Bluesky**: identifier（ユーザー名またはメールアドレス）とpassword（アプリパスワード推奨）が必要
 - **Misskey**: instance_urlとaccess_tokenが必要
+- **Mastodon**: instance_urlとaccess_tokenが必要
 
 ## プラグインの追加
 
