@@ -7,4 +7,9 @@ sns:
     consumer_secret: "YOUR_CONSUMER_SECRET"
     access_token: "YOUR_ACCESS_TOKEN"
     access_token_secret: "YOUR_ACCESS_TOKEN_SECRET"
-  bluesky:\n    identifier: "YOUR_BLUESKY_IDENTIFIER"\n    password: "YOUR_BLUESKY_PASSWORD"
+  bluesky:
+    identifier: "YOUR_BLUESKY_IDENTIFIER"
+    password: "YOUR_BLUESKY_PASSWORD"
+  misskey:
+    instance_url: "https://misskey.io"
+    access_token: "YOUR_MISSKEY_ACCESS_TOKEN"
