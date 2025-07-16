@@ -1,3 +1,6 @@
+# SNS投稿時のアナウンス文。不要な場合は""（空文字列）にするか、この行を削除してください。
+announcement_text: ""
+
 blog:
   feed_url: "https://example.com/feed"
 

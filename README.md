@@ -43,6 +43,9 @@ Blog AutoPost CLIは、指定したブログの更新を定期的にチェック
 ### `config.yml` の例
 
 ```yaml
+# SNS投稿時のアナウンス文。不要な場合は""（空文字列）にするか、この行を削除してください。
+announcement_text: "ブログを更新しました！"
+
 blog:
   feed_url: "https://example.com/feed" # あなたのブログのRSS/AtomフィードURLを設定してください
 
