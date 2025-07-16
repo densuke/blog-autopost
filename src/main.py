@@ -85,7 +85,8 @@ def main():
         
         # 新しい記事を保存済みの記事リストに追加し、保存する
         # 最新の記事リストを保存することで、次回実行時に重複投稿を防ぐ
-        save_articles(latest_articles)
+        if not args.dry_run:
+            save_articles(latest_articles)
     else:
         print("新しい記事はありませんでした。")
 
