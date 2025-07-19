@@ -2,18 +2,18 @@ import importlib
 
 PLUGINS_DIR = "src.plugins"
 
-def load_plugins(config):
+def load_plugins(config_manager):
     """
     SNS投稿プラグインを読み込みます。
 
     Args:
-        config (dict): 設定内容。
+        config_manager (ConfigManager): 設定管理オブジェクト。
 
     Returns:
         dict: 読み込まれたプラグインのインスタンス。
     """
     plugins = {}
-    for plugin_name, plugin_config in config.get('sns', {}).items():
+    for plugin_name, plugin_config in config_manager.get_all_sns_configs().items():
         try:
             module = importlib.import_module(f"{PLUGINS_DIR}.{plugin_name}")
             # クラス名をプラグイン名から推測 (例: x -> X)
