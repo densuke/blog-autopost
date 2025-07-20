@@ -4,6 +4,16 @@ announcement_text: ""
 blog:
   feed_url: "https://example.com/feed"
 
+# URL短縮機能の設定
+url_shortening:
+  enabled: true           # URL短縮機能を有効にする
+  service: "is.gd"       # 使用するサービス（現在はis.gdのみ）
+
+# SNS別文字数制限のカスタマイズ（オプション）
+character_limits:
+  mastodon: 500          # Mastodonの文字数制限
+  misskey: 3000          # Misskeyの文字数制限
+
 # SNS設定は2つの形式で記述できます:
 # 1. オブジェクト形式（従来の方法、後方互換性のため維持）
 # 2. 配列形式（複数アカウント対応、推奨）
