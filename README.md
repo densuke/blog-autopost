@@ -274,6 +274,8 @@ uv run -m src.main
 - `--dry-run`: 実際にSNSに投稿せず、投稿内容のみを表示
 - `--limit <数>`: 処理する記事数を制限（新しい記事から指定した数まで）
 - `--debug`: 詳細なデバッグ情報を表示
+- `--text <テキスト>`: 指定したテキストを直接SNSに投稿（RSS監視をスキップ）
+- `--sns <SNS名,SNS名>`: 投稿するSNSを限定（カンマ区切りで複数指定可能）
 
 ### 使用例
 
@@ -289,7 +291,40 @@ uv run -m src.main --dry-run --limit 2
 
 # デバッグ情報を表示して実行
 uv run -m src.main --debug --dry-run
+
+# 直接テキストを投稿
+uv run -m src.main --text "こんにちは、ブログを更新しました！"
+
+# 特定のSNSのみに投稿
+uv run -m src.main --text "X専用の投稿です" --sns x
+
+# 複数のSNSを指定して投稿
+uv run -m src.main --text "MastodonとBlueskyに投稿" --sns mastodon,bluesky
+
+# 直接投稿のドライラン
+uv run -m src.main --text "テスト投稿" --dry-run
 ```
+
+### 直接テキスト投稿機能
+
+`--text`オプションを使用することで、RSS/Atomフィードの監視をスキップして、指定したテキストを直接SNSに投稿できます。この機能は以下のような場面で役立ちます：
+
+- ブログ以外の内容を投稿したい場合
+- 文字数制限でエラーが発生した場合の部分的な再投稿
+- テスト投稿やお知らせの投稿
+
+#### SNS限定機能
+
+`--sns`オプションと組み合わせることで、投稿するSNSを限定できます：
+
+- `--sns x`: Xのみに投稿
+- `--sns mastodon,bluesky`: MastodonとBlueskyのみに投稿
+- `--sns misskey-io,mastodon-social`: 特定のアカウント名を指定して投稿
+
+**注意事項:**
+- `--text`オプション使用時は、URL短縮機能やannouncement_text機能は適用されません
+- 直接指定したテキストがそのまま投稿されます
+- 各SNSの文字数制限は適用されるため、事前に確認してください
 
 ### 初回実行について
 
