@@ -3,15 +3,16 @@ from . import SocialMediaPlugin
 
 class Misskey(SocialMediaPlugin):
     def __init__(self, instance_url, access_token):
+        self.sns_type = "misskey"
         self.instance_url = instance_url.rstrip('/')
         self.access_token = access_token
         self.api_url = f"{self.instance_url}/api"
 
-    def post(self, title: str, link: str):
+    def post(self, optimized_text: str):
         # Misskeyに投稿するためのペイロード
         payload = {
             "i": self.access_token,
-            "text": f"{title} {link}",
+            "text": optimized_text,
             "visibility": "public"
         }
         

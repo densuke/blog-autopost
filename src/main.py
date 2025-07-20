@@ -34,16 +34,20 @@ def main():
         plugins = load_plugins(config_manager) if not args.dry_run else {}
 
         for article in new_articles:
-            post_text = article_manager.create_post_text(article['title'], article['link'])
-            print(f"投稿内容: {post_text}")
-
             if not args.dry_run:
                 for plugin_name, plugin_instance in plugins.items():
                     try:
-                        plugin_instance.post(article['title'], article['link'])
+                        # プラグインのtypeを取得（配列形式）またはplugin_name（オブジェクト形式）
+                        sns_type = getattr(plugin_instance, 'sns_type', None) or plugin_name.split('-')[0]
+                        optimized_text = article_manager.create_post_text(article['title'], article['link'], sns_type)
+                        print(f"{plugin_name}投稿内容: {optimized_text}")
+                        plugin_instance.post(optimized_text)
                     except Exception as e:
                         print(f"{plugin_name}への投稿中にエラー: {e}")
             else:
+                # ドライラン時は代表的なSNSで投稿内容を表示
+                sample_text = article_manager.create_post_text(article['title'], article['link'], 'x')
+                print(f"投稿内容例 (X): {sample_text}")
                 print(f"[ドライラン] SNSに投稿しました。")
         
         if not args.dry_run:

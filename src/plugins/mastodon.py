@@ -3,11 +3,12 @@ from . import SocialMediaPlugin
 
 class Mastodon(SocialMediaPlugin):
     def __init__(self, instance_url: str, access_token: str):
+        self.sns_type = "mastodon"
         self.base_url = instance_url.rstrip('/')
         self.access_token = access_token
 
-    def post(self, title: str, link: str):
-        status_text = f"{title} {link}"
+    def post(self, optimized_text: str):
+        status_text = optimized_text
         url = f"{self.base_url}/api/v1/statuses"
         headers = {
             "Authorization": f"Bearer {self.access_token}",

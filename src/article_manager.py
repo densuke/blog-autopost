@@ -2,6 +2,7 @@ import feedparser
 import json
 import os
 from .config_manager import ConfigManager
+from .text_optimizer import TextOptimizer
 
 DATA_FILE = "data/articles.json"
 
@@ -9,6 +10,7 @@ class ArticleManager:
     def __init__(self, config_manager: ConfigManager):
         self.config_manager = config_manager
         self.feed_url = self.config_manager.get_feed_url()
+        self.text_optimizer = TextOptimizer(config_manager.config)
 
     def get_latest_articles(self, debug=False):
         if debug:
@@ -38,9 +40,17 @@ class ArticleManager:
         saved_links = {article['link'] for article in saved_articles}
         return [article for article in latest_articles if article['link'] not in saved_links]
 
-    def create_post_text(self, title: str, link: str) -> str:
+    def create_post_text(self, title: str, link: str, sns_type: str) -> str:
+        """
+        SNS別に最適化されたポストテキストを作成します
+        
+        Args:
+            title (str): 記事タイトル
+            link (str): 記事URL
+            sns_type (str): SNS種別
+            
+        Returns:
+            str: 最適化されたポストテキスト
+        """
         announcement = self.config_manager.get_announcement_text()
-        text = f"{title} {link}"
-        if announcement:
-            return f"{announcement} {text}"
-        return text
+        return self.text_optimizer.optimize_text(title, link, sns_type, announcement)
