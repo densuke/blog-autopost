@@ -85,6 +85,62 @@ sns:
 
 ---
 
+### 複数アカウント対応
+
+Blog AutoPost CLIは、同一のSNSサービスで複数のアカウントにポストする機能をサポートしています。
+
+#### 配列形式の設定（複数アカウント）
+
+複数のアカウントを設定する場合は、`sns`セクションを配列形式で記述します：
+
+```yaml
+sns:
+  - type: mastodon
+    name: "mastodon-main"
+    instance_url: "https://mastodon.social"
+    access_token: "メインアカウントのトークン"
+  - type: mastodon
+    name: "mstdn-jp"
+    instance_url: "https://mstdn.jp"
+    access_token: "mstdn.jpアカウントのトークン"
+  - type: x
+    name: "x-personal"
+    consumer_key: "個人アカウントのコンシューマーキー"
+    consumer_secret: "個人アカウントのコンシューマーシークレット"
+    access_token: "個人アカウントのアクセストークン"
+    access_token_secret: "個人アカウントのアクセストークンシークレット"
+  - type: x
+    name: "x-business"
+    consumer_key: "ビジネスアカウントのコンシューマーキー"
+    consumer_secret: "ビジネスアカウントのコンシューマーシークレット"
+    access_token: "ビジネスアカウントのアクセストークン"
+    access_token_secret: "ビジネスアカウントのアクセストークンシークレット"
+```
+
+#### 設定項目
+
+- `type`: SNSの種類（`x`, `bluesky`, `misskey`, `mastodon`）
+- `name`: アカウントの識別名（同一`type`内で一意である必要があります）
+- その他: 各SNSで必要な認証情報
+
+#### 後方互換性
+
+従来のオブジェクト形式の設定も引き続きサポートされます：
+
+```yaml
+sns:
+  mastodon:
+    instance_url: "https://mastodon.social"
+    access_token: "あなたのアクセストークン"
+  x:
+    consumer_key: "CONSUMER_KEY"
+    consumer_secret: "CONSUMER_SECRET"
+    access_token: "ACCESS_TOKEN"
+    access_token_secret: "ACCESS_TOKEN_SECRET"
+```
+
+オブジェクト形式の場合、`name`は自動的に`type`名が使用されます。
+
 ## 各種APIキーの取得方法
 
 #### X (旧Twitter)
