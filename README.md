@@ -141,6 +141,55 @@ sns:
 
 オブジェクト形式の場合、`name`は自動的に`type`名が使用されます。
 
+### URL短縮機能
+
+Blog AutoPost CLIは、SNSの文字数制限に対応するためのURL短縮機能を提供しています。
+
+#### 機能概要
+
+- **自動URL短縮**: 投稿テキストが文字数制限を超過した場合、自動的にURLを短縮
+- **文字数制限対応**: 各SNSの文字数制限を自動チェック
+- **無料サービス**: is.gd APIを使用（APIキー不要）
+- **フォールバック**: 短縮失敗時は元URLを使用
+
+#### SNS別文字数制限
+
+| SNS | 文字数制限 | 設定可能 |
+|-----|------------|----------|
+| X (旧Twitter) | 280文字 | ❌ |
+| Bluesky | 300文字 | ❌ |
+| Mastodon | 500文字 | ✅ |
+| Misskey | 3000文字 | ✅ |
+
+#### 投稿テキスト最適化
+
+1. **標準形式**: `{title} {link}`で投稿
+2. **文字数超過時**: URLを短縮して再チェック
+3. **再度超過時**: タイトルをトリミングして`{title}... {short_link}`形式
+
+#### 設定方法
+
+```yaml
+# URL短縮機能の設定
+url_shortening:
+  enabled: true           # URL短縮機能を有効にする
+  service: "is.gd"       # 使用するサービス（現在はis.gdのみ）
+
+# SNS別文字数制限のカスタマイズ
+character_limits:
+  mastodon: 500          # Mastodonの文字数制限
+  misskey: 3000          # Misskeyの文字数制限
+```
+
+#### 使用例
+
+```yaml
+# 例: 長いタイトルの記事投稿
+# 元のURL: https://blog.example.com/posts/2025/07/very-long-article-title-about-technology
+# 短縮後: https://is.gd/abc123
+# 投稿テキスト: "長いタイトルの記事について... https://is.gd/abc123"
+```
+
 ## 各種APIキーの取得方法
 
 #### X (旧Twitter)
