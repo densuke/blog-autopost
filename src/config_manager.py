@@ -8,9 +8,20 @@ class ConfigManager:
         return self.config.get('blog', {}).get('feed_url')
 
     def get_sns_config(self, sns_name):
-        return self.config.get('sns', {}).get(sns_name)
+        """後方互換性のためのメソッド（オブジェクト形式用）"""
+        sns_configs = self.get_all_sns_configs()
+        if isinstance(sns_configs, dict):
+            return sns_configs.get(sns_name)
+        return None
 
     def get_all_sns_configs(self):
+        """
+        SNS設定を取得します。
+        配列形式とオブジェクト形式の両方をサポートします。
+        
+        Returns:
+            list or dict: SNS設定（配列形式またはオブジェクト形式）
+        """
         return self.config.get('sns', {})
 
     def get_announcement_text(self):

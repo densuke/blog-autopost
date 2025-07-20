@@ -4,15 +4,56 @@ announcement_text: ""
 blog:
   feed_url: "https://example.com/feed"
 
+# SNS設定は2つの形式で記述できます:
+# 1. オブジェクト形式（従来の方法、後方互換性のため維持）
+# 2. 配列形式（複数アカウント対応、推奨）
+
+# === オブジェクト形式（従来の方法） ===
+# sns:
+#   x:
+#     consumer_key: "YOUR_CONSUMER_KEY"
+#     consumer_secret: "YOUR_CONSUMER_SECRET"
+#     access_token: "YOUR_ACCESS_TOKEN"
+#     access_token_secret: "YOUR_ACCESS_TOKEN_SECRET"
+#   bluesky:
+#     identifier: "YOUR_BLUESKY_IDENTIFIER"
+#     password: "YOUR_BLUESKY_PASSWORD"
+#   misskey:
+#     instance_url: "https://misskey.io"
+#     access_token: "YOUR_MISSKEY_ACCESS_TOKEN"
+#   mastodon:
+#     instance_url: "https://mastodon.social"
+#     access_token: "YOUR_MASTODON_ACCESS_TOKEN"
+
+# === 配列形式（複数アカウント対応、推奨） ===
 sns:
-  x:
+  - type: x
+    name: "x-main"
     consumer_key: "YOUR_CONSUMER_KEY"
     consumer_secret: "YOUR_CONSUMER_SECRET"
     access_token: "YOUR_ACCESS_TOKEN"
     access_token_secret: "YOUR_ACCESS_TOKEN_SECRET"
-  bluesky:
+  # 複数のXアカウント例
+  # - type: x
+  #   name: "x-business"
+  #   consumer_key: "YOUR_BUSINESS_CONSUMER_KEY"
+  #   consumer_secret: "YOUR_BUSINESS_CONSUMER_SECRET"
+  #   access_token: "YOUR_BUSINESS_ACCESS_TOKEN"
+  #   access_token_secret: "YOUR_BUSINESS_ACCESS_TOKEN_SECRET"
+  - type: bluesky
+    name: "bluesky-main"
     identifier: "YOUR_BLUESKY_IDENTIFIER"
     password: "YOUR_BLUESKY_PASSWORD"
-  misskey:
+  - type: misskey
+    name: "misskey-io"
     instance_url: "https://misskey.io"
     access_token: "YOUR_MISSKEY_ACCESS_TOKEN"
+  - type: mastodon
+    name: "mastodon-social"
+    instance_url: "https://mastodon.social"
+    access_token: "YOUR_MASTODON_ACCESS_TOKEN"
+  # 複数のMastodonインスタンス例
+  # - type: mastodon
+  #   name: "mstdn-jp"
+  #   instance_url: "https://mstdn.jp"
+  #   access_token: "YOUR_MSTDN_JP_ACCESS_TOKEN"
