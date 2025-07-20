@@ -32,4 +32,5 @@ dist/
 *.egg
 
 # 設定ファイル
-config.yml
+config.yml*
+!config.yml.template
