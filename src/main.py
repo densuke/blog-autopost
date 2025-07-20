@@ -87,6 +87,16 @@ def handle_direct_text_post(args, config_manager):
     """
     original_text = args.text
     target_sns = None
+    media_files = args.media or []
+    
+    # メディア添付機能のバリデーション
+    if media_files:
+        from .media_validator import validate_media_for_posting, ValidationError
+        from .media_converter import create_media_converter, ConversionError, is_ffmpeg_available
+        
+        print(f"添付メディア: {len(media_files)}件")
+        for i, media_path in enumerate(media_files, 1):
+            print(f"  {i}. {media_path}")
     
     # --optimizeオプションが指定された場合はTextOptimizerを使用
     if args.optimize:
@@ -122,6 +132,82 @@ def handle_direct_text_post(args, config_manager):
             plugins = all_plugins
     else:
         plugins = {}
+    
+    # メディアファイルの事前検証
+    if media_files:
+        try:
+            # 対象SNSのリストを作成
+            if plugins:
+                target_sns_types = []
+                for plugin_name, plugin_instance in plugins.items():
+                    sns_type = getattr(plugin_instance, 'sns_type', None) or plugin_name.split('-')[0]
+                    if sns_type not in target_sns_types:
+                        target_sns_types.append(sns_type)
+            else:
+                # ドライラン時は全SNSをチェック
+                target_sns_types = ['x', 'bluesky', 'mastodon', 'misskey']
+            
+            # メディア検証実行
+            validation_results = validate_media_for_posting(media_files, target_sns_types)
+            
+            # 検証結果の表示
+            has_errors = False
+            converted_files = {}
+            
+            for sns_type, result in validation_results.items():
+                if result.errors:
+                    has_errors = True
+                    print(f"❌ {sns_type.upper()}: {', '.join(result.errors)}")
+                elif result.warnings:
+                    print(f"⚠️  {sns_type.upper()}: {', '.join(result.warnings)}")
+                else:
+                    print(f"✅ {sns_type.upper()}: 投稿可能")
+                
+                # 変換情報を収集
+                converted_files.update(result.converted_files)
+            
+            # エラーがある場合は処理を停止
+            if has_errors and not args.dry_run:
+                print("\n投稿を中止しました。上記のエラーを解決してから再実行してください。")
+                return
+            
+            # 音声ファイルの変換処理（X向け）
+            if any('x' in validation_results and 
+                   any('MP4に変換されます' in warning for warning in validation_results['x'].warnings) 
+                   for _ in [None]):  # 条件チェック用のダミーループ
+                
+                if not is_ffmpeg_available():
+                    print("❌ ffmpegが見つかりません。音声変換にはffmpegが必要です。")
+                    if not args.dry_run:
+                        return
+                else:
+                    print("🔄 音声ファイルをMP4に変換しています...")
+                    converter = create_media_converter()
+                    
+                    # 音声ファイルのみを変換
+                    for i, media_path in enumerate(media_files):
+                        if media_path.lower().endswith('.m4a'):
+                            try:
+                                if not args.dry_run:
+                                    converted_path = converter.convert_m4a_to_mp4(media_path)
+                                    media_files[i] = converted_path
+                                    print(f"✅ 変換完了: {media_path} → {converted_path}")
+                                else:
+                                    print(f"[ドライラン] 変換予定: {media_path}")
+                            except ConversionError as e:
+                                print(f"❌ 変換失敗: {media_path} - {e}")
+                                if not args.dry_run:
+                                    return
+        
+        except ValidationError as e:
+            print(f"❌ メディア検証エラー: {e}")
+            return
+        except Exception as e:
+            print(f"❌ メディア処理中にエラーが発生しました: {e}")
+            if args.debug:
+                import traceback
+                traceback.print_exc()
+            return
     
     print(f"投稿テキスト: {original_text}")
     print(f"文字数: {len(original_text)}")
@@ -178,9 +264,9 @@ def handle_direct_text_post(args, config_manager):
                         optimized_text = original_text
                     
                     print(f"  最適化後: {optimized_text} ({len(optimized_text)}文字)")
-                    plugin_instance.post(optimized_text)
+                    plugin_instance.post(optimized_text, media_files if media_files else None)
                 else:
-                    plugin_instance.post(original_text)
+                    plugin_instance.post(original_text, media_files if media_files else None)
                 
                 print(f"- {plugin_name}: 投稿完了")
             except Exception as e:
@@ -205,6 +291,7 @@ def main():
     parser.add_argument("--sns", type=str, help="投稿するSNSを限定します（カンマ区切りで複数指定可能）。")
     parser.add_argument("--list-sns", action="store_true", help="登録されているSNSアカウントの一覧を表示します。")
     parser.add_argument("--optimize", action="store_true", help="直接投稿時にもテキスト最適化（URL短縮など）を適用します。")
+    parser.add_argument("--media", action="append", help="投稿にメディアファイルを添付します（複数回指定可能）。")
     args = parser.parse_args()
 
     config_data = load_config(args.config)
