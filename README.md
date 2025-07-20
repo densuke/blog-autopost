@@ -276,6 +276,7 @@ uv run -m src.main
 - `--debug`: 詳細なデバッグ情報を表示
 - `--text <テキスト>`: 指定したテキストを直接SNSに投稿（RSS監視をスキップ）
 - `--sns <SNS名,SNS名>`: 投稿するSNSを限定（カンマ区切りで複数指定可能）
+- `--list-sns`: 登録されているSNSアカウントの一覧を表示
 
 ### 使用例
 
@@ -303,6 +304,9 @@ uv run -m src.main --text "MastodonとBlueskyに投稿" --sns mastodon,bluesky
 
 # 直接投稿のドライラン
 uv run -m src.main --text "テスト投稿" --dry-run
+
+# 登録されているSNSアカウント一覧を表示
+uv run -m src.main --list-sns
 ```
 
 ### 直接テキスト投稿機能
@@ -320,6 +324,20 @@ uv run -m src.main --text "テスト投稿" --dry-run
 - `--sns x`: Xのみに投稿
 - `--sns mastodon,bluesky`: MastodonとBlueskyのみに投稿
 - `--sns misskey-io,mastodon-social`: 特定のアカウント名を指定して投稿
+
+#### SNSアカウント一覧表示
+
+`--list-sns`オプションを使用することで、現在設定されているSNSアカウントの一覧を確認できます：
+
+```bash
+uv run -m src.main --list-sns
+```
+
+この機能は以下のような情報を表示します：
+- 設定形式（配列形式/オブジェクト形式）
+- アカウント名とSNS種別
+- 認証情報の設定状況
+- Mastodon/Misskeyのインスタンス情報
 
 **注意事項:**
 - `--text`オプション使用時は、URL短縮機能やannouncement_text機能は適用されません

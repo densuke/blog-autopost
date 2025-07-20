@@ -7,6 +7,76 @@ from .article_manager import ArticleManager
 from .plugin_loader import load_plugins
 
 
+def handle_list_sns(config_manager):
+    """
+    登録されているSNSアカウントの一覧を表示します
+    
+    Args:
+        config_manager: 設定管理インスタンス
+    """
+    print("=== 登録されているSNSアカウント一覧 ===")
+    
+    sns_configs = config_manager.get_all_sns_configs()
+    
+    if not sns_configs:
+        print("SNSアカウントが設定されていません。")
+        print("config.ymlを確認してください。")
+        return
+    
+    # 配列形式の場合
+    if isinstance(sns_configs, list):
+        print(f"設定形式: 配列形式（複数アカウント対応）")
+        print(f"登録アカウント数: {len(sns_configs)}")
+        print()
+        
+        for i, sns_config in enumerate(sns_configs, 1):
+            sns_type = sns_config.get('type', 'unknown')
+            name = sns_config.get('name', f'{sns_type}-{i}')
+            
+            print(f"{i}. {name}")
+            print(f"   SNS種別: {sns_type}")
+            
+            # SNS別の詳細情報
+            if sns_type == 'x':
+                has_credentials = all(key in sns_config for key in ['consumer_key', 'consumer_secret', 'access_token', 'access_token_secret'])
+                print(f"   認証情報: {'設定済み' if has_credentials else '不完全'}")
+            elif sns_type == 'bluesky':
+                has_credentials = all(key in sns_config for key in ['identifier', 'password'])
+                print(f"   認証情報: {'設定済み' if has_credentials else '不完全'}")
+            elif sns_type in ['mastodon', 'misskey']:
+                has_credentials = all(key in sns_config for key in ['instance_url', 'access_token'])
+                instance_url = sns_config.get('instance_url', 'N/A')
+                print(f"   インスタンス: {instance_url}")
+                print(f"   認証情報: {'設定済み' if has_credentials else '不完全'}")
+            print()
+    
+    # オブジェクト形式の場合（後方互換性）
+    elif isinstance(sns_configs, dict):
+        print(f"設定形式: オブジェクト形式（従来形式）")
+        print(f"登録SNS数: {len(sns_configs)}")
+        print()
+        
+        for i, (sns_name, sns_config) in enumerate(sns_configs.items(), 1):
+            print(f"{i}. {sns_name}")
+            print(f"   SNS種別: {sns_name}")
+            
+            # SNS別の詳細情報
+            if sns_name == 'x':
+                has_credentials = all(key in sns_config for key in ['consumer_key', 'consumer_secret', 'access_token', 'access_token_secret'])
+                print(f"   認証情報: {'設定済み' if has_credentials else '不完全'}")
+            elif sns_name == 'bluesky':
+                has_credentials = all(key in sns_config for key in ['identifier', 'password'])
+                print(f"   認証情報: {'設定済み' if has_credentials else '不完全'}")
+            elif sns_name in ['mastodon', 'misskey']:
+                has_credentials = all(key in sns_config for key in ['instance_url', 'access_token'])
+                instance_url = sns_config.get('instance_url', 'N/A')
+                print(f"   インスタンス: {instance_url}")
+                print(f"   認証情報: {'設定済み' if has_credentials else '不完全'}")
+            print()
+    
+    print("注意: --sns オプションでは上記の名前またはSNS種別を指定できます。")
+
+
 def handle_direct_text_post(args, config_manager):
     """
     直接テキスト投稿を処理します
@@ -100,10 +170,16 @@ def main():
     parser.add_argument("--debug", action="store_true", help="デバッグ情報を表示します。")
     parser.add_argument("--text", type=str, help="指定したテキストを直接SNSに投稿します。")
     parser.add_argument("--sns", type=str, help="投稿するSNSを限定します（カンマ区切りで複数指定可能）。")
+    parser.add_argument("--list-sns", action="store_true", help="登録されているSNSアカウントの一覧を表示します。")
     args = parser.parse_args()
 
     config_data = load_config(args.config)
     config_manager = ConfigManager(config_data)
+    
+    # SNS一覧表示モードかどうかチェック
+    if args.list_sns:
+        handle_list_sns(config_manager)
+        return
     
     # 直接テキスト投稿モードかどうかチェック
     if args.text:
