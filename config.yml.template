@@ -8,6 +8,7 @@ blog:
 url_shortening:
   enabled: true           # URL短縮機能を有効にする
   service: "is.gd"       # 使用するサービス（現在はis.gdのみ）
+  mode: "auto"           # 短縮動作モード: "always"(常に短縮), "auto"(文字数制限超過時のみ), "never"(短縮しない)
 
 # SNS別文字数制限のカスタマイズ（オプション）
 character_limits:

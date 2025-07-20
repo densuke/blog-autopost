@@ -85,8 +85,15 @@ def handle_direct_text_post(args, config_manager):
         args: コマンドライン引数
         config_manager: 設定管理インスタンス
     """
-    text = args.text
+    original_text = args.text
     target_sns = None
+    
+    # --optimizeオプションが指定された場合はTextOptimizerを使用
+    if args.optimize:
+        from .text_optimizer import TextOptimizer
+        text_optimizer = TextOptimizer(config_manager.config)
+    else:
+        text_optimizer = None
     
     # SNS限定オプションの処理
     if args.sns:
@@ -116,8 +123,11 @@ def handle_direct_text_post(args, config_manager):
     else:
         plugins = {}
     
-    print(f"投稿テキスト: {text}")
-    print(f"文字数: {len(text)}")
+    print(f"投稿テキスト: {original_text}")
+    print(f"文字数: {len(original_text)}")
+    
+    if args.optimize:
+        print("テキスト最適化が有効です。")
     
     # 文字数制限の警告表示
     character_limits = {'x': 280, 'bluesky': 300, 'mastodon': 500, 'misskey': 3000}
@@ -135,12 +145,13 @@ def handle_direct_text_post(args, config_manager):
     else:
         plugins_for_warning = plugins
     
-    # 警告表示
-    for plugin_name, plugin_instance in plugins_for_warning.items():
-        sns_type = getattr(plugin_instance, 'sns_type', None) or plugin_name.split('-')[0]
-        limit = character_limits.get(sns_type, 500)
-        if len(text) > limit:
-            print(f"⚠️  警告: {plugin_name} の文字数制限 ({limit}文字) を超えています")
+    # 警告表示（最適化なしの場合のみ）
+    if not args.optimize:
+        for plugin_name, plugin_instance in plugins_for_warning.items():
+            sns_type = getattr(plugin_instance, 'sns_type', None) or plugin_name.split('-')[0]
+            limit = character_limits.get(sns_type, 500)
+            if len(original_text) > limit:
+                print(f"⚠️  警告: {plugin_name} の文字数制限 ({limit}文字) を超えています")
     
     # 投稿実行
     if not args.dry_run:
@@ -148,7 +159,29 @@ def handle_direct_text_post(args, config_manager):
         for plugin_name, plugin_instance in plugins.items():
             try:
                 print(f"- {plugin_name}: 投稿中...")
-                plugin_instance.post(text)
+                
+                # 最適化が有効な場合はSNS別に最適化されたテキストを使用
+                if args.optimize and text_optimizer:
+                    sns_type = getattr(plugin_instance, 'sns_type', None) or plugin_name.split('-')[0]
+                    # URLが含まれている場合のみ最適化を適用（タイトルとして空文字、リンクとして全文を扱う）
+                    import re
+                    url_pattern = r'https?://[^\s]+'
+                    urls = re.findall(url_pattern, original_text)
+                    
+                    if urls:
+                        # URLを含む場合：URL以外の部分をタイトルとして扱う
+                        url = urls[-1]  # 最後のURLを使用
+                        title_part = original_text.replace(url, '').strip()
+                        optimized_text = text_optimizer.optimize_text(title_part, url, sns_type, force_optimize=True)
+                    else:
+                        # URLを含まない場合：そのまま投稿
+                        optimized_text = original_text
+                    
+                    print(f"  最適化後: {optimized_text} ({len(optimized_text)}文字)")
+                    plugin_instance.post(optimized_text)
+                else:
+                    plugin_instance.post(original_text)
+                
                 print(f"- {plugin_name}: 投稿完了")
             except Exception as e:
                 print(f"- {plugin_name}: 投稿失敗 - {e}")
@@ -171,6 +204,7 @@ def main():
     parser.add_argument("--text", type=str, help="指定したテキストを直接SNSに投稿します。")
     parser.add_argument("--sns", type=str, help="投稿するSNSを限定します（カンマ区切りで複数指定可能）。")
     parser.add_argument("--list-sns", action="store_true", help="登録されているSNSアカウントの一覧を表示します。")
+    parser.add_argument("--optimize", action="store_true", help="直接投稿時にもテキスト最適化（URL短縮など）を適用します。")
     args = parser.parse_args()
 
     config_data = load_config(args.config)

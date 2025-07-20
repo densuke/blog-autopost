@@ -190,6 +190,12 @@ Blog AutoPost CLIは、SNSの文字数制限に対応するためのURL短縮機
 url_shortening:
   enabled: true           # URL短縮機能を有効にする
   service: "is.gd"       # 使用するサービス（現在はis.gdのみ）
+  mode: "auto"           # 短縮動作モード
+
+# URL短縮動作モード
+# - "always": 常にURL短縮を実行
+# - "auto": 文字数制限超過時のみ短縮（デフォルト）
+# - "never": 文字数制限超過でもそのまま投稿
 
 # SNS別文字数制限のカスタマイズ
 character_limits:
@@ -293,6 +299,7 @@ uv run -m src.main
 - `--text <テキスト>`: 指定したテキストを直接SNSに投稿（RSS監視をスキップ）
 - `--sns <SNS名,SNS名>`: 投稿するSNSを限定（カンマ区切りで複数指定可能）
 - `--list-sns`: 登録されているSNSアカウントの一覧を表示
+- `--optimize`: 直接投稿時にもテキスト最適化（URL短縮など）を適用
 
 ### 使用例
 
@@ -323,6 +330,12 @@ uv run -m src.main --text "テスト投稿" --dry-run
 
 # 登録されているSNSアカウント一覧を表示
 uv run -m src.main --list-sns
+
+# 直接投稿でURL短縮機能を使用
+uv run -m src.main --text "長いURLです https://example.com/very-long-url" --optimize
+
+# 特定のSNSのみに最適化投稿
+uv run -m src.main --text "長いテキスト..." --sns x --optimize
 ```
 
 ### 直接テキスト投稿機能
@@ -356,8 +369,9 @@ uv run -m src.main --list-sns
 - Mastodon/Misskeyのインスタンス情報
 
 **注意事項:**
-- `--text`オプション使用時は、URL短縮機能やannouncement_text機能は適用されません
-- 直接指定したテキストがそのまま投稿されます
+- `--text`オプション単体使用時は、URL短縮機能やannouncement_text機能は適用されません
+- `--optimize`オプションと組み合わせることで、直接投稿時でもURL短縮機能を利用可能
+- 直接指定したテキストがそのまま投稿されます（--optimize未使用時）
 - 各SNSの文字数制限は適用されるため、事前に確認してください
 
 ### 初回実行について
