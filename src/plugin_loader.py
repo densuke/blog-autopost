@@ -2,13 +2,14 @@ import importlib
 
 PLUGINS_DIR = "src.plugins"
 
-def load_plugins(config_manager):
+def load_plugins(config_manager, force_sensitive=None):
     """
     SNS投稿プラグインを読み込みます。
     配列形式とオブジェクト形式の両方の設定をサポートします。
 
     Args:
         config_manager (ConfigManager): 設定管理オブジェクト。
+        force_sensitive (bool): Misskeyプラグインのセンシティブ設定を強制的に上書きする場合のフラグ
 
     Returns:
         dict: 読み込まれたプラグインのインスタンス。キーは識別名。
@@ -35,6 +36,11 @@ def load_plugins(config_manager):
                 
                 # name以外の設定をプラグインコンストラクタに渡す
                 plugin_init_config = {k: v for k, v in sns_config.items() if k not in ('type', 'name')}
+                
+                # Misskeyプラグインの場合、force_sensitiveが指定されていれば上書き
+                if plugin_type == 'misskey' and force_sensitive is not None:
+                    plugin_init_config['is_sensitive'] = force_sensitive
+                
                 plugin_instance = plugin_class(**plugin_init_config)
                 
                 # プラグインインスタンスにname属性を設定
@@ -53,6 +59,12 @@ def load_plugins(config_manager):
                 # クラス名をプラグイン名から推測 (例: x -> X)
                 class_name = plugin_name.capitalize()
                 plugin_class = getattr(module, class_name)
+                
+                # Misskeyプラグインの場合、force_sensitiveが指定されていれば上書き
+                if plugin_name == 'misskey' and force_sensitive is not None:
+                    plugin_config = plugin_config.copy()  # 元の設定を変更しないようにコピー
+                    plugin_config['is_sensitive'] = force_sensitive
+                
                 plugin_instance = plugin_class(**plugin_config)
                 
                 # プラグインインスタンスにname属性を設定

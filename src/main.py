@@ -113,7 +113,7 @@ def handle_direct_text_post(args, config_manager):
     
     # プラグインを読み込み
     if not args.dry_run:
-        all_plugins = load_plugins(config_manager)
+        all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None)
         
         # SNS限定がある場合はフィルタリング
         if target_sns:
@@ -220,14 +220,14 @@ def handle_direct_text_post(args, config_manager):
     
     # ドライラン時は警告用に仮のプラグイン情報を作成
     if args.dry_run and target_sns:
-        all_plugins = load_plugins(config_manager)
+        all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None)
         plugins_for_warning = {}
         for plugin_name, plugin_instance in all_plugins.items():
             sns_type = getattr(plugin_instance, 'sns_type', None) or plugin_name.split('-')[0]
             if plugin_name in target_sns or sns_type in target_sns:
                 plugins_for_warning[plugin_name] = plugin_instance
     elif args.dry_run:
-        plugins_for_warning = load_plugins(config_manager)
+        plugins_for_warning = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None)
     else:
         plugins_for_warning = plugins
     
@@ -277,7 +277,7 @@ def handle_direct_text_post(args, config_manager):
         if target_sns:
             print(f"- 投稿対象: {', '.join(target_sns)}")
         else:
-            all_plugins = load_plugins(config_manager)
+            all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None)
             print(f"- 投稿対象: {', '.join(all_plugins.keys())}")
         print("[ドライラン] 直接投稿をシミュレートしました。")
 
@@ -292,6 +292,7 @@ def main():
     parser.add_argument("--list-sns", action="store_true", help="登録されているSNSアカウントの一覧を表示します。")
     parser.add_argument("--optimize", action="store_true", help="直接投稿時にもテキスト最適化（URL短縮など）を適用します。")
     parser.add_argument("--media", action="append", help="投稿にメディアファイルを添付します（複数回指定可能）。")
+    parser.add_argument("--sensitive", action="store_true", help="Misskeyでメディアファイルをセンシティブコンテンツとしてマークします。")
     args = parser.parse_args()
 
     config_data = load_config(args.config)
@@ -323,7 +324,7 @@ def main():
             print(f"直近の{args.limit}個の記事のみを処理します。")
         
         print("新しい記事が見つかりました:")
-        plugins = load_plugins(config_manager) if not args.dry_run else {}
+        plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None) if not args.dry_run else {}
 
         for article in new_articles:
             if not args.dry_run:

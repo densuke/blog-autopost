@@ -32,6 +32,7 @@ character_limits:
 #   misskey:
 #     instance_url: "https://misskey.io"
 #     access_token: "YOUR_MISSKEY_ACCESS_TOKEN"
+#     is_sensitive: false  # メディアファイルをセンシティブコンテンツとしてマークするかどうか（デフォルト: false）
 #   mastodon:
 #     instance_url: "https://mastodon.social"
 #     access_token: "YOUR_MASTODON_ACCESS_TOKEN"
@@ -59,6 +60,7 @@ sns:
     name: "misskey-io"
     instance_url: "https://misskey.io"
     access_token: "YOUR_MISSKEY_ACCESS_TOKEN"
+    is_sensitive: false  # メディアファイルをセンシティブコンテンツとしてマークするかどうか（デフォルト: false）
   - type: mastodon
     name: "mastodon-social"
     instance_url: "https://mastodon.social"

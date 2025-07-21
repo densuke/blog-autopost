@@ -5,10 +5,11 @@ import mimetypes
 from . import SocialMediaPlugin
 
 class Misskey(SocialMediaPlugin):
-    def __init__(self, instance_url, access_token):
+    def __init__(self, instance_url, access_token, is_sensitive=False):
         self.sns_type = "misskey"
         self.instance_url = instance_url.rstrip('/')
         self.access_token = access_token
+        self.is_sensitive = is_sensitive
         self.api_url = f"{self.instance_url}/api"
 
     def post(self, optimized_text: str, media_files: Optional[List[str]] = None):
@@ -98,7 +99,8 @@ class Misskey(SocialMediaPlugin):
                     'file': (os.path.basename(file_path), f, mime_type)
                 }
                 data = {
-                    'i': self.access_token
+                    'i': self.access_token,
+                    'isSensitive': 'true' if self.is_sensitive else 'false'
                 }
                 
                 response = requests.post(url, files=files, data=data)
