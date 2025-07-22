@@ -316,15 +316,38 @@ def main():
 
     latest_articles = article_manager.get_latest_articles(args.debug)
     saved_articles = article_manager.load_saved_articles()
-    new_articles = article_manager.get_new_articles(latest_articles, saved_articles)
+    new_articles = article_manager.get_new_articles(latest_articles, saved_articles, args.debug, args.limit)
 
     if new_articles:
         if args.limit:
-            new_articles = new_articles[:args.limit]
             print(f"直近の{args.limit}個の記事のみを処理します。")
         
         print("新しい記事が見つかりました:")
-        plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None) if not args.dry_run else {}
+        
+        # プラグインを読み込み
+        if not args.dry_run:
+            all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None)
+            
+            # SNS限定がある場合はフィルタリング
+            if args.sns:
+                target_sns = [sns.strip() for sns in args.sns.split(',')]
+                plugins = {}
+                for plugin_name, plugin_instance in all_plugins.items():
+                    # プラグイン名またはSNS typeが対象リストに含まれるかチェック
+                    sns_type = getattr(plugin_instance, 'sns_type', None) or plugin_name.split('-')[0]
+                    if plugin_name in target_sns or sns_type in target_sns:
+                        plugins[plugin_name] = plugin_instance
+                
+                if not plugins:
+                    print(f"指定されたSNS ({args.sns}) が見つかりませんでした。")
+                    print(f"利用可能なSNS: {', '.join(all_plugins.keys())}")
+                    return
+                else:
+                    print(f"投稿対象SNS: {', '.join(plugins.keys())}")
+            else:
+                plugins = all_plugins
+        else:
+            plugins = {}
 
         for article in new_articles:
             if not args.dry_run:
@@ -334,7 +357,13 @@ def main():
                         sns_type = getattr(plugin_instance, 'sns_type', None) or plugin_name.split('-')[0]
                         optimized_text = article_manager.create_post_text(article['title'], article['link'], sns_type)
                         print(f"{plugin_name}投稿内容: {optimized_text}")
-                        plugin_instance.post(optimized_text)
+                        
+                        # Blueskyの場合は記事データも渡す
+                        if sns_type == 'bluesky':
+                            print(f"[DEBUG] Bluesky投稿: リンクカード機能チェック開始")
+                            plugin_instance.post(optimized_text, article_data=article)
+                        else:
+                            plugin_instance.post(optimized_text)
                     except Exception as e:
                         print(f"{plugin_name}への投稿中にエラー: {e}")
             else:
