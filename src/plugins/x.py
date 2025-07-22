@@ -23,7 +23,7 @@ class X(SocialMediaPlugin):
         )
         self.api = API(auth)
 
-    def post(self, optimized_text: str, media_files: Optional[List[str]] = None):
+    def post(self, optimized_text: str, media_files: Optional[List[str]] = None, **kwargs):
         """
         Xに投稿します
         
