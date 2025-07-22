@@ -3,6 +3,23 @@ announcement_text: ""
 
 blog:
   feed_url: "https://example.com/feed"
+  # Blueskyリンクカード機能用の画像設定
+  image_settings:
+    default_image: ""                    # デフォルト画像URL (空の場合は画像なし)
+    enable_link_cards: true             # リンクカード機能を有効にする
+    image_strategy:                     # 画像取得の優先順位
+      - "featured_image"                # RSS内のenclosure/media:content
+      - "first_content_image"           # 記事本文の最初の画像
+      - "og_image"                      # ページのOGP画像
+      - "default"                       # デフォルト画像
+    image_filters:
+      exclude_domains:                  # 除外ドメイン（アフィリエイト対策）
+        - "amazon.co.jp"
+        - "affiliate.rakuten.co.jp"
+        - "px.a8.net"
+        - "images-amazon.com"
+      min_width: 200                    # 最小幅（ピクセル）
+      min_height: 200                   # 最小高さ（ピクセル）
 
 # URL短縮機能の設定
 url_shortening:

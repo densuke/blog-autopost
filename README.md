@@ -164,6 +164,89 @@ sns:
 
 オブジェクト形式の場合、`name`は自動的に`type`名が使用されます。
 
+### Blueskyリンクカード機能
+
+Blog AutoPost CLIは、Blueskyでのリッチなリンクプレビュー表示をサポートしています。
+
+#### 機能概要
+
+- **自動リンクカード生成**: ブログ記事の投稿時に自動でリンクカードを作成
+- **画像付きプレビュー**: 記事の画像をサムネイルとして表示
+- **メタデータ抽出**: 記事のタイトル、説明文を自動取得
+- **アフィリエイト画像除外**: 設定により不適切な画像を自動除外
+
+#### 画像取得戦略
+
+リンクカード用の画像は以下の優先順位で自動取得されます：
+
+1. **featured_image**: RSS内のenclosure/media:contentタグ
+2. **first_content_image**: 記事本文の最初の画像
+3. **og_image**: ページのOGP画像（Open Graph Protocol）
+4. **default**: 設定で指定したデフォルト画像
+
+#### 設定方法
+
+```yaml
+blog:
+  feed_url: "https://example.com/feed"
+  # Blueskyリンクカード機能用の画像設定
+  image_settings:
+    default_image: ""                    # デフォルト画像URL (空の場合は画像なし)
+    enable_link_cards: true             # リンクカード機能を有効にする
+    image_strategy:                     # 画像取得の優先順位
+      - "featured_image"                # RSS内のenclosure/media:content
+      - "first_content_image"           # 記事本文の最初の画像
+      - "og_image"                      # ページのOGP画像
+      - "default"                       # デフォルト画像
+    image_filters:
+      exclude_domains:                  # 除外ドメイン（アフィリエイト対策）
+        - "amazon.co.jp"
+        - "affiliate.rakuten.co.jp"
+        - "px.a8.net"
+        - "images-amazon.com"
+      min_width: 200                    # 最小幅（ピクセル）
+      min_height: 200                   # 最小高さ（ピクセル）
+```
+
+#### デフォルト画像の設定
+
+```yaml
+blog:
+  image_settings:
+    default_image: "https://yourblog.com/images/default-card.png"
+    # または相対パス（推奨しません）
+    # default_image: "/images/default-card.png"
+```
+
+#### 使用例
+
+```bash
+# リンクカード機能が有効な場合の通常実行
+uv run -m src.main
+
+# リンクカード機能付きドライラン
+uv run -m src.main --dry-run --debug
+
+# 特定記事数のみでテスト
+uv run -m src.main --dry-run --limit 1
+```
+
+#### 動作の仕組み
+
+1. **記事検出**: RSS/Atomフィードから新着記事を取得
+2. **画像抽出**: 設定された戦略に従って画像URLを取得
+3. **メタデータ取得**: 記事ページからタイトル・説明文を抽出
+4. **リンクカード作成**: BlueskyのAPI形式でリンクカードを生成
+5. **投稿実行**: テキストとリンクカードを組み合わせて投稿
+
+#### 注意事項
+
+- **Bluesky専用機能**: 現在はBlueskyのみリンクカード表示対応
+- **画像サイズ制限**: Blueskyは1MBまでの画像をサポート
+- **フィルタリング**: アフィリエイト関連の画像は自動除外
+- **フォールバック**: 画像取得に失敗した場合は通常のテキスト投稿
+- **デバッグ推奨**: 初回設定時は `--debug --dry-run` での動作確認を推奨
+
 ### URL短縮機能
 
 Blog AutoPost CLIは、SNSの文字数制限に対応するためのURL短縮機能を提供しています。
