@@ -41,7 +41,11 @@ def load_plugins(config_manager, force_sensitive=None):
                 if plugin_type == 'misskey' and force_sensitive is not None:
                     plugin_init_config['is_sensitive'] = force_sensitive
                 
-                plugin_instance = plugin_class(**plugin_init_config)
+                # Blueskyプラグインの場合、設定情報も渡す
+                if plugin_type == 'bluesky':
+                    plugin_instance = plugin_class(config=config_manager.config, **plugin_init_config)
+                else:
+                    plugin_instance = plugin_class(**plugin_init_config)
                 
                 # プラグインインスタンスにname属性を設定
                 plugin_instance.name = plugin_name
@@ -65,7 +69,11 @@ def load_plugins(config_manager, force_sensitive=None):
                     plugin_config = plugin_config.copy()  # 元の設定を変更しないようにコピー
                     plugin_config['is_sensitive'] = force_sensitive
                 
-                plugin_instance = plugin_class(**plugin_config)
+                # Blueskyプラグインの場合、設定情報も渡す
+                if plugin_name == 'bluesky':
+                    plugin_instance = plugin_class(config=config_manager.config, **plugin_config)
+                else:
+                    plugin_instance = plugin_class(**plugin_config)
                 
                 # プラグインインスタンスにname属性を設定
                 plugin_instance.name = plugin_name
