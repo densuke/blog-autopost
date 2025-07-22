@@ -9,7 +9,7 @@ class Mastodon(SocialMediaPlugin):
         self.base_url = instance_url.rstrip('/')
         self.access_token = access_token
 
-    def post(self, optimized_text: str, media_files: Optional[List[str]] = None):
+    def post(self, optimized_text: str, media_files: Optional[List[str]] = None, **kwargs):
         """
         Mastodonに投稿します
         

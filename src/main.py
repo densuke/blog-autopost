@@ -264,9 +264,9 @@ def handle_direct_text_post(args, config_manager):
                         optimized_text = original_text
                     
                     print(f"  最適化後: {optimized_text} ({len(optimized_text)}文字)")
-                    plugin_instance.post(optimized_text, media_files if media_files else None)
+                    plugin_instance.post(optimized_text, media_files if media_files else None, debug=args.debug)
                 else:
-                    plugin_instance.post(original_text, media_files if media_files else None)
+                    plugin_instance.post(original_text, media_files if media_files else None, debug=args.debug)
                 
                 print(f"- {plugin_name}: 投稿完了")
             except Exception as e:
@@ -358,12 +358,13 @@ def main():
                         optimized_text = article_manager.create_post_text(article['title'], article['link'], sns_type)
                         print(f"{plugin_name}投稿内容: {optimized_text}")
                         
-                        # Blueskyの場合は記事データも渡す
-                        if sns_type == 'bluesky':
-                            print(f"[DEBUG] Bluesky投稿: リンクカード機能チェック開始")
-                            plugin_instance.post(optimized_text, article_data=article)
+                        # リッチコンテンツをサポートするSNSの場合は記事データも渡す
+                        if hasattr(plugin_instance, 'supports_rich_content') and plugin_instance.supports_rich_content():
+                            if args.debug:
+                                print(f"[DEBUG] {sns_type}投稿: リンクカード機能対応")
+                            plugin_instance.post(optimized_text, article_data=article, debug=args.debug)
                         else:
-                            plugin_instance.post(optimized_text)
+                            plugin_instance.post(optimized_text, debug=args.debug)
                     except Exception as e:
                         print(f"{plugin_name}への投稿中にエラー: {e}")
             else:

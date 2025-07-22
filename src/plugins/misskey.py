@@ -1,5 +1,5 @@
 import requests
-from typing import List, Optional
+from typing import List, Optional, Any
 import os
 import mimetypes
 from . import SocialMediaPlugin
@@ -12,14 +12,16 @@ class Misskey(SocialMediaPlugin):
         self.is_sensitive = is_sensitive
         self.api_url = f"{self.instance_url}/api"
 
-    def post(self, optimized_text: str, media_files: Optional[List[str]] = None):
+    def post(self, optimized_text: str, media_files: Optional[List[str]] = None, **kwargs: Any):
         """
         Misskeyに投稿します
         
         Args:
             optimized_text: 投稿テキスト
             media_files: 添付するメディアファイルのパスリスト
+            **kwargs: 追加パラメータ（例：debug、article_data）
         """
+        debug = kwargs.get('debug', False)
         file_ids = []
         
         # メディアファイルのアップロード
