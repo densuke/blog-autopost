@@ -26,6 +26,15 @@ class ConfigManager:
 
     def get_announcement_text(self):
         return self.config.get('announcement_text', '')
+    
+    def get_image_settings(self):
+        """
+        画像設定を取得します。
+        
+        Returns:
+            dict or None: 画像設定、設定されていない場合はNone
+        """
+        return self.config.get('blog', {}).get('image_settings')
 
 def load_config(config_path="config.yml"):
     """
