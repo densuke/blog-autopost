@@ -34,3 +34,9 @@ dist/
 # 設定ファイル
 config.yml*
 !config.yml.template
+# テスト用画像ファイル
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
