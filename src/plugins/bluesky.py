@@ -1,33 +1,52 @@
 from atproto import Client, client_utils, models
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import re
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 from . import SocialMediaPlugin
 
 class Bluesky(SocialMediaPlugin):
-    def __init__(self, identifier, password):
+    def __init__(self, identifier, password, config=None):
         self.sns_type = "bluesky"
         self.client = Client()
+        self.config = config or {}
         # Blueskyにログイン
         self.client.login(identifier, password)
 
-    def post(self, optimized_text: str, media_files: Optional[List[str]] = None):
+    def post(self, optimized_text: str, media_files: Optional[List[str]] = None, article_data: Optional[Dict[str, Any]] = None):
         """
         Blueskyに投稿します
         
         Args:
             optimized_text: 投稿テキスト
             media_files: 添付するメディアファイルのパスリスト（画像のみ）
+            article_data: 記事データ（リンクカード用）
         """
         # 最適化済みテキストから手動でリンクを抽出
         url_pattern = r'https?://[^\s]+'
         urls = re.findall(url_pattern, optimized_text)
         
+        # リンクカード機能が有効かチェック
+        image_settings = self.config.get('blog', {}).get('image_settings', {})
+        enable_link_cards = image_settings.get('enable_link_cards', False)
+        print(f"[DEBUG] リンクカード設定: {enable_link_cards}, 設定内容: {image_settings}")
+        print(f"[DEBUG] article_data存在: {bool(article_data)}")
+        if article_data:
+            print(f"[DEBUG] article_dataキー: {list(article_data.keys())}")
+        
         # テキスト部分を構築
+        link = None
         if urls:
             # 最後のURLをリンクとして扱い、テキストから除去
             link = urls[-1]
             text_part = optimized_text.replace(link, '').strip()
-            text_builder = client_utils.TextBuilder().text(f"{text_part} ").link(link, link)
+            
+            # リンクカードが有効な場合はテキストのみ、無効な場合は従来通り
+            if enable_link_cards:
+                text_builder = client_utils.TextBuilder().text(text_part)
+            else:
+                text_builder = client_utils.TextBuilder().text(f"{text_part} ").link(link, link)
         else:
             # URLがない場合はそのまま投稿
             text_builder = optimized_text
@@ -71,15 +90,165 @@ class Bluesky(SocialMediaPlugin):
         # 投稿パラメータを構築
         post_params = {'text': text_builder}
         
+        # エンベッドの優先順位: 画像 > リンクカード
         if images:
             # 画像埋め込みを追加
             embed = models.AppBskyEmbedImages.Main(images=images)
             post_params['embed'] = embed
-        
-        # Blueskyに投稿
-        response = self.client.send_post(**post_params)
-        
-        if images:
-            print(f"Blueskyに投稿しました（画像 {len(images)}件添付）: {response.uri}")
+            print(f"[DEBUG] 画像エンベッドを設定")
+        elif enable_link_cards and link and article_data:
+            # リンクカードを作成
+            print(f"[DEBUG] リンクカード機能が有効、作成を開始")
+            print(f"[DEBUG] リンクURL: {link}")
+            link_card = self._create_link_card(link, article_data)
+            if link_card:
+                post_params['embed'] = link_card
+                print(f"[DEBUG] リンクカードエンベッドを設定")
+            else:
+                print(f"[DEBUG] リンクカード作成失敗、テキストのみ投稿")
         else:
-            print(f"Blueskyに投稿しました: {response.uri}")
+            print(f"[DEBUG] エンベッド条件不適合 - enable_link_cards:{enable_link_cards}, link:{bool(link)}, article_data存在:{bool(article_data)}")
+            if not enable_link_cards:
+                print(f"[DEBUG] リンクカード機能が無効")
+            if not link:
+                print(f"[DEBUG] リンクURLがない")
+            if not article_data:
+                print(f"[DEBUG] article_dataがない")
+        
+        try:
+            # Blueskyに投稿
+            response = self.client.send_post(**post_params)
+            
+            if images:
+                print(f"Blueskyに投稿しました（画像 {len(images)}件添付）: {response.uri}")
+            elif enable_link_cards and link:
+                print(f"Blueskyにリンクカード付きで投稿しました: {response.uri}")
+            else:
+                print(f"Blueskyに投稿しました: {response.uri}")
+        except Exception as e:
+            print(f"Blueskyへの投稿中にエラー: {e}")
+            raise
+    
+    def _create_link_card(self, url: str, article_data: Dict[str, Any]) -> Optional[models.AppBskyEmbedExternal.Main]:
+        """
+        リンクカードを作成します
+        
+        Args:
+            url: リンクURL
+            article_data: 記事データ
+            
+        Returns:
+            models.AppBskyEmbedExternal.Main or None: リンクカードエンベッド
+        """
+        try:
+            print(f"[DEBUG] リンクカード作成開始: {url}")
+            
+            # 記事のメタデータを取得
+            title = article_data.get('title', '')
+            description = self._get_description(url, article_data)
+            image_url = article_data.get('image')
+            
+            print(f"[DEBUG] タイトル: {title}")
+            print(f"[DEBUG] 説明文: {description[:100]}...")
+            print(f"[DEBUG] 画像URL: {image_url}")
+            
+            # サムネイル画像をアップロード（ある場合）
+            thumb_blob = None
+            if image_url:
+                print(f"[DEBUG] 画像アップロード開始: {image_url}")
+                thumb_blob = self._upload_thumbnail(image_url)
+                if thumb_blob:
+                    print(f"[DEBUG] 画像アップロード成功")
+                else:
+                    print(f"[DEBUG] 画像アップロード失敗")
+            else:
+                print(f"[DEBUG] 画像URLなし、画像なしでリンクカード作成")
+            
+            # 外部エンベッドを作成
+            external = models.AppBskyEmbedExternal.External(
+                uri=url,
+                title=title[:300] if title else 'ブログ記事',  # タイトル長制限
+                description=description[:1000] if description else '',  # 説明文長制限
+                thumb=thumb_blob
+            )
+            
+            print(f"[DEBUG] リンクカード作成成功")
+            return models.AppBskyEmbedExternal.Main(external=external)
+            
+        except Exception as e:
+            print(f"リンクカード作成エラー: {e}")
+            return None
+    
+    def _get_description(self, url: str, article_data: Dict[str, Any]) -> str:
+        """
+        記事の説明文を取得します
+        
+        Args:
+            url: 記事URL
+            article_data: 記事データ
+            
+        Returns:
+            str: 説明文
+        """
+        try:
+            response = requests.get(url, timeout=10, headers={
+                'User-Agent': 'Mozilla/5.0 (compatible; Blog-AutoPost/1.0)'
+            })
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # OGPの説明文を優先
+            og_description = soup.find('meta', property='og:description')
+            if og_description and og_description.get('content'):
+                return og_description['content']
+                
+            # meta description
+            meta_description = soup.find('meta', attrs={'name': 'description'})
+            if meta_description and meta_description.get('content'):
+                return meta_description['content']
+                
+            # 本文の最初の段落
+            first_p = soup.find('p')
+            if first_p and first_p.get_text(strip=True):
+                return first_p.get_text(strip=True)[:200]
+                
+        except Exception as e:
+            print(f"説明文取得エラー: {e}")
+            
+        return 'ブログ記事を投稿しました'
+    
+    def _upload_thumbnail(self, image_url: str) -> Optional[models.ComAtprotoRepoUploadBlob.Response]:
+        """
+        サムネイル画像をBlueskyにアップロードします
+        
+        Args:
+            image_url: 画像URL
+            
+        Returns:
+            models.ComAtprotoRepoUploadBlob.Response or None: アップロードされたblob
+        """
+        try:
+            # 画像をダウンロード
+            response = requests.get(image_url, timeout=15, headers={
+                'User-Agent': 'Mozilla/5.0 (compatible; Blog-AutoPost/1.0)'
+            })
+            response.raise_for_status()
+            
+            # ファイルサイズチェック（1MB制限）
+            if len(response.content) > 1024 * 1024:
+                print(f"画像サイズが大きすぎます: {len(response.content)} bytes")
+                return None
+            
+            # MIMEタイプを推定
+            content_type = response.headers.get('content-type', 'image/jpeg')
+            if not content_type.startswith('image/'):
+                content_type = 'image/jpeg'
+            
+            # Blueskyにアップロード
+            upload_result = self.client.upload_blob(response.content)
+            return upload_result.blob
+            
+        except Exception as e:
+            print(f"サムネイルアップロードエラー: {e}")
+            return None
