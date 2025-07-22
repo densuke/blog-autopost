@@ -14,15 +14,23 @@ class Bluesky(SocialMediaPlugin):
         # Blueskyにログイン
         self.client.login(identifier, password)
 
-    def post(self, optimized_text: str, media_files: Optional[List[str]] = None, article_data: Optional[Dict[str, Any]] = None):
+    def supports_rich_content(self) -> bool:
+        """リッチコンテンツ（リンクカード）をサポートする"""
+        return True
+    
+    def post(self, optimized_text: str, media_files: Optional[List[str]] = None, **kwargs: Any):
         """
         Blueskyに投稿します
         
         Args:
             optimized_text: 投稿テキスト
             media_files: 添付するメディアファイルのパスリスト（画像のみ）
-            article_data: 記事データ（リンクカード用）
+            **kwargs: 追加パラメータ（article_data: 記事データなど）
         """
+        # kwargsから記事データを取得
+        article_data = kwargs.get('article_data')
+        debug = kwargs.get('debug', False)
+        
         # 最適化済みテキストから手動でリンクを抽出
         url_pattern = r'https?://[^\s]+'
         urls = re.findall(url_pattern, optimized_text)
@@ -30,10 +38,10 @@ class Bluesky(SocialMediaPlugin):
         # リンクカード機能が有効かチェック
         image_settings = self.config.get('blog', {}).get('image_settings', {})
         enable_link_cards = image_settings.get('enable_link_cards', False)
-        print(f"[DEBUG] リンクカード設定: {enable_link_cards}, 設定内容: {image_settings}")
-        print(f"[DEBUG] article_data存在: {bool(article_data)}")
+        self._debug_print(f"リンクカード設定: {enable_link_cards}, 設定内容: {image_settings}", debug)
+        self._debug_print(f"article_data存在: {bool(article_data)}", debug)
         if article_data:
-            print(f"[DEBUG] article_dataキー: {list(article_data.keys())}")
+            self._debug_print(f"article_dataキー: {list(article_data.keys())}", debug)
         
         # テキスト部分を構築
         link = None
@@ -81,7 +89,7 @@ class Bluesky(SocialMediaPlugin):
                         image=upload_response.blob
                     )
                     images.append(image)
-                    print(f"画像アップロード完了: {media_path}")
+                    self._debug_print(f"画像アップロード完了: {media_path}", debug)
                     
                 except Exception as e:
                     print(f"画像アップロードエラー: {media_path} - {e}")
@@ -95,25 +103,25 @@ class Bluesky(SocialMediaPlugin):
             # 画像埋め込みを追加
             embed = models.AppBskyEmbedImages.Main(images=images)
             post_params['embed'] = embed
-            print(f"[DEBUG] 画像エンベッドを設定")
+            self._debug_print("画像エンベッドを設定", debug)
         elif enable_link_cards and link and article_data:
             # リンクカードを作成
-            print(f"[DEBUG] リンクカード機能が有効、作成を開始")
-            print(f"[DEBUG] リンクURL: {link}")
-            link_card = self._create_link_card(link, article_data)
+            self._debug_print("リンクカード機能が有効、作成を開始", debug)
+            self._debug_print(f"リンクURL: {link}", debug)
+            link_card = self._create_link_card(link, article_data, debug)
             if link_card:
                 post_params['embed'] = link_card
-                print(f"[DEBUG] リンクカードエンベッドを設定")
+                self._debug_print("リンクカードエンベッドを設定", debug)
             else:
-                print(f"[DEBUG] リンクカード作成失敗、テキストのみ投稿")
+                self._debug_print("リンクカード作成失敗、テキストのみ投稿", debug)
         else:
-            print(f"[DEBUG] エンベッド条件不適合 - enable_link_cards:{enable_link_cards}, link:{bool(link)}, article_data存在:{bool(article_data)}")
+            self._debug_print(f"エンベッド条件不適合 - enable_link_cards:{enable_link_cards}, link:{bool(link)}, article_data存在:{bool(article_data)}", debug)
             if not enable_link_cards:
-                print(f"[DEBUG] リンクカード機能が無効")
+                self._debug_print("リンクカード機能が無効", debug)
             if not link:
-                print(f"[DEBUG] リンクURLがない")
+                self._debug_print("リンクURLがない", debug)
             if not article_data:
-                print(f"[DEBUG] article_dataがない")
+                self._debug_print("article_dataがない", debug)
         
         try:
             # Blueskyに投稿
@@ -129,7 +137,7 @@ class Bluesky(SocialMediaPlugin):
             print(f"Blueskyへの投稿中にエラー: {e}")
             raise
     
-    def _create_link_card(self, url: str, article_data: Dict[str, Any]) -> Optional[models.AppBskyEmbedExternal.Main]:
+    def _create_link_card(self, url: str, article_data: Dict[str, Any], debug: bool = False) -> Optional[models.AppBskyEmbedExternal.Main]:
         """
         リンクカードを作成します
         
@@ -141,28 +149,28 @@ class Bluesky(SocialMediaPlugin):
             models.AppBskyEmbedExternal.Main or None: リンクカードエンベッド
         """
         try:
-            print(f"[DEBUG] リンクカード作成開始: {url}")
+            self._debug_print(f"リンクカード作成開始: {url}", debug)
             
             # 記事のメタデータを取得
             title = article_data.get('title', '')
             description = self._get_description(url, article_data)
             image_url = article_data.get('image')
             
-            print(f"[DEBUG] タイトル: {title}")
-            print(f"[DEBUG] 説明文: {description[:100]}...")
-            print(f"[DEBUG] 画像URL: {image_url}")
+            self._debug_print(f"タイトル: {title}", debug)
+            self._debug_print(f"説明文: {description[:100]}...", debug)
+            self._debug_print(f"画像URL: {image_url}", debug)
             
             # サムネイル画像をアップロード（ある場合）
             thumb_blob = None
             if image_url:
-                print(f"[DEBUG] 画像アップロード開始: {image_url}")
-                thumb_blob = self._upload_thumbnail(image_url)
+                self._debug_print(f"画像アップロード開始: {image_url}", debug)
+                thumb_blob = self._upload_thumbnail(image_url, debug)
                 if thumb_blob:
-                    print(f"[DEBUG] 画像アップロード成功")
+                    self._debug_print("画像アップロード成功", debug)
                 else:
-                    print(f"[DEBUG] 画像アップロード失敗")
+                    self._debug_print("画像アップロード失敗", debug)
             else:
-                print(f"[DEBUG] 画像URLなし、画像なしでリンクカード作成")
+                self._debug_print("画像URLなし、画像なしでリンクカード作成", debug)
             
             # 外部エンベッドを作成
             external = models.AppBskyEmbedExternal.External(
@@ -172,7 +180,7 @@ class Bluesky(SocialMediaPlugin):
                 thumb=thumb_blob
             )
             
-            print(f"[DEBUG] リンクカード作成成功")
+            self._debug_print("リンクカード作成成功", debug)
             return models.AppBskyEmbedExternal.Main(external=external)
             
         except Exception as e:
@@ -218,7 +226,7 @@ class Bluesky(SocialMediaPlugin):
             
         return 'ブログ記事を投稿しました'
     
-    def _upload_thumbnail(self, image_url: str) -> Optional[models.ComAtprotoRepoUploadBlob.Response]:
+    def _upload_thumbnail(self, image_url: str, debug: bool = False) -> Optional[models.ComAtprotoRepoUploadBlob.Response]:
         """
         サムネイル画像をBlueskyにアップロードします
         
