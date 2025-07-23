@@ -2,9 +2,125 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlparse
 from .config_manager import ConfigManager, load_config
 from .article_manager import ArticleManager
 from .plugin_loader import load_plugins
+
+
+def extract_image_from_url(url: str, debug: bool = False) -> str:
+    """
+    URLから画像を抽出します（OGP画像、Twitter Card画像など）
+    
+    Args:
+        url: 記事URL
+        debug: デバッグモード
+        
+    Returns:
+        str: 画像URL（見つからない場合は空文字）
+    """
+    try:
+        if debug:
+            print(f"[DEBUG] 画像取得開始: {url}")
+            
+        response = requests.get(url, timeout=10, headers={
+            'User-Agent': 'Mozilla/5.0 (compatible; Blog-AutoPost/1.0)'
+        })
+        response.raise_for_status()
+        
+        # 文字コードの自動検出（bluesky.pyと同様の処理）
+        html_content = _decode_html_content(response)
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # 画像取得の優先順位
+        image_selectors = [
+            # OGP画像
+            ('meta', {'property': 'og:image'}),
+            ('meta', {'property': 'og:image:url'}),
+            # Twitter Card画像
+            ('meta', {'name': 'twitter:image'}),
+            ('meta', {'name': 'twitter:image:src'}),
+            # 他のメタタグ
+            ('meta', {'name': 'image'}),
+            ('meta', {'itemprop': 'image'}),
+        ]
+        
+        for selector_type, attrs in image_selectors:
+            element = soup.find(selector_type, attrs)
+            if element and element.get('content'):
+                image_url = element['content'].strip()
+                if image_url:
+                    # 相対URLを絶対URLに変換
+                    absolute_url = urljoin(url, image_url)
+                    if debug:
+                        print(f"[DEBUG] 画像発見: {absolute_url} (ソース: {attrs})")
+                    return absolute_url
+        
+        if debug:
+            print(f"[DEBUG] 画像が見つかりませんでした")
+        return ''
+        
+    except Exception as e:
+        if debug:
+            print(f"[DEBUG] 画像取得エラー: {e}")
+        return ''
+
+
+def _decode_html_content(response) -> str:
+    """
+    HTMLコンテンツを適切な文字コードでデコードします
+    （bluesky.pyと同じ処理）
+    """
+    import re
+    
+    # Content-Typeヘッダーからcharsetを取得
+    content_type = response.headers.get('content-type', '').lower()
+    
+    # HTMLのmeta charsetタグから文字コードを検出
+    html_bytes = response.content
+    html_preview = html_bytes[:2048].decode('utf-8', errors='ignore').lower()
+    
+    # meta charset検出のパターン
+    charset_patterns = [
+        r'<meta[^>]+charset=["\']?([^"\'>\s]+)',
+        r'<meta[^>]+content=["\'][^"\']*charset=([^"\'>\s]+)',
+    ]
+    
+    detected_charset = None
+    for pattern in charset_patterns:
+        match = re.search(pattern, html_preview)
+        if match:
+            detected_charset = match.group(1).strip()
+            break
+    
+    # 文字コード優先順位: meta charset > Content-Type > 自動検出
+    encodings_to_try = []
+    
+    if detected_charset:
+        encodings_to_try.append(detected_charset)
+    
+    if 'charset=' in content_type:
+        charset_from_header = content_type.split('charset=')[1].split(';')[0].strip()
+        if charset_from_header not in encodings_to_try:
+            encodings_to_try.append(charset_from_header)
+    
+    # 日本語サイトでよく使われる文字コードを追加
+    common_encodings = ['utf-8', 'shift_jis', 'euc-jp', 'iso-2022-jp', 'cp932']
+    for encoding in common_encodings:
+        if encoding not in encodings_to_try:
+            encodings_to_try.append(encoding)
+    
+    # 各文字コードを順番に試行
+    for encoding in encodings_to_try:
+        try:
+            return html_bytes.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    
+    # すべて失敗した場合はUTF-8でエラーを無視してデコード
+    return html_bytes.decode('utf-8', errors='ignore')
 
 
 def handle_list_sns(config_manager):
@@ -256,10 +372,15 @@ def handle_direct_text_post(args, config_manager):
                 if urls and hasattr(plugin_instance, 'supports_rich_content') and plugin_instance.supports_rich_content():
                     url = urls[-1]  # 最後のURLを使用
                     title_part = original_text.replace(url, '').strip()
+                    
+                    # URLから画像を取得
+                    image_url = extract_image_from_url(url, debug=args.debug)
+                    
                     article_data = {
                         'title': title_part if title_part else 'ブログ記事', 
                         'link': url,
-                        'description': title_part
+                        'description': title_part,
+                        'image': image_url if image_url else None
                     }
                 
                 # 最適化が有効な場合はSNS別に最適化されたテキストを使用
