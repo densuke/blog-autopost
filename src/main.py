@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+import os
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
@@ -206,13 +207,49 @@ def handle_direct_text_post(args, config_manager):
     media_files = args.media or []
     
     # メディア添付機能のバリデーション
+    resized_media_files = []
     if media_files:
         from .media_validator import validate_media_for_posting, ValidationError
         from .media_converter import create_media_converter, ConversionError, is_ffmpeg_available
+        from .image_resizer import create_image_resizer
         
         print(f"添付メディア: {len(media_files)}件")
         for i, media_path in enumerate(media_files, 1):
             print(f"  {i}. {media_path}")
+        
+        # 画像リサイズの前処理
+        print("画像リサイズ処理を実行中...")
+        resizer = create_image_resizer(debug=args.debug)
+        
+        for media_path in media_files:
+            try:
+                # 画像ファイルかどうかチェック
+                if media_path.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp')):
+                    # SNS別の制限を考慮（複数SNSがある場合は最小値を使用）
+                    if args.sns:
+                        target_sns_list = [sns.strip() for sns in args.sns.split(',')]
+                        # 最初のSNSの制限を使用（複数対応は後で改良可能）
+                        sns_type = target_sns_list[0] if target_sns_list else 'bluesky'
+                    else:
+                        sns_type = 'bluesky'  # デフォルト
+                    
+                    # 画像をリサイズ
+                    resized_path = resizer.resize_image_file(media_path, sns_type)
+                    resized_media_files.append(resized_path)
+                    
+                    if args.debug:
+                        original_size = os.path.getsize(media_path)
+                        resized_size = os.path.getsize(resized_path)
+                        print(f"[DEBUG] リサイズ: {media_path} ({original_size} bytes) → {resized_path} ({resized_size} bytes)")
+                else:
+                    # 画像以外はそのまま
+                    resized_media_files.append(media_path)
+            except Exception as e:
+                print(f"画像リサイズエラー: {media_path} - {e}")
+                resized_media_files.append(media_path)  # エラー時は元ファイルを使用
+        
+        # リサイズ後のファイルでバリデーション実行
+        media_files = resized_media_files
     
     # --optimizeオプションが指定された場合はTextOptimizerを使用
     if args.optimize:
