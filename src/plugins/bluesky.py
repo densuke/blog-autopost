@@ -5,6 +5,7 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from . import SocialMediaPlugin
+from ..image_resizer import create_image_resizer
 
 class Bluesky(SocialMediaPlugin):
     def __init__(self, identifier, password, config=None):
@@ -62,26 +63,22 @@ class Bluesky(SocialMediaPlugin):
         # 画像の処理
         images = []
         if media_files:
+            resizer = create_image_resizer(debug=debug)
             for media_path in media_files:
                 try:
-                    # 画像をアップロード
+                    # 画像をリサイズしてからアップロード
                     with open(media_path, 'rb') as f:
-                        img_data = f.read()
+                        original_data = f.read()
                     
-                    # MIMEタイプを推定
-                    if media_path.lower().endswith(('.jpg', '.jpeg')):
-                        mime_type = 'image/jpeg'
-                    elif media_path.lower().endswith('.png'):
-                        mime_type = 'image/png'
-                    elif media_path.lower().endswith('.gif'):
-                        mime_type = 'image/gif'
-                    elif media_path.lower().endswith('.webp'):
-                        mime_type = 'image/webp'
-                    else:
-                        mime_type = 'image/jpeg'  # デフォルト
+                    self._debug_print(f"元画像サイズ: {len(original_data)} bytes ({media_path})", debug)
+                    
+                    # 画像リサイズ処理
+                    resized_data = resizer.resize_image_data(original_data, 'bluesky')
+                    
+                    self._debug_print(f"リサイズ後サイズ: {len(resized_data)} bytes", debug)
                     
                     # Blueskyに画像をアップロード
-                    upload_response = self.client.upload_blob(img_data)
+                    upload_response = self.client.upload_blob(resized_data)
                     
                     # 画像情報を作成
                     image = models.AppBskyEmbedImages.Image(
@@ -303,18 +300,16 @@ class Bluesky(SocialMediaPlugin):
             })
             response.raise_for_status()
             
-            # ファイルサイズチェック（1MB制限）
-            if len(response.content) > 1024 * 1024:
-                print(f"画像サイズが大きすぎます: {len(response.content)} bytes")
-                return None
+            self._debug_print(f"元画像サイズ: {len(response.content)} bytes", debug)
             
-            # MIMEタイプを推定
-            content_type = response.headers.get('content-type', 'image/jpeg')
-            if not content_type.startswith('image/'):
-                content_type = 'image/jpeg'
+            # 画像リサイズ処理
+            resizer = create_image_resizer(debug=debug)
+            resized_data = resizer.resize_image_data(response.content, 'bluesky')
+            
+            self._debug_print(f"リサイズ後サイズ: {len(resized_data)} bytes", debug)
             
             # Blueskyにアップロード
-            upload_result = self.client.upload_blob(response.content)
+            upload_result = self.client.upload_blob(resized_data)
             return upload_result.blob
             
         except Exception as e:
