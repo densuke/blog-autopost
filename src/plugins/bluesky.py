@@ -1,5 +1,5 @@
 from atproto import Client, client_utils, models
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 import re
 import requests
 from bs4 import BeautifulSoup
@@ -18,6 +18,91 @@ class Bluesky(SocialMediaPlugin):
     def supports_rich_content(self) -> bool:
         """リッチコンテンツ（リンクカード）をサポートする"""
         return True
+    
+    def _find_hashtags(self, text: str) -> List[Tuple[int, int, str]]:
+        """
+        テキスト内のハッシュタグを検出します
+        
+        Args:
+            text: 検索対象のテキスト
+            
+        Returns:
+            List[Tuple[int, int, str]]: (開始バイト位置, 終了バイト位置, タグ名)のリスト
+        """
+        hashtags = []
+        # Blueskyの公式パターンに準拠: ハッシュタグは数字で始まらず、空白で区切られる
+        pattern = r'(?:^|\s)(#[^\d\s]\S*)(?=\s|$)'
+        
+        for match in re.finditer(pattern, text):
+            hashtag_full = match.group(1)  # #を含む全体
+            hashtag_tag = hashtag_full[1:]  # #を除いた部分
+            
+            # 文字位置を取得
+            char_start = match.start(1)
+            char_end = match.end(1)
+            
+            # 正確なバイト位置を計算
+            # テキストの該当部分をUTF-8でエンコードして長さを取得
+            text_before_start = text[:char_start]
+            text_before_end = text[:char_end]
+            
+            byte_start = len(text_before_start.encode('utf-8'))
+            byte_end = len(text_before_end.encode('utf-8'))
+            
+            # タグ名の制限をチェック（最大64文字、句読点の除去）
+            clean_tag = re.sub(r'[^\w\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]+$', '', hashtag_tag)
+            if clean_tag and len(clean_tag) <= 64:
+                hashtags.append((byte_start, byte_end, clean_tag))
+                
+        return hashtags
+    
+    def _debug_facet_positions(self, text: str, hashtags: List[Tuple[int, int, str]], debug: bool = False):
+        """
+        facetの位置が正確かデバッグ確認します
+        """
+        if not debug:
+            return
+            
+        text_bytes = text.encode('utf-8')
+        print(f"[DEBUG] 元テキスト: '{text}'")
+        print(f"[DEBUG] UTF-8バイト長: {len(text_bytes)}")
+        print(f"[DEBUG] バイト配列: {text_bytes}")
+        
+        for i, (byte_start, byte_end, tag) in enumerate(hashtags):
+            extracted = text_bytes[byte_start:byte_end].decode('utf-8')
+            print(f"[DEBUG] ハッシュタグ{i+1}: バイト位置({byte_start}-{byte_end}) = '{extracted}' -> タグ名: '{tag}'")
+    
+    def _create_hashtag_facets(self, hashtags: List[Tuple[int, int, str]]) -> List[models.AppBskyRichtextFacet.Main]:
+        """
+        ハッシュタグのfacetリストを作成します
+        
+        Args:
+            hashtags: (開始バイト位置, 終了バイト位置, タグ名)のリスト
+            
+        Returns:
+            List[models.AppBskyRichtextFacet.Main]: facetオブジェクトのリスト
+        """
+        facets = []
+        
+        for byte_start, byte_end, tag in hashtags:
+            # バイト範囲を作成
+            byte_slice = models.AppBskyRichtextFacet.ByteSlice(
+                byte_start=byte_start,
+                byte_end=byte_end
+            )
+            
+            # ハッシュタグfacetを作成
+            tag_feature = models.AppBskyRichtextFacet.Tag(tag=tag)
+            
+            # facetオブジェクトを作成
+            facet = models.AppBskyRichtextFacet.Main(
+                index=byte_slice,
+                features=[tag_feature]
+            )
+            
+            facets.append(facet)
+        
+        return facets
     
     def post(self, optimized_text: str, media_files: Optional[List[str]] = None, **kwargs: Any):
         """
@@ -46,19 +131,38 @@ class Bluesky(SocialMediaPlugin):
         
         # テキスト部分を構築
         link = None
+        text_for_hashtags = optimized_text  # ハッシュタグ検出用のテキスト
+        
         if urls:
             # 最後のURLをリンクとして扱い、テキストから除去
             link = urls[-1]
             text_part = optimized_text.replace(link, '').strip()
+            text_for_hashtags = text_part  # URL除去後のテキストでハッシュタグを検出
             
             # リンクカードが有効な場合はテキストのみ、無効な場合は従来通り
             if enable_link_cards:
                 text_builder = client_utils.TextBuilder().text(text_part)
             else:
-                text_builder = client_utils.TextBuilder().text(f"{text_part} ").link(link, link)
+                final_text = f"{text_part} {link}"
+                text_builder = client_utils.TextBuilder().text(text_part + " ").link(link, link)
+                text_for_hashtags = final_text  # リンク含む最終テキストでハッシュタグを検出
         else:
             # URLがない場合はそのまま投稿
-            text_builder = optimized_text
+            text_builder = client_utils.TextBuilder().text(optimized_text)
+        
+        # ハッシュタグfacetを追加
+        hashtags = self._find_hashtags(text_for_hashtags)
+        self._debug_print(f"検出されたハッシュタグ: {hashtags}", debug)
+        self._debug_facet_positions(text_for_hashtags, hashtags, debug)
+        
+        hashtag_facets = []
+        if hashtags:
+            hashtag_facets = self._create_hashtag_facets(hashtags)
+            self._debug_print(f"作成されたfacet数: {len(hashtag_facets)}", debug)
+            
+            # TextBuilderがstring型の場合（URLなしの場合）は新しく作成
+            if isinstance(text_builder, str):
+                text_builder = client_utils.TextBuilder().text(text_builder)
         
         # 画像の処理
         images = []
@@ -92,8 +196,19 @@ class Bluesky(SocialMediaPlugin):
                     print(f"画像アップロードエラー: {media_path} - {e}")
                     # エラーが発生しても他の画像の処理を続行
         
-        # 投稿パラメータを構築
-        post_params = {'text': text_builder}
+        # 投稿パラメータを構築 - facetがある場合は直接textとfacetsで構築
+        if hashtag_facets:
+            # facetがある場合は、TextBuilderを使わずに直接text + facetsで送信
+            final_text = text_for_hashtags  # ハッシュタグを含む元のテキスト
+            post_params = {
+                'text': final_text,
+                'facets': hashtag_facets
+            }
+            self._debug_print(f"facet付き投稿: テキスト='{final_text}', facet数={len(hashtag_facets)}", debug)
+        else:
+            # facetがない場合はTextBuilderをそのまま使用
+            post_params = {'text': text_builder}
+            self._debug_print("通常投稿（facetなし）", debug)
         
         # エンベッドの優先順位: 画像 > リンクカード
         if images:
