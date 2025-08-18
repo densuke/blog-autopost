@@ -34,7 +34,10 @@
       "Bash(git -C /Users/densuke/Documents/projects/blog-autopost status)",
       "Bash(git -C /Users/densuke/Documents/projects/blog-autopost diff --name-only)",
       "Bash(git -C /Users/densuke/Documents/projects/blog-autopost log --oneline -5)",
-      "Bash(git -C /Users/densuke/Documents/projects/blog-autopost add .)"
+      "Bash(git -C /Users/densuke/Documents/projects/blog-autopost add .)",
+      "Bash(git -C /Users/densuke/Documents/projects/blog-autopost checkout main)",
+      "Bash(git -C /Users/densuke/Documents/projects/blog-autopost add .claude/settings.local.json)",
+      "Bash(git -C /Users/densuke/Documents/projects/blog-autopost commit -m \"[chore] Claude設定ファイル更新\")"
     ],
     "deny": []
   }
