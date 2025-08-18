@@ -37,7 +37,12 @@
       "Bash(git -C /Users/densuke/Documents/projects/blog-autopost add .)",
       "Bash(git -C /Users/densuke/Documents/projects/blog-autopost checkout main)",
       "Bash(git -C /Users/densuke/Documents/projects/blog-autopost add .claude/settings.local.json)",
-      "Bash(git -C /Users/densuke/Documents/projects/blog-autopost commit -m \"[chore] Claude設定ファイル更新\")"
+      "Bash(git -C /Users/densuke/Documents/projects/blog-autopost commit -m \"[chore] Claude設定ファイル更新\")",
+      "Bash(just post-text:*)",
+      "WebSearch",
+      "WebFetch(domain:usual.tools)",
+      "WebFetch(domain:note.com)",
+      "WebFetch(domain:qiita.com)"
     ],
     "deny": []
   }

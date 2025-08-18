@@ -95,6 +95,10 @@ character_limits:
 #   mastodon:
 #     instance_url: "https://mastodon.social"
 #     access_token: "YOUR_MASTODON_ACCESS_TOKEN"
+#   threads:
+#     app_id: "YOUR_META_APP_ID"
+#     app_secret: "YOUR_META_APP_SECRET"
+#     access_token: "YOUR_THREADS_LONG_LIVED_ACCESS_TOKEN"
 
 # === 配列形式（複数アカウント対応、推奨） ===
 sns:
@@ -129,3 +133,8 @@ sns:
   #   name: "mstdn-jp"
   #   instance_url: "https://mstdn.jp"
   #   access_token: "YOUR_MSTDN_JP_ACCESS_TOKEN"
+  - type: threads
+    name: "threads-main"
+    app_id: "YOUR_META_APP_ID"
+    app_secret: "YOUR_META_APP_SECRET"
+    access_token: "YOUR_THREADS_LONG_LIVED_ACCESS_TOKEN"

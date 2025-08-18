@@ -1,6 +1,6 @@
 # Blog AutoPost CLI
 
-Blog AutoPost CLIは、指定したブログの更新を定期的にチェックし、新しい記事が投稿された場合に各種SNS（X、Bluesky、Misskey）へ自動的にポストするコマンドラインツールです。
+Blog AutoPost CLIは、指定したブログの更新を定期的にチェックし、新しい記事が投稿された場合に各種SNS（X、Bluesky、Threads、Misskey、Mastodon）へ自動的にポストするコマンドラインツールです。
 
 ## 概要
 
@@ -8,7 +8,7 @@ Blog AutoPost CLIは、指定したブログの更新を定期的にチェック
 
 - RSS/Atomフィードを介したブログの更新チェック
 - 新着記事の検出と記録
-- プラグイン形式による各種SNS（X、Bluesky、Misskey）への自動ポスト
+- プラグイン形式による各種SNS（X、Bluesky、Threads、Misskey、Mastodon）への自動ポスト
 
 ## 動作要件
 
@@ -64,6 +64,10 @@ sns:
   mastodon: # Mastodonの設定
     instance_url: "https://mastodon.social" # 使用するMastodonインスタンスのURL
     access_token: "YOUR_MASTODON_ACCESS_TOKEN" # 生成したアクセストークン
+  threads: # Threadsの設定
+    app_id: "YOUR_META_APP_ID" # Meta for Developersで取得
+    app_secret: "YOUR_META_APP_SECRET" # Meta for Developersで取得
+    access_token: "YOUR_THREADS_LONG_LIVED_ACCESS_TOKEN" # 長期間有効なアクセストークン
 
 ---
 
@@ -419,6 +423,48 @@ sns:
     access_token: "そのインスタンスで生成したアクセストークン"
 ```
 
+#### Threads
+
+Threadsに投稿するには、Meta for Developersでアプリを作成し、Threads APIアクセスが必要です。
+
+**設定に必要な情報:**
+- **App ID**: Meta for Developersで取得
+- **App Secret**: Meta for Developersで取得  
+- **Access Token**: 長期間有効なアクセストークン（60日間）
+
+**⚠️ 重要な前提条件:**
+- Instagram Business Account または Instagram Creator Account が必要
+- 個人のInstagramアカウントではThreads APIを使用できません
+- Threads アカウントがInstagram アカウントと連携済みである必要があります
+
+**アクセストークンの取得方法:**
+
+詳細な設定手順については、`docs/THREADS_API_SETUP.md` をご参照ください。
+
+**簡易手順:**
+1. [Meta for Developers](https://developers.facebook.com/) でアプリを作成
+2. Threads API製品を追加
+3. テストユーザーとしてInstagramアカウントを追加
+4. 短期アクセストークンを生成
+5. 長期アクセストークンに変換
+
+**設定例:**
+```yaml
+sns:
+  threads:
+    app_id: "YOUR_META_APP_ID"
+    app_secret: "YOUR_META_APP_SECRET" 
+    access_token: "YOUR_THREADS_LONG_LIVED_ACCESS_TOKEN"
+```
+
+**現在の制限事項:**
+- テキスト投稿のみサポート（最大500文字）
+- メディア添付機能は未実装
+- リンクカード機能は未対応
+- 24時間で250投稿まで
+
+**注意**: Threads APIは2024年6月に一般公開されたばかりのため、認証手続きが複雑です。詳細な手順書をご確認の上、設定を行ってください。
+
 ## 使い方
 
 設定が完了したら、以下のコマンドでツールを実行できます。
@@ -523,6 +569,7 @@ uv run -m src.main --text "複数メディア" --media image1.jpg --media image2
 |-----|------|------|------|--------|------|------|
 | X | ⚠️ | ⚠️ | ⚠️ | 画像4枚/動画1本 | ❌ | **Elevated access要申請** |
 | Bluesky | ✅ | ❌ | ❌ | 4枚 | ❌ | 画像のみ対応 |
+| Threads | ❌ | ❌ | ❌ | - | ❌ | **テキストのみ（未実装）** |
 | Mastodon | ✅ | ✅ | ✅ | 4個 | ✅ | 全形式対応 |
 | Misskey | ✅ | ✅ | ✅ | 16個 | ✅ | 全形式対応 |
 
@@ -550,6 +597,7 @@ uv run -m src.main --text "複数メディア" --media image1.jpg --media image2
 | SNS | 対応状況 | 必要な設定 |
 |-----|----------|------------|
 | **Bluesky** | ✅ 完全対応 | 標準のアプリパスワード |
+| **Threads** | ❌ 未実装 | - |
 | **Mastodon** | ✅ 完全対応 | `write:media` スコープ |
 | **Misskey** | ✅ 完全対応 | 「ドライブを操作する」権限 |
 | **X** | ⚠️ 要申請 | **Elevated access申請が必要** |
@@ -614,6 +662,7 @@ uv run -m src.main --list-sns
 
 - **X (旧Twitter)**: consumer_key、consumer_secret、access_token、access_token_secretが必要
 - **Bluesky**: identifier（ユーザー名またはメールアドレス）とpassword（アプリパスワード推奨）が必要
+- **Threads**: app_id、app_secret、access_token（長期間有効なトークン）が必要
 - **Misskey**: instance_urlとaccess_tokenが必要
 - **Mastodon**: instance_urlとaccess_tokenが必要
 
