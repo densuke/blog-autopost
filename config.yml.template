@@ -1,25 +1,67 @@
 # SNS投稿時のアナウンス文。不要な場合は""（空文字列）にするか、この行を削除してください。
 announcement_text: ""
 
+# ブログフィード設定は2つの形式で記述できます:
+# 1. オブジェクト形式（従来の方法、後方互換性のため維持）
+# 2. 配列形式（複数フィード対応、推奨）
+
+# === オブジェクト形式（従来の方法、単一フィード） ===
+# blog:
+#   feed_url: "https://example.com/feed"
+#   # Blueskyリンクカード機能用の画像設定
+#   image_settings:
+#     default_image: ""                    # デフォルト画像URL (空の場合は画像なし)
+#     enable_link_cards: true             # リンクカード機能を有効にする
+#     image_strategy:                     # 画像取得の優先順位
+#       - "featured_image"                # RSS内のenclosure/media:content
+#       - "first_content_image"           # 記事本文の最初の画像
+#       - "og_image"                      # ページのOGP画像
+#       - "default"                       # デフォルト画像
+#     image_filters:
+#       exclude_domains:                  # 除外ドメイン（アフィリエイト対策）
+#         - "amazon.co.jp"
+#         - "affiliate.rakuten.co.jp"
+#         - "px.a8.net"
+#         - "images-amazon.com"
+#       min_width: 200                    # 最小幅（ピクセル）
+#       min_height: 200                   # 最小高さ（ピクセル）
+
+# === 配列形式（複数フィード対応、推奨） ===
 blog:
-  feed_url: "https://example.com/feed"
-  # Blueskyリンクカード機能用の画像設定
-  image_settings:
-    default_image: ""                    # デフォルト画像URL (空の場合は画像なし)
-    enable_link_cards: true             # リンクカード機能を有効にする
-    image_strategy:                     # 画像取得の優先順位
-      - "featured_image"                # RSS内のenclosure/media:content
-      - "first_content_image"           # 記事本文の最初の画像
-      - "og_image"                      # ページのOGP画像
-      - "default"                       # デフォルト画像
-    image_filters:
-      exclude_domains:                  # 除外ドメイン（アフィリエイト対策）
-        - "amazon.co.jp"
-        - "affiliate.rakuten.co.jp"
-        - "px.a8.net"
-        - "images-amazon.com"
-      min_width: 200                    # 最小幅（ピクセル）
-      min_height: 200                   # 最小高さ（ピクセル）
+  - name: "main-blog"                     # フィード名（識別用）
+    feed_url: "https://example.com/feed"
+    # Blueskyリンクカード機能用の画像設定
+    image_settings:
+      default_image: ""                    # デフォルト画像URL (空の場合は画像なし)
+      enable_link_cards: true             # リンクカード機能を有効にする
+      image_strategy:                     # 画像取得の優先順位
+        - "featured_image"                # RSS内のenclosure/media:content
+        - "first_content_image"           # 記事本文の最初の画像
+        - "og_image"                      # ページのOGP画像
+        - "default"                       # デフォルト画像
+      image_filters:
+        exclude_domains:                  # 除外ドメイン（アフィリエイト対策）
+          - "amazon.co.jp"
+          - "affiliate.rakuten.co.jp"
+          - "px.a8.net"
+          - "images-amazon.com"
+        min_width: 200                    # 最小幅（ピクセル）
+        min_height: 200                   # 最小高さ（ピクセル）
+  # 複数フィードの例
+  # - name: "tech-blog"
+  #   feed_url: "https://tech.example.com/feed"
+  #   image_settings:
+  #     default_image: "https://tech.example.com/default.png"
+  #     enable_link_cards: true
+  #     image_strategy:
+  #       - "featured_image"
+  #       - "og_image"
+  #       - "default"
+  #     image_filters:
+  #       exclude_domains:
+  #         - "amazon.co.jp"
+  #       min_width: 300
+  #       min_height: 300
 
 # URL短縮機能の設定
 url_shortening:

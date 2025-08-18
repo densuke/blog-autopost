@@ -13,7 +13,7 @@ def test_announcement_text_added():
         'sns': {}
     }
     article_manager = ArticleManager(ConfigManager(config))
-    post_text = article_manager.create_post_text("Test Title", "http://example.com")
+    post_text = article_manager.create_post_text("Test Title", "http://example.com", "x")
     assert post_text == "ブログ更新: Test Title http://example.com"
 
 def test_announcement_text_empty():
@@ -26,7 +26,7 @@ def test_announcement_text_empty():
         'sns': {}
     }
     article_manager = ArticleManager(ConfigManager(config))
-    post_text = article_manager.create_post_text("Test Title", "http://example.com")
+    post_text = article_manager.create_post_text("Test Title", "http://example.com", "x")
     assert post_text == "Test Title http://example.com"
 
 def test_announcement_text_missing():
@@ -38,5 +38,5 @@ def test_announcement_text_missing():
         'sns': {}
     }
     article_manager = ArticleManager(ConfigManager(config))
-    post_text = article_manager.create_post_text("Test Title", "http://example.com")
+    post_text = article_manager.create_post_text("Test Title", "http://example.com", "x")
     assert post_text == "Test Title http://example.com"

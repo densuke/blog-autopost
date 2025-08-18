@@ -122,7 +122,18 @@ class Bluesky(SocialMediaPlugin):
         urls = re.findall(url_pattern, optimized_text)
         
         # リンクカード機能が有効かチェック
-        image_settings = self.config.get('blog', {}).get('image_settings', {})
+        blog_config = self.config.get('blog', {})
+        if debug:
+            print(f"[DEBUG] blog_config type: {type(blog_config)}, value: {blog_config}")
+        
+        # blog_configがリストの場合は最初の要素を使用、辞書の場合はそのまま使用
+        if isinstance(blog_config, list) and blog_config:
+            image_settings = blog_config[0].get('image_settings', {})
+        elif isinstance(blog_config, dict):
+            image_settings = blog_config.get('image_settings', {})
+        else:
+            image_settings = {}
+            
         enable_link_cards = image_settings.get('enable_link_cards', False)
         self._debug_print(f"リンクカード設定: {enable_link_cards}, 設定内容: {image_settings}", debug)
         self._debug_print(f"article_data存在: {bool(article_data)}", debug)

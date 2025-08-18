@@ -7,7 +7,7 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from .config_manager import ConfigManager, load_config
-from .article_manager import ArticleManager
+from .article_manager import ArticleManager, MultiArticleManager
 from .plugin_loader import load_plugins
 
 
@@ -194,6 +194,42 @@ def handle_list_sns(config_manager):
     print("注意: --sns オプションでは上記の名前またはSNS種別を指定できます。")
 
 
+def handle_list_feeds(config_manager):
+    """
+    登録されているフィードの一覧を表示します
+    
+    Args:
+        config_manager: 設定管理インスタンス
+    """
+    print("=== 登録されているフィード一覧 ===")
+    
+    feed_configs = config_manager.get_all_feed_configs()
+    
+    if not feed_configs:
+        print("フィードが設定されていません。")
+        print("config.ymlを確認してください。")
+        return
+    
+    print(f"登録フィード数: {len(feed_configs)}")
+    print()
+    
+    for i, feed_config in enumerate(feed_configs, 1):
+        name = feed_config.get('name', f'フィード{i}')
+        feed_url = feed_config.get('feed_url', 'N/A')
+        
+        print(f"{i}. {name}")
+        print(f"   フィードURL: {feed_url}")
+        
+        # 画像設定の確認
+        image_settings = feed_config.get('image_settings')
+        if image_settings:
+            enable_link_cards = image_settings.get('enable_link_cards', False)
+            print(f"   リンクカード機能: {'有効' if enable_link_cards else '無効'}")
+        print()
+    
+    print("注意: --feed オプションでは上記の名前を指定できます。")
+
+
 def handle_direct_text_post(args, config_manager):
     """
     直接テキスト投稿を処理します
@@ -213,12 +249,14 @@ def handle_direct_text_post(args, config_manager):
         from .media_converter import create_media_converter, ConversionError, is_ffmpeg_available
         from .image_resizer import create_image_resizer
         
-        print(f"添付メディア: {len(media_files)}件")
-        for i, media_path in enumerate(media_files, 1):
-            print(f"  {i}. {media_path}")
+        if args.debug:
+            print(f"添付メディア: {len(media_files)}件")
+            for i, media_path in enumerate(media_files, 1):
+                print(f"  {i}. {media_path}")
         
         # 画像リサイズの前処理
-        print("画像リサイズ処理を実行中...")
+        if args.debug:
+            print("画像リサイズ処理を実行中...")
         resizer = create_image_resizer(debug=args.debug)
         
         for media_path in media_files:
@@ -245,7 +283,8 @@ def handle_direct_text_post(args, config_manager):
                     # 画像以外はそのまま
                     resized_media_files.append(media_path)
             except Exception as e:
-                print(f"画像リサイズエラー: {media_path} - {e}")
+                if args.debug:
+                    print(f"画像リサイズエラー: {media_path} - {e}")
                 resized_media_files.append(media_path)  # エラー時は元ファイルを使用
         
         # リサイズ後のファイルでバリデーション実行
@@ -311,9 +350,9 @@ def handle_direct_text_post(args, config_manager):
                 if result.errors:
                     has_errors = True
                     print(f"❌ {sns_type.upper()}: {', '.join(result.errors)}")
-                elif result.warnings:
+                elif result.warnings and args.debug:
                     print(f"⚠️  {sns_type.upper()}: {', '.join(result.warnings)}")
-                else:
+                elif args.debug:
                     print(f"✅ {sns_type.upper()}: 投稿可能")
                 
                 # 変換情報を収集
@@ -334,7 +373,8 @@ def handle_direct_text_post(args, config_manager):
                     if not args.dry_run:
                         return
                 else:
-                    print("🔄 音声ファイルをMP4に変換しています...")
+                    if args.debug:
+                        print("🔄 音声ファイルをMP4に変換しています...")
                     converter = create_media_converter()
                     
                     # 音声ファイルのみを変換
@@ -344,9 +384,11 @@ def handle_direct_text_post(args, config_manager):
                                 if not args.dry_run:
                                     converted_path = converter.convert_m4a_to_mp4(media_path)
                                     media_files[i] = converted_path
-                                    print(f"✅ 変換完了: {media_path} → {converted_path}")
+                                    if args.debug:
+                                        print(f"✅ 変換完了: {media_path} → {converted_path}")
                                 else:
-                                    print(f"[ドライラン] 変換予定: {media_path}")
+                                    if args.debug:
+                                        print(f"[ドライラン] 変換予定: {media_path}")
                             except ConversionError as e:
                                 print(f"❌ 変換失敗: {media_path} - {e}")
                                 if not args.dry_run:
@@ -362,10 +404,11 @@ def handle_direct_text_post(args, config_manager):
                 traceback.print_exc()
             return
     
-    print(f"投稿テキスト: {original_text}")
-    print(f"文字数: {len(original_text)}")
+    if args.debug:
+        print(f"投稿テキスト: {original_text}")
+        print(f"文字数: {len(original_text)}")
     
-    if args.optimize:
+    if args.optimize and args.debug:
         print("テキスト最適化が有効です。")
     
     # 文字数制限の警告表示
@@ -394,10 +437,12 @@ def handle_direct_text_post(args, config_manager):
     
     # 投稿実行
     if not args.dry_run:
-        print("以下のSNSに投稿しています:")
+        if args.debug:
+            print("以下のSNSに投稿しています:")
         for plugin_name, plugin_instance in plugins.items():
             try:
-                print(f"- {plugin_name}: 投稿中...")
+                if args.debug:
+                    print(f"- {plugin_name}: 投稿中...")
                 
                 # URLを抽出（リンクカード対応用）
                 import re
@@ -434,7 +479,8 @@ def handle_direct_text_post(args, config_manager):
                         # URLを含まない場合：そのまま投稿
                         optimized_text = original_text
                     
-                    print(f"  最適化後: {optimized_text} ({len(optimized_text)}文字)")
+                    if args.debug:
+                        print(f"  最適化後: {optimized_text} ({len(optimized_text)}文字)")
                     
                     # リンクカード対応プラグインの場合はarticle_dataを渡す
                     if article_data:
@@ -448,7 +494,8 @@ def handle_direct_text_post(args, config_manager):
                     else:
                         plugin_instance.post(original_text, media_files if media_files else None, debug=args.debug)
                 
-                print(f"- {plugin_name}: 投稿完了")
+                if args.debug:
+                    print(f"- {plugin_name}: 投稿完了")
             except Exception as e:
                 print(f"- {plugin_name}: 投稿失敗 - {e}")
         print("直接投稿が完了しました。")
@@ -470,6 +517,8 @@ def main():
     parser.add_argument("--text", type=str, help="指定したテキストを直接SNSに投稿します。")
     parser.add_argument("--sns", type=str, help="投稿するSNSを限定します（カンマ区切りで複数指定可能）。")
     parser.add_argument("--list-sns", action="store_true", help="登録されているSNSアカウントの一覧を表示します。")
+    parser.add_argument("--list-feeds", action="store_true", help="登録されているフィードの一覧を表示します。")
+    parser.add_argument("--feed", type=str, help="処理するフィードを限定します（カンマ区切りで複数指定可能）。")
     parser.add_argument("--optimize", action="store_true", help="直接投稿時にもテキスト最適化（URL短縮など）を適用します。")
     parser.add_argument("--media", action="append", help="投稿にメディアファイルを添付します（複数回指定可能）。")
     parser.add_argument("--sensitive", action="store_true", help="Misskeyでメディアファイルをセンシティブコンテンツとしてマークします。")
@@ -483,81 +532,178 @@ def main():
         handle_list_sns(config_manager)
         return
     
+    # フィード一覧表示モードかどうかチェック
+    if args.list_feeds:
+        handle_list_feeds(config_manager)
+        return
+    
     # 直接テキスト投稿モードかどうかチェック
     if args.text:
         handle_direct_text_post(args, config_manager)
         return
     
     # 通常のRSS監視モード
-    article_manager = ArticleManager(config_manager)
-
-    if args.debug:
-        print(f"フィードURL: {article_manager.feed_url}")
-
-    latest_articles = article_manager.get_latest_articles(args.debug)
-    saved_articles = article_manager.load_saved_articles()
-    new_articles = article_manager.get_new_articles(latest_articles, saved_articles, args.debug, args.limit)
-
-    if new_articles:
-        if args.limit:
-            print(f"直近の{args.limit}個の記事のみを処理します。")
+    # 複数フィード対応の確認
+    feed_configs = config_manager.get_all_feed_configs()
+    
+    if len(feed_configs) > 1 or (len(feed_configs) == 1 and feed_configs[0].get('name') != 'default'):
+        # 複数フィード処理
+        multi_article_manager = MultiArticleManager(config_manager)
         
-        print("新しい記事が見つかりました:")
+        # フィード限定オプションの処理
+        feed_filter = None
+        if args.feed:
+            feed_filter = [feed.strip() for feed in args.feed.split(',')]
+            if args.debug:
+                print(f"処理対象フィード: {feed_filter}")
         
-        # プラグインを読み込み
-        if not args.dry_run:
-            all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None)
+        # 全フィードから新着記事を取得
+        all_new_articles_data = multi_article_manager.get_all_new_articles(
+            debug=args.debug, limit=args.limit, feed_filter=feed_filter
+        )
+        
+        if all_new_articles_data:
+            if args.limit:
+                print(f"各フィードから直近の{args.limit}個の記事のみを処理します。")
             
-            # SNS限定がある場合はフィルタリング
-            if args.sns:
-                target_sns = [sns.strip() for sns in args.sns.split(',')]
-                plugins = {}
-                for plugin_name, plugin_instance in all_plugins.items():
-                    # プラグイン名またはSNS typeが対象リストに含まれるかチェック
-                    sns_type = getattr(plugin_instance, 'sns_type', None) or plugin_name.split('-')[0]
-                    if plugin_name in target_sns or sns_type in target_sns:
-                        plugins[plugin_name] = plugin_instance
-                
-                if not plugins:
-                    print(f"指定されたSNS ({args.sns}) が見つかりませんでした。")
-                    print(f"利用可能なSNS: {', '.join(all_plugins.keys())}")
-                    return
-                else:
-                    print(f"投稿対象SNS: {', '.join(plugins.keys())}")
-            else:
-                plugins = all_plugins
-        else:
-            plugins = {}
-
-        for article in new_articles:
+            print("新しい記事が見つかりました:")
+            
+            # プラグインを読み込み
             if not args.dry_run:
-                for plugin_name, plugin_instance in plugins.items():
-                    try:
-                        # プラグインのtypeを取得（配列形式）またはplugin_name（オブジェクト形式）
+                all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None)
+                
+                # SNS限定がある場合はフィルタリング
+                if args.sns:
+                    target_sns = [sns.strip() for sns in args.sns.split(',')]
+                    plugins = {}
+                    for plugin_name, plugin_instance in all_plugins.items():
                         sns_type = getattr(plugin_instance, 'sns_type', None) or plugin_name.split('-')[0]
-                        optimized_text = article_manager.create_post_text(article['title'], article['link'], sns_type)
-                        print(f"{plugin_name}投稿内容: {optimized_text}")
-                        
-                        # リッチコンテンツをサポートするSNSの場合は記事データも渡す
-                        if hasattr(plugin_instance, 'supports_rich_content') and plugin_instance.supports_rich_content():
-                            if args.debug:
-                                print(f"[DEBUG] {sns_type}投稿: リンクカード機能対応")
-                            plugin_instance.post(optimized_text, article_data=article, debug=args.debug)
-                        else:
-                            plugin_instance.post(optimized_text, debug=args.debug)
-                    except Exception as e:
-                        print(f"{plugin_name}への投稿中にエラー: {e}")
+                        if plugin_name in target_sns or sns_type in target_sns:
+                            plugins[plugin_name] = plugin_instance
+                    
+                    if not plugins:
+                        print(f"指定されたSNS ({args.sns}) が見つかりませんでした。")
+                        print(f"利用可能なSNS: {', '.join(all_plugins.keys())}")
+                        return
+                    else:
+                        if args.debug:
+                            print(f"投稿対象SNS: {', '.join(plugins.keys())}")
+                else:
+                    plugins = all_plugins
             else:
-                # ドライラン時は代表的なSNSで投稿内容を表示
-                sample_text = article_manager.create_post_text(article['title'], article['link'], 'x')
-                print(f"投稿内容例 (X): {sample_text}")
-                print(f"[ドライラン] SNSに投稿しました。")
-        
-        if not args.dry_run:
-            article_manager.save_articles(latest_articles)
-            print("新しい記事リストを保存しました。")
+                plugins = {}
+            
+            # フィード別に記事を処理
+            for feed_name, data in all_new_articles_data.items():
+                articles = data['articles']
+                feed_config = data['feed_config']
+                
+                if args.debug:
+                    print(f"\n--- フィード: {feed_name} ({len(articles)}件) ---")
+                
+                # フィード別のArticleManagerを作成（投稿テキスト生成用）
+                feed_article_manager = ArticleManager(config_manager, feed_name)
+                
+                for article in articles:
+                    if not args.dry_run:
+                        for plugin_name, plugin_instance in plugins.items():
+                            try:
+                                sns_type = getattr(plugin_instance, 'sns_type', None) or plugin_name.split('-')[0]
+                                optimized_text = feed_article_manager.create_post_text(article['title'], article['link'], sns_type)
+                                if args.debug:
+                                    print(f"{plugin_name}投稿内容: {optimized_text}")
+                                
+                                # リッチコンテンツをサポートするSNSの場合は記事データも渡す
+                                if hasattr(plugin_instance, 'supports_rich_content') and plugin_instance.supports_rich_content():
+                                    if args.debug:
+                                        print(f"[DEBUG] {sns_type}投稿: リンクカード機能対応")
+                                    plugin_instance.post(optimized_text, article_data=article, debug=args.debug)
+                                else:
+                                    plugin_instance.post(optimized_text, debug=args.debug)
+                            except Exception as e:
+                                print(f"{plugin_name}への投稿中にエラー: {e}")
+                    else:
+                        # ドライラン時は代表的なSNSで投稿内容を表示
+                        sample_text = feed_article_manager.create_post_text(article['title'], article['link'], 'x')
+                        print(f"投稿内容例 (X): {sample_text}")
+                        print(f"[ドライラン] SNSに投稿しました。")
+            
+            if not args.dry_run:
+                multi_article_manager.save_all_articles(all_new_articles_data)
+                print("新しい記事リストを保存しました。")
+        else:
+            print("新しい記事はありませんでした。")
     else:
-        print("新しい記事はありませんでした。")
+        # 単一フィード処理（従来通り）
+        article_manager = ArticleManager(config_manager)
+
+        if args.debug:
+            print(f"フィードURL: {article_manager.feed_url}")
+
+        latest_articles = article_manager.get_latest_articles(args.debug)
+        saved_articles = article_manager.load_saved_articles()
+        new_articles = article_manager.get_new_articles(latest_articles, saved_articles, args.debug, args.limit)
+
+        if new_articles:
+            if args.limit:
+                print(f"直近の{args.limit}個の記事のみを処理します。")
+            
+            print("新しい記事が見つかりました:")
+            
+            # プラグインを読み込み
+            if not args.dry_run:
+                all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None)
+                
+                # SNS限定がある場合はフィルタリング
+                if args.sns:
+                    target_sns = [sns.strip() for sns in args.sns.split(',')]
+                    plugins = {}
+                    for plugin_name, plugin_instance in all_plugins.items():
+                        sns_type = getattr(plugin_instance, 'sns_type', None) or plugin_name.split('-')[0]
+                        if plugin_name in target_sns or sns_type in target_sns:
+                            plugins[plugin_name] = plugin_instance
+                    
+                    if not plugins:
+                        print(f"指定されたSNS ({args.sns}) が見つかりませんでした。")
+                        print(f"利用可能なSNS: {', '.join(all_plugins.keys())}")
+                        return
+                    else:
+                        if args.debug:
+                            print(f"投稿対象SNS: {', '.join(plugins.keys())}")
+                else:
+                    plugins = all_plugins
+            else:
+                plugins = {}
+
+            for article in new_articles:
+                if not args.dry_run:
+                    for plugin_name, plugin_instance in plugins.items():
+                        try:
+                            sns_type = getattr(plugin_instance, 'sns_type', None) or plugin_name.split('-')[0]
+                            optimized_text = article_manager.create_post_text(article['title'], article['link'], sns_type)
+                            if args.debug:
+                                print(f"{plugin_name}投稿内容: {optimized_text}")
+                            
+                            # リッチコンテンツをサポートするSNSの場合は記事データも渡す
+                            if hasattr(plugin_instance, 'supports_rich_content') and plugin_instance.supports_rich_content():
+                                if args.debug:
+                                    print(f"[DEBUG] {sns_type}投稿: リンクカード機能対応")
+                                plugin_instance.post(optimized_text, article_data=article, debug=args.debug)
+                            else:
+                                plugin_instance.post(optimized_text, debug=args.debug)
+                        except Exception as e:
+                            print(f"{plugin_name}への投稿中にエラー: {e}")
+                else:
+                    # ドライラン時は代表的なSNSで投稿内容を表示
+                    sample_text = article_manager.create_post_text(article['title'], article['link'], 'x')
+                    print(f"投稿内容例 (X): {sample_text}")
+                    print(f"[ドライラン] SNSに投稿しました。")
+            
+            if not args.dry_run:
+                article_manager.save_articles(latest_articles)
+                print("新しい記事リストを保存しました。")
+        else:
+            print("新しい記事はありませんでした。")
 
 if __name__ == "__main__":
     main()

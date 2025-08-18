@@ -12,6 +12,10 @@ post-text text *args='':
 list-sns:
     uv run -m src.main --list-sns
 
+# 登録されているフィードの一覧表示
+list-feeds:
+    uv run -m src.main --list-feeds
+
 # ドライラン（テスト実行）
 dry-run *args='':
     uv run -m src.main --dry-run {{args}}
@@ -40,6 +44,7 @@ help:
     @echo "  just blog-check                    # ブログ更新チェックと自動投稿"
     @echo "  just post-text 'テキスト内容'       # テキストの直接投稿"
     @echo "  just list-sns                      # SNS設定一覧表示"
+    @echo "  just list-feeds                    # 登録フィード一覧表示"
     @echo ""
     @echo "オプション付きコマンド例:"
     @echo "  just blog-check --sns bluesky      # Blueskyのみに投稿"
