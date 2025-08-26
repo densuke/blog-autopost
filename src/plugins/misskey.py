@@ -12,15 +12,29 @@ class Misskey(SocialMediaPlugin):
         self.is_sensitive = is_sensitive
         self.api_url = f"{self.instance_url}/api"
 
-    def post(self, optimized_text: str, media_files: Optional[List[str]] = None, **kwargs: Any):
+    def post(self, text_or_title, link_or_media=None, **kwargs: Any):
         """
         Misskeyに投稿します
         
         Args:
-            optimized_text: 投稿テキスト
-            media_files: 添付するメディアファイルのパスリスト
+            text_or_title: 投稿テキストまたはタイトル
+            link_or_media: リンクURLまたはメディアファイルのパスリスト
             **kwargs: 追加パラメータ（例：debug、article_data）
         """
+        # 後方互換性: (title, link)形式と(optimized_text, media_files)形式を両方サポート
+        if isinstance(link_or_media, str) and link_or_media.startswith('http'):
+            # 従来の (title, link) 形式
+            optimized_text = f"{text_or_title} {link_or_media}"
+            media_files = None
+        elif isinstance(link_or_media, list):
+            # 新しい (optimized_text, media_files) 形式
+            optimized_text = text_or_title
+            media_files = link_or_media
+        else:
+            # optimized_textのみの場合
+            optimized_text = text_or_title
+            media_files = link_or_media if link_or_media else None
+            
         debug = kwargs.get('debug', False)
         file_ids = []
         

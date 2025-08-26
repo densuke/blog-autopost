@@ -27,7 +27,8 @@ class TestURLShortener:
         assert result == "https://is.gd/abc123"
         mock_get.assert_called_once_with(
             "https://is.gd/create.php",
-            params={"format": "simple", "url": "https://blog.example.com/very-long-url"}
+            params={"format": "simple", "url": "https://blog.example.com/very-long-url"},
+            timeout=10
         )
 
     @patch('src.url_shortener.requests.get')

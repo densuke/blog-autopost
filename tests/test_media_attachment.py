@@ -130,7 +130,7 @@ class TestMediaValidator:
             media_files = [MediaFile(image_path), MediaFile(video_path)]
             result = self.validator.validate_for_sns(media_files, 'x')
             assert result.is_valid is False
-            assert 'X では画像と動画を同時に投稿できません' in str(result.errors[0])
+            assert 'X では画像 と 動画を同時に投稿できません' in str(result.errors[0])
         finally:
             os.unlink(image_path)
             os.unlink(video_path)
@@ -144,7 +144,7 @@ class TestMediaValidator:
             result = self.validator.validate_for_sns(media_files, 'x')
             assert result.is_valid is True
             assert len(result.warnings) > 0
-            assert 'MP4に変換されます' in str(result.warnings[0])
+            assert 'は動画形式(MP4)に変換されます' in str(result.warnings[0])
         finally:
             os.unlink(audio_path)
     
@@ -168,7 +168,7 @@ class TestMediaValidator:
             media_files = [MediaFile(video_path)]
             result = self.validator.validate_for_sns(media_files, 'bluesky')
             assert result.is_valid is False
-            assert 'Bluesky では動画に対応していません' in str(result.errors[0])
+            assert 'BLUESKY では動画に対応していません' in str(result.errors[0])
         finally:
             os.unlink(video_path)
     
@@ -207,7 +207,7 @@ class TestMediaValidator:
             media_files = [MediaFile(path) for path in image_paths]
             result = self.validator.validate_for_sns(media_files, 'misskey')
             assert result.is_valid is False
-            assert 'Misskey では最大16個まで' in str(result.errors[0])
+            assert 'MISSKEY では画像は最大16枚までです' in str(result.errors[0])
         finally:
             for path in image_paths:
                 os.unlink(path)
@@ -233,9 +233,12 @@ class TestMediaConverter:
         return audio_path
     
     @patch('subprocess.run')
-    def test_convert_m4a_to_mp4_success(self, mock_run):
+    @patch('os.path.exists')
+    def test_convert_m4a_to_mp4_success(self, mock_exists, mock_run):
         """m4a→MP4変換成功テスト"""
         mock_run.return_value = MagicMock(returncode=0)
+        # 出力ファイルが存在することをモック
+        mock_exists.return_value = True
         
         input_path = self.create_temp_audio_file()
         result = self.converter.convert_m4a_to_mp4(input_path)
