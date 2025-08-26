@@ -1,5 +1,5 @@
 from atproto import Client, client_utils, models
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple
 import re
 import requests
 from bs4 import BeautifulSoup
@@ -104,7 +104,7 @@ class Bluesky(SocialMediaPlugin):
         
         return facets
     
-    def post(self, optimized_text: str, media_files: Optional[List[str]] = None, **kwargs: Any):
+    def post(self, optimized_text: str, media_files: List[str] | None = None, **kwargs: Any):
         """
         Blueskyに投稿します
         
@@ -260,7 +260,7 @@ class Bluesky(SocialMediaPlugin):
             print(f"Blueskyへの投稿中にエラー: {e}")
             raise
     
-    def _create_link_card(self, url: str, article_data: Dict[str, Any], debug: bool = False) -> Optional[models.AppBskyEmbedExternal.Main]:
+    def _create_link_card(self, url: str, article_data: Dict[str, Any], debug: bool = False) -> models.AppBskyEmbedExternal.Main | None:
         """
         リンクカードを作成します
         
@@ -409,7 +409,7 @@ class Bluesky(SocialMediaPlugin):
         # すべて失敗した場合はUTF-8でエラーを無視してデコード
         return html_bytes.decode('utf-8', errors='ignore')
     
-    def _upload_thumbnail(self, image_url: str, debug: bool = False) -> Optional[models.ComAtprotoRepoUploadBlob.Response]:
+    def _upload_thumbnail(self, image_url: str, debug: bool = False) -> models.ComAtprotoRepoUploadBlob.Response | None:
         """
         サムネイル画像をBlueskyにアップロードします
         
