@@ -5,7 +5,7 @@ import argparse
 import os
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 from .config_manager import ConfigManager, load_config
 from .article_manager import ArticleManager, MultiArticleManager
 from .plugin_loader import load_plugins

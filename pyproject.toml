@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
-blog-autopost = "main:main"
+blog-autopost = "src.main:main"
 
 [tool.uv]
 package = true

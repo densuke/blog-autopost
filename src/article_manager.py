@@ -4,8 +4,6 @@ import os
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
-from PIL import Image
-import io
 from datetime import datetime, timezone
 import time
 from .config_manager import ConfigManager
