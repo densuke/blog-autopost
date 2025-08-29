@@ -1,4 +1,5 @@
 import yaml
+import os
 
 class ConfigManager:
     def __init__(self, config):
@@ -62,12 +63,75 @@ class ConfigManager:
     def get_all_sns_configs(self):
         """
         SNS設定を取得します。
-        配列形式とオブジェクト形式の両方をサポートします。
+        配列形式とオブジェクト形式の両方をサポートし、環境変数による認証情報の上書きも行います。
         
         Returns:
             list or dict: SNS設定（配列形式またはオブジェクト形式）
         """
-        return self.config.get('sns', {})
+        sns_configs = self.config.get('sns', {})
+        
+        # 環境変数による認証情報の上書きを適用
+        if isinstance(sns_configs, list):
+            # 配列形式の場合
+            return [self._apply_env_overrides(sns_config) for sns_config in sns_configs]
+        elif isinstance(sns_configs, dict):
+            # オブジェクト形式の場合
+            return {name: self._apply_env_overrides(config, name) for name, config in sns_configs.items()}
+        
+        return sns_configs
+    
+    def _apply_env_overrides(self, sns_config, fallback_type=None):
+        """
+        環境変数による認証情報の上書きを適用します
+        
+        Args:
+            sns_config (dict): 元のSNS設定
+            fallback_type (str): オブジェクト形式の場合のSNS種別（fallback）
+            
+        Returns:
+            dict: 環境変数で上書きされた設定
+        """
+        config = sns_config.copy()
+        sns_type = config.get('type', fallback_type)
+        
+        if not sns_type:
+            return config
+            
+        # SNS種別ごとの環境変数マッピング
+        env_mappings = {
+            'x': {
+                'consumer_key': f'X_CONSUMER_KEY',
+                'consumer_secret': f'X_CONSUMER_SECRET',
+                'access_token': f'X_ACCESS_TOKEN',
+                'access_token_secret': f'X_ACCESS_TOKEN_SECRET'
+            },
+            'bluesky': {
+                'identifier': f'BLUESKY_IDENTIFIER',
+                'password': f'BLUESKY_PASSWORD'
+            },
+            'mastodon': {
+                'instance_url': f'MASTODON_INSTANCE_URL',
+                'access_token': f'MASTODON_ACCESS_TOKEN'
+            },
+            'misskey': {
+                'instance_url': f'MISSKEY_INSTANCE_URL',
+                'access_token': f'MISSKEY_ACCESS_TOKEN'
+            },
+            'threads': {
+                'app_id': f'THREADS_APP_ID',
+                'app_secret': f'THREADS_APP_SECRET',
+                'access_token': f'THREADS_ACCESS_TOKEN'
+            }
+        }
+        
+        # 環境変数からの上書き適用
+        if sns_type in env_mappings:
+            for config_key, env_key in env_mappings[sns_type].items():
+                env_value = os.getenv(env_key)
+                if env_value:
+                    config[config_key] = env_value
+        
+        return config
 
     def get_announcement_text(self):
         return self.config.get('announcement_text', '')
