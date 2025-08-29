@@ -138,3 +138,12 @@ sns:
     app_id: "YOUR_META_APP_ID"
     app_secret: "YOUR_META_APP_SECRET"
     access_token: "YOUR_THREADS_LONG_LIVED_ACCESS_TOKEN"
+  - type: tumblr
+    name: "tumblr-main"
+    client_id: "YOUR_TUMBLR_CLIENT_ID"
+    client_secret: "YOUR_TUMBLR_CLIENT_SECRET"
+    access_token: "YOUR_TUMBLR_ACCESS_TOKEN"
+    blog_name: "YOUR_BLOG_NAME"  # example.tumblr.com の場合は "example"
+    tags:  # オプション: 自動タグ付け
+      - "blog"
+      - "auto-post"

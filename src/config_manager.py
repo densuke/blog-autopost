@@ -121,6 +121,12 @@ class ConfigManager:
                 'app_id': f'THREADS_APP_ID',
                 'app_secret': f'THREADS_APP_SECRET',
                 'access_token': f'THREADS_ACCESS_TOKEN'
+            },
+            'tumblr': {
+                'client_id': f'TUMBLR_CLIENT_ID',
+                'client_secret': f'TUMBLR_CLIENT_SECRET',
+                'access_token': f'TUMBLR_ACCESS_TOKEN',
+                'blog_name': f'TUMBLR_BLOG_NAME'
             }
         }
         

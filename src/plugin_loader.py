@@ -41,9 +41,19 @@ def load_plugins(config_manager, force_sensitive=None):
                 if plugin_type == 'misskey' and force_sensitive is not None:
                     plugin_init_config['is_sensitive'] = force_sensitive
                 
-                # Blueskyプラグインの場合、設定情報も渡す
+                # 特別な初期化が必要なプラグインの処理
                 if plugin_type == 'bluesky':
                     plugin_instance = plugin_class(config=config_manager.config, **plugin_init_config)
+                elif plugin_type == 'tumblr':
+                    # Tumblrプラグインの場合、configディクショナリを作成
+                    config_dict = {k: v for k, v in sns_config.items() if k not in ('type', 'name', 'client_id', 'client_secret', 'access_token', 'blog_name')}
+                    plugin_instance = plugin_class(
+                        client_id=plugin_init_config['client_id'],
+                        client_secret=plugin_init_config['client_secret'],
+                        access_token=plugin_init_config['access_token'],
+                        blog_name=plugin_init_config['blog_name'],
+                        config=config_dict
+                    )
                 else:
                     plugin_instance = plugin_class(**plugin_init_config)
                 

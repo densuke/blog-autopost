@@ -42,7 +42,15 @@
       "WebSearch",
       "WebFetch(domain:usual.tools)",
       "WebFetch(domain:note.com)",
-      "WebFetch(domain:qiita.com)"
+      "WebFetch(domain:qiita.com)",
+      "mcp__sequential-thinking__sequentialthinking",
+      "Bash(python -m pytest --collect-only --quiet)",
+      "WebFetch(domain:www.tumblr.com)",
+      "WebFetch(domain:engineering.tumblr.com)",
+      "Bash(PYTHONPATH=/Users/densuke/Documents/projects/blog-autopost uv run --directory /Users/densuke/Documents/projects/blog-autopost python -m src.main --text \"Tumblr プラグインのテスト投稿です\" --dry-run --debug --sns tumblr)",
+      "Bash(PYTHONPATH=/Users/densuke/Documents/projects/blog-autopost uv run --directory /Users/densuke/Documents/projects/blog-autopost python -m src.main --text \"設定ファイルテスト\" --dry-run --debug --sns tumblr --config config_test.yml)",
+      "Bash(PYTHONPATH=/Users/densuke/Documents/projects/blog-autopost uv run --directory /Users/densuke/Documents/projects/blog-autopost python -m src.main --text \"設定ファイル修正テスト\" --dry-run --debug --sns tumblr --config config_test.yml)",
+      "Bash(TUMBLR_CLIENT_ID=test_env_client_id TUMBLR_CLIENT_SECRET=test_env_secret TUMBLR_ACCESS_TOKEN=test_env_token TUMBLR_BLOG_NAME=test_env_blog PYTHONPATH=/Users/densuke/Documents/projects/blog-autopost uv run --directory /Users/densuke/Documents/projects/blog-autopost python -m src.main --text \"環境変数テスト\" --dry-run --debug --sns tumblr --config config_test.yml)"
     ],
     "deny": []
   }
