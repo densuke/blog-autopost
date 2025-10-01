@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Blog AutoPost</title>
+    <style>
+        .warning { color: red; font-weight: bold; }
+        #drop-zone {
+            border: 2px dashed #ccc;
+            padding: 20px;
+            text-align: center;
+            margin-top: 10px;
+        }
+        #drop-zone.dragover {
+            border-color: #333;
+        }
+        #preview-area {
+            margin-top: 10px;
+            display: flex;
+            flex-wrap: wrap;
+        }
+        .preview-image-container {
+            position: relative;
+            margin: 5px;
+        }
+        .preview-image {
+            max-width: 100px;
+            max-height: 100px;
+        }
+        .remove-btn {
+            position: absolute;
+            top: 0;
+            right: 0;
+            cursor: pointer;
+            background: rgba(0,0,0,0.5);
+            color: white;
+            border: none;
+            border-radius: 50%;
+        }
+    </style>
+</head>
+<body>
+    <h1>新規投稿</h1>
+    <form id="post-form">
+        <div>
+            <label for="text">投稿文:</label> 
+            <span id="char-counter">0</span> / <span id="char-limit">-</span>
+            <br>
+            <textarea id="text" name="text" rows="5" cols="50"></textarea>
+        </div>
+        <div>
+            <label for="url">URL (任意):</label><br>
+            <input type="url" id="url" name="url" size="50">
+        </div>
+        <div>
+            <label>投稿先SNS:</label><br>
+            {% for account in sns_accounts %}
+            <input type="checkbox" id="sns_{{ account.name }}" name="sns_targets" value="{{ account.name }}" 
+                   data-limit="{% if account.type == 'x' %}280{% elif account.type == 'bluesky' %}300{% elif account.type == 'mastodon' %}500{% elif account.type == 'misskey' %}3000{% else %}9999{% endif %}">
+            <label for="sns_{{ account.name }}">{{ account.name }} ({{ account.type }})</label><br>
+            {% endfor %}
+        </div>
+        
+        <div>
+            <label>画像アップロード:</label>
+            <div id="drop-zone">
+                ここにファイルをドラッグ＆ドロップするか、クリックしてファイルを選択
+            </div>
+            <input type="file" id="file-input" multiple accept="image/*" style="display: none;">
+            <div id="preview-area"></div>
+        </div>
+
+        <button type="submit">すぐに投稿</button>
+        <hr>
+        <div>
+            <label for="schedule_time">予約日時:</label>
+            <input type="datetime-local" id="schedule_time" name="schedule_time">
+            <button type="button" id="schedule-btn">予約投稿</button>
+        </div>
+    </form>
+    <div id="status-messages"></div>
+
+    <script>
+        const textArea = document.getElementById('text');
+        const charCounter = document.getElementById('char-counter');
+        const charLimitDisplay = document.getElementById('char-limit');
+        const snsCheckboxes = document.querySelectorAll('input[name="sns_targets"]');
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const previewArea = document.getElementById('preview-area');
+        const postForm = document.getElementById('post-form');
+        const statusMessages = document.getElementById('status-messages');
+
+        let uploadedFiles = [];
+
+        // --- 文字数カウンター --- 
+        function updateCounter() {
+            const currentLength = textArea.value.length;
+            charCounter.textContent = currentLength;
+
+            let minLimit = Infinity;
+            let atLeastOneChecked = false;
+            snsCheckboxes.forEach(checkbox => {
+                if (checkbox.checked) {
+                    atLeastOneChecked = true;
+                    const limit = parseInt(checkbox.dataset.limit, 10);
+                    if (limit < minLimit) {
+                        minLimit = limit;
+                    }
+                }
+            });
+
+            if (atLeastOneChecked) {
+                charLimitDisplay.textContent = minLimit;
+                if (currentLength > minLimit) {
+                    charCounter.classList.add('warning');
+                } else {
+                    charCounter.classList.remove('warning');
+                }
+            } else {
+                charLimitDisplay.textContent = '-';
+                charCounter.classList.remove('warning');
+            }
+        }
+
+        textArea.addEventListener('input', updateCounter);
+        snsCheckboxes.forEach(checkbox => {
+            checkbox.addEventListener('change', updateCounter);
+        });
+
+        // --- ファイルアップロード --- 
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        });
+
+        function handleFiles(files) {
+            for (const file of files) {
+                if (!file.type.startsWith('image/')) continue;
+                
+                uploadedFiles.push(file);
+                const container = document.createElement('div');
+                container.classList.add('preview-image-container');
+
+                const img = document.createElement('img');
+                img.classList.add('preview-image');
+                img.src = URL.createObjectURL(file);
+                
+                const removeBtn = document.createElement('button');
+                removeBtn.textContent = '×';
+                removeBtn.classList.add('remove-btn');
+                removeBtn.onclick = () => {
+                    const index = uploadedFiles.indexOf(file);
+                    if (index > -1) {
+                        uploadedFiles.splice(index, 1);
+                    }
+                    container.remove();
+                };
+
+                container.appendChild(img);
+                container.appendChild(removeBtn);
+                previewArea.appendChild(container);
+            }
+        }
+        
+        // --- フォーム送信 --- 
+        postForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            submitPost('/api/post');
+        });
+
+        document.getElementById('schedule-btn').addEventListener('click', () => {
+            const scheduleTime = document.getElementById('schedule_time').value;
+            if (!scheduleTime) {
+                alert('予約日時を指定してください。');
+                return;
+            }
+            submitPost('/api/schedule');
+        });
+
+        function submitPost(endpoint) {
+            statusMessages.innerHTML = '送信中...';
+
+            const formData = new FormData();
+            formData.append('text', document.getElementById('text').value);
+            formData.append('url', document.getElementById('url').value);
+            
+            document.querySelectorAll('input[name="sns_targets"]:checked').forEach(checkbox => {
+                formData.append('sns_targets', checkbox.value);
+            });
+
+            uploadedFiles.forEach(file => {
+                formData.append('media_files', file);
+            });
+
+            if (endpoint === '/api/schedule') {
+                formData.append('schedule_time', document.getElementById('schedule_time').value);
+            }
+
+            fetch(endpoint, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                statusMessages.innerHTML = ''; // 古いメッセージをクリア
+                if (data.error) {
+                    statusMessages.innerHTML = `<p class="warning">エラー: ${data.error}</p>`;
+                    return;
+                }
+                if (endpoint === '/api/schedule') {
+                    statusMessages.innerHTML = `<p>${data.message}</p>`;
+                } else {
+                    for (const [sns, result] of Object.entries(data)) {
+                        const p = document.createElement('p');
+                        if (result.success) {
+                            p.textContent = `✅ ${sns}: 投稿に成功しました。`;
+                        } else {
+                            p.classList.add('warning');
+                            p.textContent = `❌ ${sns}: 投稿に失敗しました - ${result.message}`;
+                        }
+                        statusMessages.appendChild(p);
+                    }
+                }
+            })
+            .catch(error => {
+                statusMessages.innerHTML = `<p class="warning">送信中にエラーが発生しました: ${error}</p>`;
+            });
+        }
+
+        // 初期表示
+        updateCounter();
+    </script>
+</body>
+</html>

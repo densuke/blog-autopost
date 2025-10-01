@@ -53,7 +53,6 @@ class X(SocialMediaPlugin):
                     # v1.1 APIでメディアをアップロード
                     media = self.api.media_upload(media_path)
                     media_ids.append(media.media_id)
-                    print(f"メディアアップロード完了: {media_path} (ID: {media.media_id})")
                 except Exception as e:
                     print(f"メディアアップロードエラー: {media_path} - {e}")
                     # エラーが発生しても他のメディアの処理を続行

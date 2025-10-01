@@ -10,8 +10,9 @@ venv/
 env/
 
 
-# Data directory
-data/
+# Data directory (ignore all except scheduled_media)
+data/*
+!data/scheduled_media/
 
 # IDEs
 .vscode/
@@ -40,3 +41,6 @@ config.yml*
 *.jpeg
 *.gif
 *.webp
+
+# Claude specific settings
+.claude/settings.local.json

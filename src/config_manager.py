@@ -1,8 +1,20 @@
 import yaml
+import os
 
 class ConfigManager:
-    def __init__(self, config):
-        self.config = config
+    def __init__(self, config_path):
+        """
+        設定管理オブジェクトを初期化します。
+
+        Args:
+            config_path (str): 設定ファイルのパス
+        """
+        if isinstance(config_path, str):
+            # 設定ファイルのパスが渡された場合は読み込み
+            self.config = load_config(config_path)
+        else:
+            # 辞書が直接渡された場合はそのまま使用
+            self.config = config_path
 
     def get_feed_url(self):
         """後方互換性のためのメソッド（単一フィード用）"""
@@ -62,12 +74,81 @@ class ConfigManager:
     def get_all_sns_configs(self):
         """
         SNS設定を取得します。
-        配列形式とオブジェクト形式の両方をサポートします。
+        配列形式とオブジェクト形式の両方をサポートし、環境変数による認証情報の上書きも行います。
         
         Returns:
             list or dict: SNS設定（配列形式またはオブジェクト形式）
         """
-        return self.config.get('sns', {})
+        sns_configs = self.config.get('sns', {})
+        
+        # 環境変数による認証情報の上書きを適用
+        if isinstance(sns_configs, list):
+            # 配列形式の場合
+            return [self._apply_env_overrides(sns_config) for sns_config in sns_configs]
+        elif isinstance(sns_configs, dict):
+            # オブジェクト形式の場合
+            return {name: self._apply_env_overrides(config, name) for name, config in sns_configs.items()}
+        
+        return sns_configs
+    
+    def _apply_env_overrides(self, sns_config, fallback_type=None):
+        """
+        環境変数による認証情報の上書きを適用します
+        
+        Args:
+            sns_config (dict): 元のSNS設定
+            fallback_type (str): オブジェクト形式の場合のSNS種別（fallback）
+            
+        Returns:
+            dict: 環境変数で上書きされた設定
+        """
+        config = sns_config.copy()
+        sns_type = config.get('type', fallback_type)
+        
+        if not sns_type:
+            return config
+            
+        # SNS種別ごとの環境変数マッピング
+        env_mappings = {
+            'x': {
+                'consumer_key': f'X_CONSUMER_KEY',
+                'consumer_secret': f'X_CONSUMER_SECRET',
+                'access_token': f'X_ACCESS_TOKEN',
+                'access_token_secret': f'X_ACCESS_TOKEN_SECRET'
+            },
+            'bluesky': {
+                'identifier': f'BLUESKY_IDENTIFIER',
+                'password': f'BLUESKY_PASSWORD'
+            },
+            'mastodon': {
+                'instance_url': f'MASTODON_INSTANCE_URL',
+                'access_token': f'MASTODON_ACCESS_TOKEN'
+            },
+            'misskey': {
+                'instance_url': f'MISSKEY_INSTANCE_URL',
+                'access_token': f'MISSKEY_ACCESS_TOKEN'
+            },
+            'threads': {
+                'app_id': f'THREADS_APP_ID',
+                'app_secret': f'THREADS_APP_SECRET',
+                'access_token': f'THREADS_ACCESS_TOKEN'
+            },
+            'tumblr': {
+                'client_id': f'TUMBLR_CLIENT_ID',
+                'client_secret': f'TUMBLR_CLIENT_SECRET',
+                'access_token': f'TUMBLR_ACCESS_TOKEN',
+                'blog_name': f'TUMBLR_BLOG_NAME'
+            }
+        }
+        
+        # 環境変数からの上書き適用
+        if sns_type in env_mappings:
+            for config_key, env_key in env_mappings[sns_type].items():
+                env_value = os.getenv(env_key)
+                if env_value:
+                    config[config_key] = env_value
+        
+        return config
 
     def get_announcement_text(self):
         return self.config.get('announcement_text', '')
@@ -96,6 +177,16 @@ class ConfigManager:
             else:
                 # オブジェクト形式の場合
                 return blog_config.get('image_settings')
+
+    def get_web_auth_credentials(self):
+        """Web UIの認証情報を取得する"""
+        return self.config.get('web_auth', {})
+
+    def get_secret_key(self):
+        """セッション管理用の秘密鍵を取得する"""
+        web_auth_config = self.config.get('web_auth', {})
+        secret_key = web_auth_config.get('secret_key')
+        return secret_key
 
 def load_config(config_path="config.yml"):
     """
