@@ -4,7 +4,7 @@
 - [x] 1.1 依存関係の追加
   - `pyproject.toml`に`fastapi`, `uvicorn`, `python-multipart`, `jinja2`, `apscheduler`を追加します。
   - _Requirements: すべての要件の基礎_
-- [ ] 1.2 ディレクトリ構造の作成
+- [x] 1.2 ディレクトリ構造の作成
   - `src/web/`, `src/web/templates/`のディレクトリを作成します。
   - _Requirements: すべての要件の基礎_
 - [ ] 1.3 基本的なWebサーバーの実装
