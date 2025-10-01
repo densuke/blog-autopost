@@ -1,0 +1,20 @@
+# Requirements Document
+
+## Project Description (Input)
+blog-autopostに対し、WebアプリケーションとしてのUIと送信機能を追加したいです。
+- 認証機能を持ち、実質自身しか使えないようにする
+- 以下の内容をSNSに送信できる
+	- 文章
+		- 送信前に指定SNSの中で送信不可能なものがないか(長すぎなど)をチェックする機構も必要
+	- URL(任意)
+	- 画像アップロード(任意)
+		- 複数ファイル
+		- ドラッグ&ドロップ対応
+		- 自動リサイズは現ツール内で利用可能だったはず
+- 送信時間の設定
+	- 即時
+	- 指定の日時(分単位、若干のズレは許容)
+- ツール自体Pythonベース(uv)を使っているので、これ自体もPythonベースで
+
+## Requirements
+<!-- Will be generated in /kiro:spec-requirements phase -->
