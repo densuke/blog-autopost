@@ -27,9 +27,17 @@ class PostingService:
         if not plugins:
             return {'error': 'No valid SNS targets found or loaded.'}
 
+        if debug:
+            print(f"[DEBUG][PostingService] Received media_files: {media_files}")
+            print(f"[DEBUG][PostingService] Loaded plugins: {list(plugins.keys())}")
+
         # 2. メディアの検証とリサイズ、投稿
         for name, plugin in plugins.items():
             try:
+                if debug:
+                    print(f"[DEBUG][PostingService] Processing for plugin: {name} (type: {plugin.sns_type})")
+                    print(f"[DEBUG][PostingService] Original media files for {name}: {media_files}")
+
                 # 2.1. プラグイン固有のリサイズ処理
                 current_plugin_media_files = []
                 for media_file_path in media_files:
@@ -37,8 +45,13 @@ class PostingService:
                         # 画像ファイルの場合のみリサイズ
                         resized_path = self.image_resizer.resize_image_file(media_file_path, plugin.sns_type)
                         current_plugin_media_files.append(resized_path)
+                        if debug:
+                            print(f"[DEBUG][PostingService] Resized {media_file_path} for {name} to {resized_path}")
                     else:
                         current_plugin_media_files.append(media_file_path)
+
+                if debug:
+                    print(f"[DEBUG][PostingService] Processed media files for {name}: {current_plugin_media_files}")
 
                 # 2.2. リサイズ後のメディアで検証
                 validation_results = validate_media_for_posting(current_plugin_media_files, [plugin.sns_type])
@@ -47,6 +60,8 @@ class PostingService:
                 if plugin_validation_result and not plugin_validation_result.is_valid:
                     all_errors = ", ".join(plugin_validation_result.errors)
                     results[name] = {'success': False, 'message': f'Media validation failed for {plugin.sns_type.upper()}: {all_errors}'}
+                    if debug:
+                        print(f"[DEBUG][PostingService] Validation failed for {name}: {all_errors}")
                     continue # このSNSへの投稿はスキップ
 
                 # 2.3. テキストの最適化
@@ -57,17 +72,28 @@ class PostingService:
                     if hasattr(plugin, 'supports_rich_content') and plugin.supports_rich_content():
                         # リッチコンテンツ対応プラグインの場合、URLはテキストに含めずarticle_dataに渡す
                         article_data = {'title': original_text, 'link': url, 'description': original_text}
+                        if debug:
+                            print(f"[DEBUG][PostingService] {name} supports rich content. URL will be in article_data.")
                     else:
                         # リッチコンテンツ非対応の場合、URLをテキストに含める
                         text_to_optimize = f"{original_text} {url}".strip()
+                        if debug:
+                            print(f"[DEBUG][PostingService] {name} does not support rich content. URL appended to text.")
                 
                 optimized_text = self.text_optimizer.optimize_text(text_to_optimize, url, plugin.sns_type)
+                if debug:
+                    print(f"[DEBUG][PostingService] Optimized text for {name}: {optimized_text}")
+                    print(f"[DEBUG][PostingService] Article data for {name}: {article_data}")
 
                 # 2.4. 投稿実行
                 plugin.post(optimized_text, current_plugin_media_files, article_data=article_data, debug=debug)
                 results[name] = {'success': True, 'message': 'Posted successfully.'}
+                if debug:
+                    print(f"[DEBUG][PostingService] Post successful for {name}.")
 
             except Exception as e:
                 results[name] = {'success': False, 'message': str(e)}
+                if debug:
+                    print(f"[DEBUG][PostingService] Post failed for {name}: {e}")
         
         return results

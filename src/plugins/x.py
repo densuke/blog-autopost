@@ -48,24 +48,32 @@ class X(SocialMediaPlugin):
         media_ids = []
         
         if media_files:
+            if kwargs.get('debug'):
+                print(f"[DEBUG][X] post() received media_files: {media_files}")
             for media_path in media_files:
                 try:
                     # v1.1 APIでメディアをアップロード
                     media = self.api.media_upload(media_path)
                     media_ids.append(media.media_id)
-                    print(f"メディアアップロード完了: {media_path} (ID: {media.media_id})")
+                    if kwargs.get('debug'):
+                        print(f"[DEBUG][X] メディアアップロード完了: {media_path} (ID: {media.media_id})")
                 except Exception as e:
-                    print(f"メディアアップロードエラー: {media_path} - {e}")
+                    if kwargs.get('debug'):
+                        print(f"[DEBUG][X] メディアアップロードエラー: {media_path} - {e}")
                     # エラーが発生しても他のメディアの処理を続行
         
         # v2 APIでツイートを投稿
         tweet_params = {"text": optimized_text}
         if media_ids:
+            if kwargs.get('debug'):
+                print(f"[DEBUG][X] create_tweet with media_ids: {media_ids}")
             tweet_params["media_ids"] = media_ids
         
         response = self.client.create_tweet(**tweet_params)
         
         if media_ids:
-            print(f"Xに投稿しました（メディア {len(media_ids)}件添付）: {response.data['id']}")
+            if kwargs.get('debug'):
+                print(f"[DEBUG][X] Xに投稿しました（メディア {len(media_ids)}件添付）: {response.data['id']}")
         else:
-            print(f"Xに投稿しました: {response.data['id']}")
+            if kwargs.get('debug'):
+                print(f"[DEBUG][X] Xに投稿しました: {response.data['id']}")
