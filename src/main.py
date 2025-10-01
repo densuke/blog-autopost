@@ -194,108 +194,164 @@ def handle_list_sns(config_manager):
     print("注意: --sns オプションでは上記の名前またはSNS種別を指定できます。")
 
 
-def handle_list_feeds(config_manager):
+def process_media_files(media_files, args):
     """
-    登録されているフィードの一覧を表示します
+    メディアファイルの処理（リサイズ、バリデーション、変換）を行います
     
     Args:
-        config_manager: 設定管理インスタンス
+        media_files: 処理するメディアファイルのリスト
+        args: コマンドライン引数
+        
+    Returns:
+        list: 処理済みメディアファイルのリスト
     """
-    print("=== 登録されているフィード一覧 ===")
+    if not media_files:
+        return []
     
-    feed_configs = config_manager.get_all_feed_configs()
+    from .media_validator import validate_media_for_posting, ValidationError
+    from .media_converter import create_media_converter, ConversionError, is_ffmpeg_available
+    from .image_resizer import create_image_resizer
     
-    if not feed_configs:
-        print("フィードが設定されていません。")
-        print("config.ymlを確認してください。")
-        return
+    if args.debug:
+        print(f"添付メディア: {len(media_files)}件")
+        for i, media_path in enumerate(media_files, 1):
+            print(f"  {i}. {media_path}")
     
-    print(f"登録フィード数: {len(feed_configs)}")
-    print()
+    # 画像リサイズの前処理
+    if args.debug:
+        print("画像リサイズ処理を実行中...")
+    resizer = create_image_resizer(debug=args.debug)
     
-    for i, feed_config in enumerate(feed_configs, 1):
-        name = feed_config.get('name', f'フィード{i}')
-        feed_url = feed_config.get('feed_url', 'N/A')
+    resized_media_files = []
+    for media_path in media_files:
+        try:
+            # 画像ファイルかどうかチェック
+            if media_path.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp')):
+                # SNS別の制限を考慮（複数SNSがある場合は最小値を使用）
+                if args.sns:
+                    target_sns_list = [sns.strip() for sns in args.sns.split(',')]
+                    # 最初のSNSの制限を使用（複数対応は後で改良可能）
+                    sns_type = target_sns_list[0] if target_sns_list else 'bluesky'
+                else:
+                    sns_type = 'bluesky'  # デフォルト
+                
+                # 画像をリサイズ
+                resized_path = resizer.resize_image_file(media_path, sns_type)
+                resized_media_files.append(resized_path)
+                
+                if args.debug:
+                    original_size = os.path.getsize(media_path)
+                    resized_size = os.path.getsize(resized_path)
+                    print(f"[DEBUG] リサイズ: {media_path} ({original_size} bytes) → {resized_path} ({resized_size} bytes)")
+            else:
+                # 画像以外はそのまま
+                resized_media_files.append(media_path)
+        except Exception as e:
+            if args.debug:
+                print(f"画像リサイズエラー: {media_path} - {e}")
+            resized_media_files.append(media_path)  # エラー時は元ファイルを使用
+    
+    # メディアファイルの事前検証
+    try:
+        # 対象SNSのリストを作成
+        if args.sns:
+            target_sns_list = [sns.strip() for sns in args.sns.split(',')]
+        else:
+            # ドライラン時は全SNSをチェック
+            target_sns_types = ['x', 'bluesky', 'mastodon', 'misskey']
         
-        print(f"{i}. {name}")
-        print(f"   フィードURL: {feed_url}")
+        # メディア検証実行
+        validation_results = validate_media_for_posting(resized_media_files, target_sns_types)
         
-        # 画像設定の確認
-        image_settings = feed_config.get('image_settings')
-        if image_settings:
-            enable_link_cards = image_settings.get('enable_link_cards', False)
-            print(f"   リンクカード機能: {'有効' if enable_link_cards else '無効'}")
-        print()
+        # 検証結果の表示
+        has_errors = False
+        for sns_type, result in validation_results.items():
+            if result.errors:
+                has_errors = True
+                print(f"❌ {sns_type.upper()}: {', '.join(result.errors)}")
+            elif result.warnings and args.debug:
+                print(f"⚠️  {sns_type.upper()}: {', '.join(result.warnings)}")
+            elif args.debug:
+                print(f"✅ {sns_type.upper()}: 投稿可能")
+        
+        # エラーがある場合は処理を停止
+        if has_errors and not args.dry_run:
+            print("\n投稿を中止しました。上記のエラーを解決してから再実行してください。")
+            return None
+        
+        # 音声ファイルの変換処理（X向け）
+        if any('x' in validation_results and 
+               any('MP4に変換されます' in warning for warning in validation_results['x'].warnings) 
+               for _ in [None]):  # 条件チェック用のダミーループ
+            
+            if not is_ffmpeg_available():
+                print("❌ ffmpegが見つかりません。音声変換にはffmpegが必要です。")
+                if not args.dry_run:
+                    return None
+            else:
+                if args.debug:
+                    print("🔄 音声ファイルをMP4に変換しています...")
+                converter = create_media_converter()
+                
+                # 音声ファイルのみを変換
+                for i, media_path in enumerate(resized_media_files):
+                    if media_path.lower().endswith('.m4a'):
+                        try:
+                            if not args.dry_run:
+                                converted_path = converter.convert_m4a_to_mp4(media_path)
+                                resized_media_files[i] = converted_path
+                                if args.debug:
+                                    print(f"✅ 変換完了: {media_path} → {converted_path}")
+                            else:
+                                if args.debug:
+                                    print(f"[ドライラン] 変換予定: {media_path}")
+                        except ConversionError as e:
+                            print(f"❌ 変換失敗: {media_path} - {e}")
+                            if not args.dry_run:
+                                return None
     
-    print("注意: --feed オプションでは上記の名前を指定できます。")
+    except ValidationError as e:
+        print(f"❌ メディア検証エラー: {e}")
+        return None
+    except Exception as e:
+        print(f"❌ メディア処理中にエラーが発生しました: {e}")
+        if args.debug:
+            import traceback
+            traceback.print_exc()
+        return None
+    
+    return resized_media_files
 
 
-def handle_direct_text_post(args, config_manager):
+def setup_text_optimization(args, config_manager):
     """
-    直接テキスト投稿を処理します
+    テキスト最適化の設定を行います
     
     Args:
         args: コマンドライン引数
         config_manager: 設定管理インスタンス
+        
+    Returns:
+        TextOptimizer or None: テキスト最適化オブジェクト
     """
-    original_text = args.text
-    target_sns = None
-    media_files = args.media or []
-    
-    # メディア添付機能のバリデーション
-    resized_media_files = []
-    if media_files:
-        from .media_validator import validate_media_for_posting, ValidationError
-        from .media_converter import create_media_converter, ConversionError, is_ffmpeg_available
-        from .image_resizer import create_image_resizer
-        
-        if args.debug:
-            print(f"添付メディア: {len(media_files)}件")
-            for i, media_path in enumerate(media_files, 1):
-                print(f"  {i}. {media_path}")
-        
-        # 画像リサイズの前処理
-        if args.debug:
-            print("画像リサイズ処理を実行中...")
-        resizer = create_image_resizer(debug=args.debug)
-        
-        for media_path in media_files:
-            try:
-                # 画像ファイルかどうかチェック
-                if media_path.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp')):
-                    # SNS別の制限を考慮（複数SNSがある場合は最小値を使用）
-                    if args.sns:
-                        target_sns_list = [sns.strip() for sns in args.sns.split(',')]
-                        # 最初のSNSの制限を使用（複数対応は後で改良可能）
-                        sns_type = target_sns_list[0] if target_sns_list else 'bluesky'
-                    else:
-                        sns_type = 'bluesky'  # デフォルト
-                    
-                    # 画像をリサイズ
-                    resized_path = resizer.resize_image_file(media_path, sns_type)
-                    resized_media_files.append(resized_path)
-                    
-                    if args.debug:
-                        original_size = os.path.getsize(media_path)
-                        resized_size = os.path.getsize(resized_path)
-                        print(f"[DEBUG] リサイズ: {media_path} ({original_size} bytes) → {resized_path} ({resized_size} bytes)")
-                else:
-                    # 画像以外はそのまま
-                    resized_media_files.append(media_path)
-            except Exception as e:
-                if args.debug:
-                    print(f"画像リサイズエラー: {media_path} - {e}")
-                resized_media_files.append(media_path)  # エラー時は元ファイルを使用
-        
-        # リサイズ後のファイルでバリデーション実行
-        media_files = resized_media_files
-    
-    # --optimizeオプションが指定された場合はTextOptimizerを使用
     if args.optimize:
         from .text_optimizer import TextOptimizer
-        text_optimizer = TextOptimizer(config_manager.config)
-    else:
-        text_optimizer = None
+        return TextOptimizer(config_manager.config)
+    return None
+
+
+def validate_and_filter_plugins(args, config_manager):
+    """
+    プラグインの読み込み、フィルタリング、バリデーションを行います
+    
+    Args:
+        args: コマンドライン引数
+        config_manager: 設定管理インスタンス
+        
+    Returns:
+        tuple: (plugins_dict, target_sns_list) または None（エラー時）
+    """
+    target_sns = None
     
     # SNS限定オプションの処理
     if args.sns:
@@ -305,7 +361,7 @@ def handle_direct_text_post(args, config_manager):
     
     # プラグインを読み込み
     if not args.dry_run:
-        all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None)
+        all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None, dry_run=args.dry_run)
         
         # SNS限定がある場合はフィルタリング
         if target_sns:
@@ -319,104 +375,39 @@ def handle_direct_text_post(args, config_manager):
             if not plugins:
                 print(f"指定されたSNS ({args.sns}) が見つかりませんでした。")
                 print(f"利用可能なSNS: {', '.join(all_plugins.keys())}")
-                return
+                return None
         else:
             plugins = all_plugins
     else:
         plugins = {}
     
-    # メディアファイルの事前検証
-    if media_files:
-        try:
-            # 対象SNSのリストを作成
-            if plugins:
-                target_sns_types = []
-                for plugin_name, plugin_instance in plugins.items():
-                    sns_type = getattr(plugin_instance, 'sns_type', None) or plugin_name.split('-')[0]
-                    if sns_type not in target_sns_types:
-                        target_sns_types.append(sns_type)
-            else:
-                # ドライラン時は全SNSをチェック
-                target_sns_types = ['x', 'bluesky', 'mastodon', 'misskey']
-            
-            # メディア検証実行
-            validation_results = validate_media_for_posting(media_files, target_sns_types)
-            
-            # 検証結果の表示
-            has_errors = False
-            converted_files = {}
-            
-            for sns_type, result in validation_results.items():
-                if result.errors:
-                    has_errors = True
-                    print(f"❌ {sns_type.upper()}: {', '.join(result.errors)}")
-                elif result.warnings and args.debug:
-                    print(f"⚠️  {sns_type.upper()}: {', '.join(result.warnings)}")
-                elif args.debug:
-                    print(f"✅ {sns_type.upper()}: 投稿可能")
-                
-                # 変換情報を収集
-                converted_files.update(result.converted_files)
-            
-            # エラーがある場合は処理を停止
-            if has_errors and not args.dry_run:
-                print("\n投稿を中止しました。上記のエラーを解決してから再実行してください。")
-                return
-            
-            # 音声ファイルの変換処理（X向け）
-            if any('x' in validation_results and 
-                   any('MP4に変換されます' in warning for warning in validation_results['x'].warnings) 
-                   for _ in [None]):  # 条件チェック用のダミーループ
-                
-                if not is_ffmpeg_available():
-                    print("❌ ffmpegが見つかりません。音声変換にはffmpegが必要です。")
-                    if not args.dry_run:
-                        return
-                else:
-                    if args.debug:
-                        print("🔄 音声ファイルをMP4に変換しています...")
-                    converter = create_media_converter()
-                    
-                    # 音声ファイルのみを変換
-                    for i, media_path in enumerate(media_files):
-                        if media_path.lower().endswith('.m4a'):
-                            try:
-                                if not args.dry_run:
-                                    converted_path = converter.convert_m4a_to_mp4(media_path)
-                                    media_files[i] = converted_path
-                                    if args.debug:
-                                        print(f"✅ 変換完了: {media_path} → {converted_path}")
-                                else:
-                                    if args.debug:
-                                        print(f"[ドライラン] 変換予定: {media_path}")
-                            except ConversionError as e:
-                                print(f"❌ 変換失敗: {media_path} - {e}")
-                                if not args.dry_run:
-                                    return
-        
-        except ValidationError as e:
-            print(f"❌ メディア検証エラー: {e}")
-            return
-        except Exception as e:
-            print(f"❌ メディア処理中にエラーが発生しました: {e}")
-            if args.debug:
-                import traceback
-                traceback.print_exc()
-            return
+    return plugins, target_sns
+
+
+def execute_sns_posting(original_text, media_files, plugins, target_sns, text_optimizer, args, config_manager):
+    """
+    SNS投稿処理を実行します
     
-    if args.debug:
-        print(f"投稿テキスト: {original_text}")
-        print(f"文字数: {len(original_text)}")
-    
-    if args.optimize and args.debug:
-        print("テキスト最適化が有効です。")
-    
+    Args:
+        original_text: 元の投稿テキスト
+        media_files: 添付メディアファイル
+        plugins: SNSプラグイン辞書
+        target_sns: 対象SNSリスト
+        text_optimizer: テキスト最適化オブジェクト
+        args: コマンドライン引数
+        config_manager: 設定管理インスタンス
+    """
     # 文字数制限の警告表示
-    character_limits = {'x': 280, 'bluesky': 300, 'mastodon': 500, 'misskey': 3000}
+    character_limits = config_manager.config.get('character_limits', {
+        'x': 280, 
+        'bluesky': 300, 
+        'mastodon': 500, 
+        'misskey': 3000
+    })
     
     # ドライラン時は警告用に仮のプラグイン情報を作成
     if args.dry_run and target_sns:
-        all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None)
+        all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None, dry_run=args.dry_run)
         plugins_for_warning = {}
         for plugin_name, plugin_instance in all_plugins.items():
             sns_type = getattr(plugin_instance, 'sns_type', None) or plugin_name.split('-')[0]
@@ -466,33 +457,34 @@ def handle_direct_text_post(args, config_manager):
                     }
                 
                 # 最適化が有効な場合はSNS別に最適化されたテキストを使用
+                optimized_text_to_post = original_text
                 if args.optimize and text_optimizer:
                     sns_type = getattr(plugin_instance, 'sns_type', None) or plugin_name.split('-')[0]
-                    # URLが含まれている場合のみ最適化を適用（タイトルとして空文字、リンクとして全文を扱う）
-                    
                     if urls:
-                        # URLを含む場合：URL以外の部分をタイトルとして扱う
-                        url = urls[-1]  # 最後のURLを使用
+                        url = urls[-1]
                         title_part = original_text.replace(url, '').strip()
-                        optimized_text = text_optimizer.optimize_text(title_part, url, sns_type, force_optimize=True)
+                        optimized_text_to_post = text_optimizer.optimize_text(title_part, url, sns_type, force_optimize=True)
                     else:
-                        # URLを含まない場合：そのまま投稿
-                        optimized_text = original_text
-                    
+                        optimized_text_to_post = original_text # URLを含まない場合はそのまま
+
                     if args.debug:
-                        print(f"  最適化後: {optimized_text} ({len(optimized_text)}文字)")
-                    
-                    # リンクカード対応プラグインの場合はarticle_dataを渡す
-                    if article_data:
-                        plugin_instance.post(optimized_text, media_files if media_files else None, article_data=article_data, debug=args.debug)
-                    else:
-                        plugin_instance.post(optimized_text, media_files if media_files else None, debug=args.debug)
-                else:
-                    # リンクカード対応プラグインの場合はarticle_dataを渡す
-                    if article_data:
-                        plugin_instance.post(original_text, media_files if media_files else None, article_data=article_data, debug=args.debug)
-                    else:
-                        plugin_instance.post(original_text, media_files if media_files else None, debug=args.debug)
+                        print(f"  最適化後: {optimized_text_to_post} ({len(optimized_text_to_post)}文字)")
+
+                # リンクカード対応プラグインのために簡易article_dataを作成
+                article_data_to_post = None
+                if urls and hasattr(plugin_instance, 'supports_rich_content') and plugin_instance.supports_rich_content():
+                    url = urls[-1]
+                    title_part = original_text.replace(url, '').strip()
+                    image_url = extract_image_from_url(url, debug=args.debug)
+                    article_data_to_post = {
+                        'title': title_part if title_part else 'ブログ記事',
+                        'link': url,
+                        'description': title_part,
+                        'image': image_url if image_url else None
+                    }
+
+                # 投稿実行
+                plugin_instance.post(optimized_text_to_post, media_files if media_files else None, article_data=article_data_to_post, debug=args.debug)
                 
                 if args.debug:
                     print(f"- {plugin_name}: 投稿完了")
@@ -504,9 +496,84 @@ def handle_direct_text_post(args, config_manager):
         if target_sns:
             print(f"- 投稿対象: {', '.join(target_sns)}")
         else:
-            all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None)
+            all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None, dry_run=args.dry_run)
             print(f"- 投稿対象: {', '.join(all_plugins.keys())}")
         print("[ドライラン] 直接投稿をシミュレートしました。")
+
+
+def handle_list_feeds(config_manager):
+    """
+    登録されているフィードの一覧を表示します
+    
+    Args:
+        config_manager: 設定管理インスタンス
+    """
+    print("=== 登録されているフィード一覧 ===")
+    
+    feed_configs = config_manager.get_all_feed_configs()
+    
+    if not feed_configs:
+        print("フィードが設定されていません。")
+        print("config.ymlを確認してください。")
+        return
+    
+    print(f"登録フィード数: {len(feed_configs)}")
+    print()
+    
+    for i, feed_config in enumerate(feed_configs, 1):
+        name = feed_config.get('name', f'フィード{i}')
+        feed_url = feed_config.get('feed_url', 'N/A')
+        
+        print(f"{i}. {name}")
+        print(f"   フィードURL: {feed_url}")
+        
+        # 画像設定の確認
+        image_settings = feed_config.get('image_settings')
+        if image_settings:
+            enable_link_cards = image_settings.get('enable_link_cards', False)
+            print(f"   リンクカード機能: {'有効' if enable_link_cards else '無効'}")
+        print()
+    
+    print("注意: --feed オプションでは上記の名前を指定できます。")
+
+
+def handle_direct_text_post(args, config_manager):
+    """
+    直接テキスト投稿を処理します
+    
+    Args:
+        args: コマンドライン引数
+        config_manager: 設定管理インスタンス
+    """
+    original_text = args.text
+    target_sns = None
+    media_files = args.media or []
+    
+    # メディアファイルの処理
+    processed_media_files = process_media_files(media_files, args)
+    if processed_media_files is None:  # エラーが発生した場合
+        return
+    media_files = processed_media_files
+    
+    # テキスト最適化の設定
+    text_optimizer = setup_text_optimization(args, config_manager)
+    
+    # プラグインのバリデーション・フィルタリング
+    plugin_result = validate_and_filter_plugins(args, config_manager)
+    if plugin_result is None:  # エラーが発生した場合
+        return
+    plugins, target_sns = plugin_result
+    
+    
+    if args.debug:
+        print(f"投稿テキスト: {original_text}")
+        print(f"文字数: {len(original_text)}")
+    
+    if args.optimize and args.debug:
+        print("テキスト最適化が有効です。")
+    
+    # SNS投稿処理の実行
+    execute_sns_posting(original_text, media_files, plugins, target_sns, text_optimizer, args, config_manager)
 
 def main():
     parser = argparse.ArgumentParser(description="ブログの更新をチェックし、SNSにポストします。")
@@ -570,7 +637,7 @@ def main():
             
             # プラグインを読み込み
             if not args.dry_run:
-                all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None)
+                all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None, dry_run=args.dry_run)
                 
                 # SNS限定がある場合はフィルタリング
                 if args.sns:
@@ -652,7 +719,7 @@ def main():
             
             # プラグインを読み込み
             if not args.dry_run:
-                all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None)
+                all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None, dry_run=args.dry_run)
                 
                 # SNS限定がある場合はフィルタリング
                 if args.sns:

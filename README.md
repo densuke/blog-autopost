@@ -306,6 +306,46 @@ character_limits:
 # 投稿テキスト: "長いタイトルの記事について... https://is.gd/abc123"
 ```
 
+## Web UI機能
+
+このツールは、CLI機能に加えて、手動投稿や予約投稿を行うためのWebインターフェースを提供します。
+
+### Web UIの起動
+
+以下のコマンドでWebサーバーを起動します。
+
+```bash
+just run-web
+# または
+uv run uvicorn src.web.main_web:app --reload
+```
+
+サーバー起動後、ブラウザで `http://127.0.0.1:8000` にアクセスしてください。
+
+### 機能
+
+- **手動投稿**: テキスト、URL、画像をアップロードして、選択したSNSに即時投稿します。
+- **予約投稿**: 指定した日時に投稿を予約できます。
+- **リアルタイム検証**: 投稿前に文字数などをクライアントサイドでチェックします。
+
+### Web UI用の設定
+
+Web UIにアクセスするには、`config.yml`に認証情報を追加する必要があります。
+
+```yaml
+# Web UIの認証設定
+web_auth:
+  username: "admin"  # ログインユーザー名
+  password: "your_strong_password_here"  # ログインパスワード
+  secret_key: "your_very_secret_key_here"  # セッション管理用の秘密鍵
+```
+
+`secret_key`は、以下のコマンドなどで生成したランダムな文字列を設定してください。
+
+```bash
+openssl rand -hex 32
+```
+
 ## 各種APIキーの取得方法
 
 #### X (旧Twitter)
@@ -318,19 +358,15 @@ character_limits:
 4.  `Keys and tokens` セクションから、`Consumer Key (API Key)`、`Consumer Secret (API Secret)`、`Access Token`、`Access Token Secret` を取得し、`config.yml` に設定します。
 
 **メディア添付機能について:**
-- メディア添付機能を使用する場合、**Elevated access**の申請と承認が必要です
-- 申請には X API の使用目的を詳細に記述する必要があります
-- 承認までに数日～数週間かかる場合があります
-- **注意**: 個人的な用途では承認が困難な場合があります
+- メディア添付機能を使用する場合、Xの開発者アカウントの有料ティアへの切り替えが必要な場合があります。
+- 無料ティアでは、複数画像のアップロードが制限される可能性があります（例: 1枚のみ）。
+- 詳細はX Developer Portalの最新の料金体系をご確認ください。
 
 **Elevated access申請方法:**
-1. [X Developer Portal](https://developer.twitter.com/en/portal/dashboard) のメインダッシュボードで「Apply for Elevated access」をクリック
-2. 使用目的、API使用方法、データの取り扱いについて詳細に記述
-3. 承認後、Access Token の再生成が必要な場合があります
+- 現在、Elevated accessの概念はXの開発者プラットフォームの料金体系に統合されています。
 
 **一時的な対応:**
-- Elevated access取得まではXでのメディア添付は利用できません
-- `--sns` オプションでX以外のSNSのみを指定して使用してください
+- 複数画像投稿ができない場合は、X以外のSNSのみを指定して使用してください。
 - 例: `uv run -m src.main --text "画像付き投稿" --media image.jpg --sns bluesky,mastodon`
 
 #### Bluesky (AT Protocol)

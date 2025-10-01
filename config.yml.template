@@ -74,6 +74,19 @@ character_limits:
   mastodon: 500          # Mastodonの文字数制限
   misskey: 3000          # Misskeyの文字数制限
 
+# Web UIの認証設定
+web_auth:
+  username: "your_username"
+  password: "your_strong_password_here"
+  secret_key: "your_secret_key_for_session_management"
+
+# 文字数制限設定 (SNSごとにオーバーライド可能)
+character_limits:
+  x: 280
+  bluesky: 300
+  mastodon: 500
+  misskey: 3000
+
 # SNS設定は2つの形式で記述できます:
 # 1. オブジェクト形式（従来の方法、後方互換性のため維持）
 # 2. 配列形式（複数アカウント対応、推奨）
@@ -138,3 +151,12 @@ sns:
     app_id: "YOUR_META_APP_ID"
     app_secret: "YOUR_META_APP_SECRET"
     access_token: "YOUR_THREADS_LONG_LIVED_ACCESS_TOKEN"
+  - type: tumblr
+    name: "tumblr-main"
+    client_id: "YOUR_TUMBLR_CLIENT_ID"
+    client_secret: "YOUR_TUMBLR_CLIENT_SECRET"
+    access_token: "YOUR_TUMBLR_ACCESS_TOKEN"
+    blog_name: "YOUR_BLOG_NAME"  # example.tumblr.com の場合は "example"
+    tags:  # オプション: 自動タグ付け
+      - "blog"
+      - "auto-post"
