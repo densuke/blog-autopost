@@ -60,10 +60,10 @@ class PostingService:
                     if hasattr(plugin, 'supports_rich_content') and plugin.supports_rich_content():
                         # リッチコンテンツ対応プラグインの場合、URLはテキストに含めずarticle_dataに渡す
                         article_data = {'title': original_text, 'link': url, 'description': original_text}
+                        text_to_optimize = original_text  # URLを含めない
                     else:
                         # リッチコンテンツ非対応の場合、URLをテキストに含める
                         text_to_optimize = f"{original_text} {url}".strip()
-                
                 optimized_text = self.text_optimizer.optimize_text(text_to_optimize, url, plugin.sns_type)
 
                 # 2.4. 投稿実行
