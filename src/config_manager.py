@@ -178,6 +178,10 @@ class ConfigManager:
                 # オブジェクト形式の場合
                 return blog_config.get('image_settings')
 
+    def get_web_auth_credentials(self):
+        """Web UIの認証情報を取得する"""
+        return self.config.get('web_auth', {})
+
 def load_config(config_path="config.yml"):
     """
     設定ファイルを読み込みます。

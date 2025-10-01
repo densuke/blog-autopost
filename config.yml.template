@@ -74,6 +74,11 @@ character_limits:
   mastodon: 500          # Mastodonの文字数制限
   misskey: 3000          # Misskeyの文字数制限
 
+# Web UIの認証設定
+web_auth:
+  username: "admin"
+  password: "your_strong_password_here"
+
 # SNS設定は2つの形式で記述できます:
 # 1. オブジェクト形式（従来の方法、後方互換性のため維持）
 # 2. 配列形式（複数アカウント対応、推奨）
