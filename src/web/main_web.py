@@ -53,7 +53,10 @@ posting_service = PostingService(
 )
 
 # セッション管理ミドルウェアの追加
-app.add_middleware(SessionMiddleware, secret_key=config_manager.get_secret_key())
+secret_key = config_manager.get_secret_key()
+if not secret_key:
+    raise RuntimeError("セッション管理用のsecret_keyが設定されていません。config.ymlを確認してください。")
+app.add_middleware(SessionMiddleware, secret_key=secret_key)
 
 templates = Jinja2Templates(directory="src/web/templates")
 
