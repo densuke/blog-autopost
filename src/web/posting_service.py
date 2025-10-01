@@ -50,11 +50,21 @@ class PostingService:
                     continue # このSNSへの投稿はスキップ
 
                 # 2.3. テキストの最適化
-                text_to_optimize = f"{original_text} {url}".strip()
+                article_data = None
+                text_to_optimize = original_text
+
+                if url:
+                    if hasattr(plugin, 'supports_rich_content') and plugin.supports_rich_content():
+                        # リッチコンテンツ対応プラグインの場合、URLはテキストに含めずarticle_dataに渡す
+                        article_data = {'title': original_text, 'link': url, 'description': original_text}
+                    else:
+                        # リッチコンテンツ非対応の場合、URLをテキストに含める
+                        text_to_optimize = f"{original_text} {url}".strip()
+                
                 optimized_text = self.text_optimizer.optimize_text(text_to_optimize, url, plugin.sns_type)
 
                 # 2.4. 投稿実行
-                plugin.post(optimized_text, current_plugin_media_files, article_data=None, debug=debug)
+                plugin.post(optimized_text, current_plugin_media_files, article_data=article_data, debug=debug)
                 results[name] = {'success': True, 'message': 'Posted successfully.'}
 
             except Exception as e:
