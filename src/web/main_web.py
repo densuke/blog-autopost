@@ -132,3 +132,44 @@ def api_post(
 
     finally:
         shutil.rmtree(temp_dir)
+
+@app.post("/api/schedule")
+def api_schedule(
+    request: Request,
+    text: str = Form(...),
+    url: str = Form(None),
+    sns_targets: List[str] = Form(...),
+    media_files: List[UploadFile] = File([]),
+    schedule_time: str = Form(...),
+    user: str = Depends(get_current_user)
+):
+    from datetime import datetime
+
+    temp_dir = tempfile.mkdtemp()
+    media_paths = []
+    try:
+        for file in media_files:
+            path = os.path.join(temp_dir, file.filename)
+            with open(path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            media_paths.append(path)
+
+        post_data = {
+            'text': text,
+            'url': url,
+            'sns_targets': sns_targets,
+            'media_files': media_paths
+        }
+
+        run_date = datetime.fromisoformat(schedule_time)
+
+        scheduler.add_job(posting_service.post_now, 'date', run_date=run_date, args=[post_data])
+        
+        return JSONResponse(content={"message": "Post scheduled successfully"})
+
+    except Exception as e:
+        # In a real app, you'd want more specific error handling
+        raise HTTPException(status_code=400, detail=str(e))
+    # Note: The temporary directory with files for scheduled posts is not cleaned up here.
+    # This is a simplification for this implementation step.
+    # A more robust solution would involve a persistent storage for uploaded files.

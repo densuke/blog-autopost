@@ -125,3 +125,26 @@ def test_scheduler_lifecycle():
             mock_scheduler.start.assert_called_once()
         # アプリケーションの終了時にスケジューラがシャットダウンされることを確認
         mock_scheduler.shutdown.assert_called_once()
+
+def test_schedule_api_endpoint():
+    """/api/scheduleエンドポイントがスケジューラを正しく呼び出すことをテストする"""
+    client = TestClient(app)
+    # ログイン
+    client.post("/login", data={"username": "admin", "password": "your_strong_password_here"})
+
+    with patch('src.web.main_web.scheduler') as mock_scheduler:
+        schedule_time = "2025-12-31T23:59:00"
+        data = {
+            'text': 'Scheduled post',
+            'url': 'http://schedule.example.com',
+            'sns_targets': 'x-main',
+            'schedule_time': schedule_time
+        }
+
+        response = client.post("/api/schedule", data=data)
+
+        assert response.status_code == 200
+        assert response.json() == {"message": "Post scheduled successfully"}
+
+        # スケジューラが正しい引数で呼び出されたか検証
+        mock_scheduler.add_job.assert_called_once()

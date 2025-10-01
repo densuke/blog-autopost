@@ -71,6 +71,12 @@
         </div>
 
         <button type="submit">すぐに投稿</button>
+        <hr>
+        <div>
+            <label for="schedule_time">予約日時:</label>
+            <input type="datetime-local" id="schedule_time" name="schedule_time">
+            <button type="button" id="schedule-btn">予約投稿</button>
+        </div>
     </form>
     <div id="status-messages"></div>
 
@@ -173,7 +179,20 @@
         // --- フォーム送信 --- 
         postForm.addEventListener('submit', (e) => {
             e.preventDefault();
-            statusMessages.innerHTML = '投稿中...';
+            submitPost('/api/post');
+        });
+
+        document.getElementById('schedule-btn').addEventListener('click', () => {
+            const scheduleTime = document.getElementById('schedule_time').value;
+            if (!scheduleTime) {
+                alert('予約日時を指定してください。');
+                return;
+            }
+            submitPost('/api/schedule');
+        });
+
+        function submitPost(endpoint) {
+            statusMessages.innerHTML = '送信中...';
 
             const formData = new FormData();
             formData.append('text', document.getElementById('text').value);
@@ -187,7 +206,11 @@
                 formData.append('media_files', file);
             });
 
-            fetch('/api/post', {
+            if (endpoint === '/api/schedule') {
+                formData.append('schedule_time', document.getElementById('schedule_time').value);
+            }
+
+            fetch(endpoint, {
                 method: 'POST',
                 body: formData
             })
@@ -203,21 +226,25 @@
                     statusMessages.innerHTML = `<p class="warning">エラー: ${data.error}</p>`;
                     return;
                 }
-                for (const [sns, result] of Object.entries(data)) {
-                    const p = document.createElement('p');
-                    if (result.success) {
-                        p.textContent = `✅ ${sns}: 投稿に成功しました。`;
-                    } else {
-                        p.classList.add('warning');
-                        p.textContent = `❌ ${sns}: 投稿に失敗しました - ${result.message}`;
+                if (endpoint === '/api/schedule') {
+                    statusMessages.innerHTML = `<p>${data.message}</p>`;
+                } else {
+                    for (const [sns, result] of Object.entries(data)) {
+                        const p = document.createElement('p');
+                        if (result.success) {
+                            p.textContent = `✅ ${sns}: 投稿に成功しました。`;
+                        } else {
+                            p.classList.add('warning');
+                            p.textContent = `❌ ${sns}: 投稿に失敗しました - ${result.message}`;
+                        }
+                        statusMessages.appendChild(p);
                     }
-                    statusMessages.appendChild(p);
                 }
             })
             .catch(error => {
                 statusMessages.innerHTML = `<p class="warning">送信中にエラーが発生しました: ${error}</p>`;
             });
-        });
+        }
 
         // 初期表示
         updateCounter();
