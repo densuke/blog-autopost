@@ -3,12 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <title>Blog AutoPost</title>
+    <style>
+        .warning { color: red; font-weight: bold; }
+    </style>
 </head>
 <body>
     <h1>新規投稿</h1>
     <form action="/api/post" method="post" enctype="multipart/form-data">
         <div>
-            <label for="text">投稿文:</label><br>
+            <label for="text">投稿文:</label> 
+            <span id="char-counter">0</span> / <span id="char-limit">-</span>
+            <br>
             <textarea id="text" name="text" rows="5" cols="50"></textarea>
         </div>
         <div>
@@ -18,11 +23,56 @@
         <div>
             <label>投稿先SNS:</label><br>
             {% for account in sns_accounts %}
-            <input type="checkbox" id="sns_{{ account.name }}" name="sns_targets" value="{{ account.name }}">
+            <input type="checkbox" id="sns_{{ account.name }}" name="sns_targets" value="{{ account.name }}" 
+                   data-limit="{% if account.type == 'x' %}280{% elif account.type == 'bluesky' %}300{% elif account.type == 'mastodon' %}500{% elif account.type == 'misskey' %}3000{% else %}9999{% endif %}">
             <label for="sns_{{ account.name }}">{{ account.name }} ({{ account.type }})</label><br>
             {% endfor %}
         </div>
         <button type="submit">すぐに投稿</button>
     </form>
+
+    <script>
+        const textArea = document.getElementById('text');
+        const charCounter = document.getElementById('char-counter');
+        const charLimitDisplay = document.getElementById('char-limit');
+        const snsCheckboxes = document.querySelectorAll('input[name="sns_targets"]');
+
+        function updateCounter() {
+            const currentLength = textArea.value.length;
+            charCounter.textContent = currentLength;
+
+            let minLimit = Infinity;
+            let atLeastOneChecked = false;
+            snsCheckboxes.forEach(checkbox => {
+                if (checkbox.checked) {
+                    atLeastOneChecked = true;
+                    const limit = parseInt(checkbox.dataset.limit, 10);
+                    if (limit < minLimit) {
+                        minLimit = limit;
+                    }
+                }
+            });
+
+            if (atLeastOneChecked) {
+                charLimitDisplay.textContent = minLimit;
+                if (currentLength > minLimit) {
+                    charCounter.classList.add('warning');
+                } else {
+                    charCounter.classList.remove('warning');
+                }
+            } else {
+                charLimitDisplay.textContent = '-';
+                charCounter.classList.remove('warning');
+            }
+        }
+
+        textArea.addEventListener('input', updateCounter);
+        snsCheckboxes.forEach(checkbox => {
+            checkbox.addEventListener('change', updateCounter);
+        });
+
+        // 初期表示
+        updateCounter();
+    </script>
 </body>
 </html>
