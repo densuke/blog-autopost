@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. Webアプリケーションの基盤構築
+- [x] 1. Webアプリケーションの基盤構築
 - [x] 1.1 依存関係の追加
   - `pyproject.toml`に`fastapi`, `uvicorn`, `python-multipart`, `jinja2`, `apscheduler`を追加します。
   - _Requirements: すべての要件の基礎_
