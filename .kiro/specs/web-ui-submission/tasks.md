@@ -7,7 +7,7 @@
 - [x] 1.2 ディレクトリ構造の作成
   - `src/web/`, `src/web/templates/`のディレクトリを作成します。
   - _Requirements: すべての要件の基礎_
-- [ ] 1.3 基本的なWebサーバーの実装
+- [x] 1.3 基本的なWebサーバーの実装
   - `src/web/main_web.py`にFastAPIのインスタンスを作成し、Uvicornで起動できることを確認します。
   - _Requirements: すべての要件の基礎_
 

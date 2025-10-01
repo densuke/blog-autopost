@@ -36,6 +36,10 @@ test-cov:
 sync:
     uv sync
 
+# Webサーバーの起動
+run-web:
+    uv run uvicorn src.web.main_web:app --reload
+
 # 使用例とヘルプ
 help:
     @echo "blog-autopost justfile コマンド一覧:"
