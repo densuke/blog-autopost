@@ -19,7 +19,7 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 app = FastAPI()
 
 # データディレクトリの確認と作成
-DATA_DIR = "data"
+DATA_DIR = os.environ.get("DATA_DIR", "data")
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
