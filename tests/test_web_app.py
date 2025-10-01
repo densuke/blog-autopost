@@ -82,3 +82,37 @@ def test_get_main_page_authenticated():
     assert b'<input type="checkbox"' in response.content
     assert b'name="sns_targets"' in response.content
     assert b'value="x-main"' in response.content
+
+from unittest.mock import patch
+
+def test_post_api_endpoint():
+    """/api/postエンドポイントがPostingServiceを正しく呼び出すことをテストする"""
+    client = TestClient(app)
+    # ログイン
+    client.post("/login", data={"username": "admin", "password": "your_strong_password_here"})
+
+    with patch('src.web.main_web.posting_service') as mock_posting_service:
+        mock_posting_service.post_now.return_value = {'x-main': {'success': True}}
+        
+        # ダミーのアップロードファイルを作成
+        dummy_file_content = b"dummy image content"
+        files = {'media_files': ('test.jpg', dummy_file_content, 'image/jpeg')}
+        data = {
+            'text': 'Test post',
+            'url': 'http://example.com',
+            'sns_targets': 'x-main'
+        }
+
+        response = client.post("/api/post", data=data, files=files)
+
+        assert response.status_code == 200
+        assert response.json() == {'x-main': {'success': True}}
+
+        # PostingServiceが正しい引数で呼び出されたか検証
+        # ファイルパスは一時的なものなので、ここでは呼び出されたこと自体を主眼に置く
+        mock_posting_service.post_now.assert_called_once()
+        called_args, _ = mock_posting_service.post_now.call_args
+        assert called_args[0]['text'] == 'Test post'
+        assert called_args[0]['url'] == 'http://example.com'
+        assert called_args[0]['sns_targets'] == ['x-main']
+        assert len(called_args[0]['media_files']) == 1

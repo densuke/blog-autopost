@@ -46,7 +46,7 @@
 - [x] 4.1 投稿処理サービスの作成
   - 既存の`media_validator`, `image_resizer`, `text_optimizer`, `plugin_loader`を呼び出し、一連の投稿処理をまとめる`PostingService`を実装します。
   - _Requirements: 3.3, 3.4, 4.4_
-- [ ] 4.2 即時投稿APIエンドポイントの実装
+- [x] 4.2 即時投稿APIエンドポイントの実装
   - 投稿フォームから送信されたデータ（テキスト、URL、アップロードされたファイル、対象SNS）を受け取る`/api/post`エンドポイントを実装します。
   - _Requirements: 4.1_
 - [ ] 4.3 投稿サービスとAPIの統合
