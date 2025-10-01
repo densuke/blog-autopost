@@ -43,12 +43,11 @@ config_manager = ConfigManager("config.yml")
 auth_service = AuthService(config_manager)
 
 # 投稿関連サービスのインスタンス化
-media_validator = MediaValidator()
+# media_validator = MediaValidator() # PostingService内で直接呼び出すため不要
 image_resizer = ImageResizer()
 text_optimizer = TextOptimizer(config_manager.config)
 posting_service = PostingService(
     config_manager=config_manager, 
-    media_validator=media_validator, 
     image_resizer=image_resizer, 
     text_optimizer=text_optimizer
 )

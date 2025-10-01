@@ -3,16 +3,15 @@
 
 from ..config_manager import ConfigManager
 from .. import plugin_loader
-from ..media_validator import MediaValidator
+from ..media_validator import validate_media_for_posting
 from ..image_resizer import ImageResizer
 from ..text_optimizer import TextOptimizer
 
 class PostingService:
     def __init__(self, config_manager: ConfigManager, 
-                 media_validator: MediaValidator, image_resizer: ImageResizer, 
+                 image_resizer: ImageResizer, 
                  text_optimizer: TextOptimizer):
         self.config_manager = config_manager
-        self.media_validator = media_validator
         self.image_resizer = image_resizer
         self.text_optimizer = text_optimizer
 
@@ -28,25 +27,34 @@ class PostingService:
         if not plugins:
             return {'error': 'No valid SNS targets found or loaded.'}
 
-        # 2. メディアの検証
-        try:
-            self.media_validator.validate_media_for_posting(media_files, list(plugins.keys()))
-        except Exception as e:
-            return {'error': f'Media validation failed: {e}'}
-
-        # 3. 投稿処理
+        # 2. メディアの検証とリサイズ、投稿
         for name, plugin in plugins.items():
             try:
-                # 4. テキストの最適化
-                # Note: URLをテキストに含めるかどうかは要件による。ここでは含める。
+                # 2.1. プラグイン固有のリサイズ処理
+                current_plugin_media_files = []
+                for media_file_path in media_files:
+                    if media_file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp')):
+                        # 画像ファイルの場合のみリサイズ
+                        resized_path = self.image_resizer.resize_image_file(media_file_path, plugin.sns_type)
+                        current_plugin_media_files.append(resized_path)
+                    else:
+                        current_plugin_media_files.append(media_file_path)
+
+                # 2.2. リサイズ後のメディアで検証
+                validation_results = validate_media_for_posting(current_plugin_media_files, [plugin.sns_type])
+                plugin_validation_result = validation_results.get(plugin.sns_type)
+
+                if plugin_validation_result and not plugin_validation_result.is_valid:
+                    all_errors = ", ".join(plugin_validation_result.errors)
+                    results[name] = {'success': False, 'message': f'Media validation failed for {plugin.sns_type.upper()}: {all_errors}'}
+                    continue # このSNSへの投稿はスキップ
+
+                # 2.3. テキストの最適化
                 text_to_optimize = f"{original_text} {url}".strip()
                 optimized_text = self.text_optimizer.optimize_text(text_to_optimize, url, plugin.sns_type)
 
-                # 5. 投稿実行
-                # Note: メディアのリサイズはここで呼び出す想定だが、
-                # ImageResizerのインターフェースに合わせて調整が必要。
-                # ここでは簡略化のため、リサイズ済みファイルを渡すことを想定。
-                plugin.post(optimized_text, media_files, article_data=None, debug=debug)
+                # 2.4. 投稿実行
+                plugin.post(optimized_text, current_plugin_media_files, article_data=None, debug=debug)
                 results[name] = {'success': True, 'message': 'Posted successfully.'}
 
             except Exception as e:

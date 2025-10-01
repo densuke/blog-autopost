@@ -185,7 +185,8 @@ class ConfigManager:
     def get_secret_key(self):
         """セッション管理用の秘密鍵を取得する"""
         web_auth_config = self.config.get('web_auth', {})
-        return web_auth_config.get('secret_key')
+        secret_key = web_auth_config.get('secret_key')
+        return secret_key
 
 def load_config(config_path="config.yml"):
     """
