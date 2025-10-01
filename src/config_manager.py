@@ -182,6 +182,11 @@ class ConfigManager:
         """Web UIの認証情報を取得する"""
         return self.config.get('web_auth', {})
 
+    def get_secret_key(self):
+        """セッション管理用の秘密鍵を取得する"""
+        web_auth_config = self.config.get('web_auth', {})
+        return web_auth_config.get('secret_key')
+
 def load_config(config_path="config.yml"):
     """
     設定ファイルを読み込みます。

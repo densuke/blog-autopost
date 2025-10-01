@@ -19,6 +19,7 @@ dependencies = [
     "python-multipart",
     "jinja2",
     "apscheduler",
+    "itsdangerous",
 ]
 
 [project.scripts]

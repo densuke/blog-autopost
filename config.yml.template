@@ -78,6 +78,7 @@ character_limits:
 web_auth:
   username: "admin"
   password: "your_strong_password_here"
+  secret_key: "your_very_secret_key_here"  # openssl rand -hex 32 で生成したキーなどを設定
 
 # SNS設定は2つの形式で記述できます:
 # 1. オブジェクト形式（従来の方法、後方互換性のため維持）
