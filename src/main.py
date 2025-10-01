@@ -398,7 +398,12 @@ def execute_sns_posting(original_text, media_files, plugins, target_sns, text_op
         config_manager: 設定管理インスタンス
     """
     # 文字数制限の警告表示
-    character_limits = {'x': 280, 'bluesky': 300, 'mastodon': 500, 'misskey': 3000}
+    character_limits = config_manager.config.get('character_limits', {
+        'x': 280, 
+        'bluesky': 300, 
+        'mastodon': 500, 
+        'misskey': 3000
+    })
     
     # ドライラン時は警告用に仮のプラグイン情報を作成
     if args.dry_run and target_sns:

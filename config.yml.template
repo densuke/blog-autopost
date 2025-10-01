@@ -76,9 +76,16 @@ character_limits:
 
 # Web UIの認証設定
 web_auth:
-  username: "admin"
+  username: "your_username"
   password: "your_strong_password_here"
-  secret_key: "your_very_secret_key_here"  # openssl rand -hex 32 で生成したキーなどを設定
+  secret_key: "your_secret_key_for_session_management"
+
+# 文字数制限設定 (SNSごとにオーバーライド可能)
+character_limits:
+  x: 280
+  bluesky: 300
+  mastodon: 500
+  misskey: 3000
 
 # SNS設定は2つの形式で記述できます:
 # 1. オブジェクト形式（従来の方法、後方互換性のため維持）

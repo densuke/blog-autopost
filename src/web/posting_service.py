@@ -31,17 +31,26 @@ class PostingService:
             return {'error': 'No valid SNS targets found or loaded.'}
 
         # 2. メディアの検証とリサイズ、投稿
+        # 2.1. SNSタイプごとのメディアリサイズ処理を効率化
+        # SNSタイプと元のメディアファイルのパスをキーとした辞書にリサイズ済みファイルのパスをキャッシュ
+        resized_media_cache = {}
+        unique_sns_types = set(plugin.sns_type for plugin in plugins.values())
+
+        for sns_type in unique_sns_types:
+            resized_media_cache[sns_type] = []
+            for media_file_path in media_files:
+                if media_file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp')):
+                    # 画像ファイルの場合のみリサイズ
+                    resized_path = self.image_resizer.resize_image_file(media_file_path, sns_type)
+                    resized_media_cache[sns_type].append(resized_path)
+                else:
+                    # 画像以外はそのまま
+                    resized_media_cache[sns_type].append(media_file_path)
+
         for name, plugin in plugins.items():
             try:
-                # 2.1. プラグイン固有のリサイズ処理
-                current_plugin_media_files = []
-                for media_file_path in media_files:
-                    if media_file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp')):
-                        # 画像ファイルの場合のみリサイズ
-                        resized_path = self.image_resizer.resize_image_file(media_file_path, plugin.sns_type)
-                        current_plugin_media_files.append(resized_path)
-                    else:
-                        current_plugin_media_files.append(media_file_path)
+                # キャッシュからリサイズ済みメディアファイルを取得
+                current_plugin_media_files = resized_media_cache.get(plugin.sns_type, media_files)
 
                 # 2.2. リサイズ後のメディアで検証
                 validation_results = validate_media_for_posting(current_plugin_media_files, [plugin.sns_type])
@@ -60,10 +69,10 @@ class PostingService:
                     if hasattr(plugin, 'supports_rich_content') and plugin.supports_rich_content():
                         # リッチコンテンツ対応プラグインの場合、URLはテキストに含めずarticle_dataに渡す
                         article_data = {'title': original_text, 'link': url, 'description': original_text}
-                        text_to_optimize = original_text  # URLを含めない
                     else:
                         # リッチコンテンツ非対応の場合、URLをテキストに含める
                         text_to_optimize = f"{original_text} {url}".strip()
+                
                 optimized_text = self.text_optimizer.optimize_text(text_to_optimize, url, plugin.sns_type)
 
                 # 2.4. 投稿実行
