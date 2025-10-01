@@ -75,8 +75,8 @@
   - `SNSPlugins`, `MediaServices`, `TextOptimizer` を再利用
   - _Requirements: Existing Architecture Analysis, Architecture Integration_
 
-- [ ] 7. テストと品質保証
-- [ ] 7.1 各コンポーネントのユニットテストを実装する
+- [x] 7. テストと品質保証
+- [x] 7.1 各コンポーネントのユニットテストを実装する
   - `ScheduledPostStore`, `ScheduledPostAPI`, `PostExecutor`, `Scheduler`
   - _Requirements: Unit Tests_
 
@@ -85,8 +85,8 @@
   - スケジュール実行のテスト
   - _Requirements: Integration Tests, E2E/UI Tests_
 
-- [ ] 8. 認証・認可とセキュリティ対策
-- [ ] 8.1 予約投稿APIへの認証・認可を実装する
+- [x] 8. 認証・認可とセキュリティ対策
+- [x] 8.1 予約投稿APIへの認証・認可を実装する
   - 既存の `src/web/auth_service.py` を利用
   - _Requirements: 401 (Unauthorized), Security Considerations_
 

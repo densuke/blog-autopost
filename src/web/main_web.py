@@ -8,6 +8,7 @@ import tempfile
 import os
 from pathlib import Path
 from datetime import datetime
+import logging
 
 from ..config_manager import ConfigManager
 from .auth_service import AuthService
@@ -22,6 +23,17 @@ from .scheduled_post_store import ScheduledPostStore
 from .scheduled_post_model import ScheduledPost
 from .post_executor import PostExecutor
 from .scheduler_service import SchedulerService
+
+# ログの設定
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('data/blog_autopost.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -272,12 +284,15 @@ def re_execute_scheduled_post(post_id: str, user: str = Depends(get_current_user
 def send_scheduled_post_now(post_id: str, user: str = Depends(get_current_user)):
     existing_post = scheduled_post_store.get_post_by_id(post_id)
     if not existing_post:
+        logger.warning(f"User {user} attempted to send non-existent post {post_id}")
         raise HTTPException(status_code=404, detail="Scheduled post not found")
     
     # 実行済みの投稿は即時送信不可
     if existing_post.status == "実行済み":
+        logger.warning(f"User {user} attempted to send already executed post {post_id}")
         raise HTTPException(status_code=409, detail="Cannot send an already executed post immediately")
 
+    logger.info(f"User {user} requested immediate sending of post {post_id}")
     # PostExecutorを使って投稿を実行
     success = post_executor.execute_post(post_id, debug=True)
     
@@ -285,6 +300,12 @@ def send_scheduled_post_now(post_id: str, user: str = Depends(get_current_user))
     updated_post = scheduled_post_store.get_post_by_id(post_id)
     if not updated_post:
         raise HTTPException(status_code=404, detail="Scheduled post not found after immediate sending")
+    
+    if success:
+        logger.info(f"Post {post_id} sent immediately successfully by user {user}")
+    else:
+        logger.error(f"Post {post_id} failed to send immediately for user {user}")
+    
     return updated_post
 
 @app.post("/api/schedule")
