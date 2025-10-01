@@ -90,7 +90,7 @@
   - 既存の `src/web/auth_service.py` を利用
   - _Requirements: 401 (Unauthorized), Security Considerations_
 
-- [ ] 8.2 入力バリデーションとデータ保護を強化する
+- [x] 8.2 入力バリデーションとデータ保護を強化する
   - `scheduled_posts.json` のファイルパーミッション設定
   - メディアファイルの安全な保存
   - _Requirements: Security Considerations_
