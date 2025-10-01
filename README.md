@@ -358,19 +358,15 @@ openssl rand -hex 32
 4.  `Keys and tokens` セクションから、`Consumer Key (API Key)`、`Consumer Secret (API Secret)`、`Access Token`、`Access Token Secret` を取得し、`config.yml` に設定します。
 
 **メディア添付機能について:**
-- メディア添付機能を使用する場合、**Elevated access**の申請と承認が必要です
-- 申請には X API の使用目的を詳細に記述する必要があります
-- 承認までに数日～数週間かかる場合があります
-- **注意**: 個人的な用途では承認が困難な場合があります
+- メディア添付機能を使用する場合、Xの開発者アカウントの有料ティアへの切り替えが必要な場合があります。
+- 無料ティアでは、複数画像のアップロードが制限される可能性があります（例: 1枚のみ）。
+- 詳細はX Developer Portalの最新の料金体系をご確認ください。
 
 **Elevated access申請方法:**
-1. [X Developer Portal](https://developer.twitter.com/en/portal/dashboard) のメインダッシュボードで「Apply for Elevated access」をクリック
-2. 使用目的、API使用方法、データの取り扱いについて詳細に記述
-3. 承認後、Access Token の再生成が必要な場合があります
+- 現在、Elevated accessの概念はXの開発者プラットフォームの料金体系に統合されています。
 
 **一時的な対応:**
-- Elevated access取得まではXでのメディア添付は利用できません
-- `--sns` オプションでX以外のSNSのみを指定して使用してください
+- 複数画像投稿ができない場合は、X以外のSNSのみを指定して使用してください。
 - 例: `uv run -m src.main --text "画像付き投稿" --media image.jpg --sns bluesky,mastodon`
 
 #### Bluesky (AT Protocol)

@@ -116,7 +116,7 @@ class MediaValidator:
     # SNS別の制限設定
     SNS_LIMITS = {
         'x': {
-            'max_images': 4,
+            'max_images': 1,
             'max_videos': 1,
             'max_audio': 0,  # 直接は不可、変換で対応
             'allow_mixed': False,
