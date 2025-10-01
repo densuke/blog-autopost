@@ -126,7 +126,7 @@ def api_post(
             'media_files': media_paths
         }
 
-        result = posting_service.post_now(post_data, debug=True)
+        result = posting_service.post_now(post_data)
         return JSONResponse(content=result)
 
     finally:
@@ -162,7 +162,7 @@ def api_schedule(
 
         run_date = datetime.fromisoformat(schedule_time)
 
-        scheduler.add_job(posting_service.post_now, 'date', run_date=run_date, args=[post_data], kwargs={'debug': True})
+        scheduler.add_job(posting_service.post_now, 'date', run_date=run_date, args=[post_data])
         
         return JSONResponse(content={"message": "Post scheduled successfully"})
 
