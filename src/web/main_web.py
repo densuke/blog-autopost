@@ -13,8 +13,30 @@ from ..media_validator import MediaValidator
 from ..image_resizer import ImageResizer
 from ..text_optimizer import TextOptimizer
 from .posting_service import PostingService
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 
 app = FastAPI()
+
+# データディレクトリの確認と作成
+DATA_DIR = "data"
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR)
+
+# スケジューラの設定
+jobstores = {
+    'default': SQLAlchemyJobStore(url=f'sqlite:///{DATA_DIR}/jobs.sqlite')
+}
+scheduler = BackgroundScheduler(jobstores=jobstores)
+
+@app.on_event("startup")
+def startup_event():
+    scheduler.start()
+
+@app.on_event("shutdown")
+def shutdown_event():
+    scheduler.shutdown()
+
 
 # 設定と認証サービスのインスタンス化
 config_manager = ConfigManager("config.yml")

@@ -116,3 +116,12 @@ def test_post_api_endpoint():
         assert called_args[0]['url'] == 'http://example.com'
         assert called_args[0]['sns_targets'] == ['x-main']
         assert len(called_args[0]['media_files']) == 1
+
+def test_scheduler_lifecycle():
+    """アプリケーションのライフサイクルでスケジューラが開始・停止されることをテストする"""
+    with patch('src.web.main_web.scheduler') as mock_scheduler:
+        with TestClient(app) as client:
+            # アプリケーションの起動時にスケジューラが開始されることを確認
+            mock_scheduler.start.assert_called_once()
+        # アプリケーションの終了時にスケジューラがシャットダウンされることを確認
+        mock_scheduler.shutdown.assert_called_once()

@@ -20,6 +20,7 @@ dependencies = [
     "jinja2",
     "apscheduler",
     "itsdangerous",
+    "sqlalchemy",
 ]
 
 [project.scripts]
