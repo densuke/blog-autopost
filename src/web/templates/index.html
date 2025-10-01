@@ -5,11 +5,43 @@
     <title>Blog AutoPost</title>
     <style>
         .warning { color: red; font-weight: bold; }
+        #drop-zone {
+            border: 2px dashed #ccc;
+            padding: 20px;
+            text-align: center;
+            margin-top: 10px;
+        }
+        #drop-zone.dragover {
+            border-color: #333;
+        }
+        #preview-area {
+            margin-top: 10px;
+            display: flex;
+            flex-wrap: wrap;
+        }
+        .preview-image-container {
+            position: relative;
+            margin: 5px;
+        }
+        .preview-image {
+            max-width: 100px;
+            max-height: 100px;
+        }
+        .remove-btn {
+            position: absolute;
+            top: 0;
+            right: 0;
+            cursor: pointer;
+            background: rgba(0,0,0,0.5);
+            color: white;
+            border: none;
+            border-radius: 50%;
+        }
     </style>
 </head>
 <body>
     <h1>新規投稿</h1>
-    <form action="/api/post" method="post" enctype="multipart/form-data">
+    <form id="post-form">
         <div>
             <label for="text">投稿文:</label> 
             <span id="char-counter">0</span> / <span id="char-limit">-</span>
@@ -28,6 +60,16 @@
             <label for="sns_{{ account.name }}">{{ account.name }} ({{ account.type }})</label><br>
             {% endfor %}
         </div>
+        
+        <div>
+            <label>画像アップロード:</label>
+            <div id="drop-zone">
+                ここにファイルをドラッグ＆ドロップするか、クリックしてファイルを選択
+            </div>
+            <input type="file" id="file-input" multiple accept="image/*" style="display: none;">
+            <div id="preview-area"></div>
+        </div>
+
         <button type="submit">すぐに投稿</button>
     </form>
 
@@ -36,7 +78,14 @@
         const charCounter = document.getElementById('char-counter');
         const charLimitDisplay = document.getElementById('char-limit');
         const snsCheckboxes = document.querySelectorAll('input[name="sns_targets"]');
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const previewArea = document.getElementById('preview-area');
+        const postForm = document.getElementById('post-form');
 
+        let uploadedFiles = [];
+
+        // --- 文字数カウンター --- 
         function updateCounter() {
             const currentLength = textArea.value.length;
             charCounter.textContent = currentLength;
@@ -69,6 +118,69 @@
         textArea.addEventListener('input', updateCounter);
         snsCheckboxes.forEach(checkbox => {
             checkbox.addEventListener('change', updateCounter);
+        });
+
+        // --- ファイルアップロード --- 
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        });
+
+        function handleFiles(files) {
+            for (const file of files) {
+                if (!file.type.startsWith('image/')) continue;
+                
+                uploadedFiles.push(file);
+                const container = document.createElement('div');
+                container.classList.add('preview-image-container');
+
+                const img = document.createElement('img');
+                img.classList.add('preview-image');
+                img.src = URL.createObjectURL(file);
+                
+                const removeBtn = document.createElement('button');
+                removeBtn.textContent = '×';
+                removeBtn.classList.add('remove-btn');
+                removeBtn.onclick = () => {
+                    const index = uploadedFiles.indexOf(file);
+                    if (index > -1) {
+                        uploadedFiles.splice(index, 1);
+                    }
+                    container.remove();
+                };
+
+                container.appendChild(img);
+                container.appendChild(removeBtn);
+                previewArea.appendChild(container);
+            }
+        }
+        
+        // --- フォーム送信 --- 
+        postForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const formData = new FormData(postForm);
+            
+            // JavaScriptで管理しているファイルをFormDataに追加
+            uploadedFiles.forEach(file => {
+                formData.append('media_files', file);
+            });
+
+            // ここでfetch APIを使ってサーバーに送信する処理を後ほど実装
+            console.log('Form submitted');
+            // 例: fetch('/api/post', { method: 'POST', body: formData });
         });
 
         // 初期表示
