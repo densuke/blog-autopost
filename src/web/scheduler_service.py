@@ -3,26 +3,39 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from datetime import datetime, timedelta
 from typing import List
 import os
+import logging
 
 from src.web.scheduled_post_store import ScheduledPostStore
 from src.web.post_executor import PostExecutor
 from src.web.scheduled_post_model import ScheduledPost
 
+# ロガーの設定
+logger = logging.getLogger(__name__)
+
 def _monitor_scheduled_posts_job(scheduled_post_store: ScheduledPostStore, post_executor: PostExecutor):
     """
     予約投稿を監視し、実行日時が来たものをPostExecutorに渡します。
     """
+    logger.info("Monitoring scheduled posts...")
     print("Monitoring scheduled posts...")
     now = datetime.now()
     posts = scheduled_post_store.get_all_posts()
     
+    executed_count = 0
     for post in posts:
         if post.status == "予約済み" and post.scheduled_at <= now:
+            logger.info(f"Found scheduled post to execute: {post.id}")
             print(f"Found scheduled post to execute: {post.id}")
             # PostExecutorに実行を依頼
             # 実際のPostExecutorの呼び出しは非同期にするか、別のスレッドで行うべきだが、
             # 現時点ではシンプルに同期呼び出しとする
-            post_executor.execute_post(post.id)
+            success = post_executor.execute_post(post.id)
+            if success:
+                executed_count += 1
+    
+    if executed_count > 0:
+        logger.info(f"Executed {executed_count} scheduled post(s).")
+        print(f"Executed {executed_count} scheduled post(s).")
 
 class SchedulerService:
     def __init__(self, scheduled_post_store: ScheduledPostStore, post_executor: PostExecutor, data_dir: str = "data"):
@@ -47,6 +60,7 @@ class SchedulerService:
                 id='monitor_scheduled_posts', 
                 args=[self.scheduled_post_store, self.post_executor]
             )
+            logger.info("Scheduler started and monitoring job added.")
             print("Scheduler started and monitoring job added.")
 
     def shutdown(self):
@@ -55,6 +69,7 @@ class SchedulerService:
         """
         if self.scheduler.running:
             self.scheduler.shutdown()
+            logger.info("Scheduler shut down.")
             print("Scheduler shut down.")
 
     def add_scheduled_post_to_scheduler(self, post: ScheduledPost):
