@@ -66,3 +66,19 @@ def test_access_root_unauthenticated():
     response = client.get("/", follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/login"
+
+def test_get_main_page_authenticated():
+    """認証済みユーザーがメインページにアクセスでき、投稿フォームが表示されることをテストする"""
+    client = TestClient(app)
+    # ログイン
+    client.post("/login", data={"username": "admin", "password": "your_strong_password_here"})
+
+    response = client.get("/")
+    assert response.status_code == 200
+    # <textarea>タグとname="text"属性の存在を個別にチェック
+    assert b'<textarea' in response.content
+    assert b'name="text"' in response.content
+    # config.ymlに設定されているSNSアカウントのチェックボックスが表示されることを確認
+    assert b'<input type="checkbox"' in response.content
+    assert b'name="sns_targets"' in response.content
+    assert b'value="x-main"' in response.content

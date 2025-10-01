@@ -23,9 +23,21 @@ templates = Jinja2Templates(directory="src/web/templates")
 
 @app.get("/")
 def read_root(request: Request):
-    if not request.session.get('user'):
+    user = request.session.get('user')
+    if not user:
         return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
-    return {"message": f"Hello {request.session.get('user')}"}
+    
+    sns_configs = config_manager.get_all_sns_configs()
+    # 設定から名前とタイプを抽出する
+    sns_accounts = []
+    if isinstance(sns_configs, list):
+        for config in sns_configs:
+            sns_accounts.append({'name': config.get('name'), 'type': config.get('type')})
+    elif isinstance(sns_configs, dict):
+        for name, config in sns_configs.items():
+            sns_accounts.append({'name': name, 'type': name})
+
+    return templates.TemplateResponse("index.html", {"request": request, "user": user, "sns_accounts": sns_accounts})
 
 @app.get("/login")
 def login_form(request: Request):

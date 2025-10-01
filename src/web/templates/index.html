@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Blog AutoPost</title>
+</head>
+<body>
+    <h1>新規投稿</h1>
+    <form action="/api/post" method="post" enctype="multipart/form-data">
+        <div>
+            <label for="text">投稿文:</label><br>
+            <textarea id="text" name="text" rows="5" cols="50"></textarea>
+        </div>
+        <div>
+            <label for="url">URL (任意):</label><br>
+            <input type="url" id="url" name="url" size="50">
+        </div>
+        <div>
+            <label>投稿先SNS:</label><br>
+            {% for account in sns_accounts %}
+            <input type="checkbox" id="sns_{{ account.name }}" name="sns_targets" value="{{ account.name }}">
+            <label for="sns_{{ account.name }}">{{ account.name }} ({{ account.type }})</label><br>
+            {% endfor %}
+        </div>
+        <button type="submit">すぐに投稿</button>
+    </form>
+</body>
+</html>
