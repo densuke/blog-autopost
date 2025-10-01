@@ -59,3 +59,10 @@ def test_logout():
     response = client.get("/", follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/login"
+
+def test_access_root_unauthenticated():
+    """未認証でルートにアクセスするとログインページにリダイレクトされることをテストする"""
+    client = TestClient(app)
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
