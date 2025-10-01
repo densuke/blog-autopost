@@ -37,6 +37,37 @@
             border: none;
             border-radius: 50%;
         }
+        /* モーダルのスタイル */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.4);
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+            max-width: 600px;
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close:hover,
+        .close:focus {
+            color: black;
+        }
     </style>
 </head>
 <body>
@@ -79,6 +110,71 @@
         </div>
     </form>
     <div id="status-messages"></div>
+
+    <h2>予約投稿一覧</h2>
+    <table border="1">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>投稿日時</th>
+                <th>内容</th>
+                <th>対象SNS</th>
+                <th>ステータス</th>
+                <th>エラーメッセージ</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for post in scheduled_posts %}
+                            <tr class="{% if post.status == '失敗' and post.scheduled_at < now %}warning{% endif %}">                <td>{{ post.id }}</td>
+                <td>{{ post.scheduled_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                <td>{{ post.content[:50] }}...</td>
+                <td>{{ post.target_sns | join(', ') }}</td>
+                <td>{{ post.status }}</td>
+                <td>{{ post.error_message if post.error_message else '-' }}</td>
+                <td>
+                    <button onclick="editPost('{{ post.id }}')">編集</button>
+                    <button onclick="deletePost('{{ post.id }}')">削除</button>
+                    {% if post.status == '失敗' %}
+                    <button onclick="reExecutePost('{{ post.id }}')">再実行</button>
+                    {% endif %}
+                    {% if post.status == '予約済み' %}
+                    <button onclick="sendNowPost('{{ post.id }}')">即時送信</button>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="7">予約投稿はありません。</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- 編集モーダル -->
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeEditModal()">&times;</span>
+            <h2>予約投稿を編集</h2>
+            <form id="edit-form">
+                <input type="hidden" id="edit-post-id" name="post_id">
+                <div>
+                    <label for="edit-scheduled-at">投稿日時:</label><br>
+                    <input type="datetime-local" id="edit-scheduled-at" name="scheduled_at" required>
+                </div>
+                <div>
+                    <label for="edit-content">投稿内容:</label><br>
+                    <textarea id="edit-content" name="content" rows="5" cols="50" required></textarea>
+                </div>
+                <div>
+                    <label>対象SNS:</label><br>
+                    <div id="edit-target-sns"></div>
+                </div>
+                <button type="submit">更新</button>
+                <button type="button" onclick="closeEditModal()">キャンセル</button>
+            </form>
+        </div>
+    </div>
 
     <script>
         const textArea = document.getElementById('text');
@@ -248,6 +344,188 @@
 
         // 初期表示
         updateCounter();
+
+        // --- 予約投稿操作 --- 
+        function editPost(postId) {
+            // APIから投稿データを取得
+            fetch(`/api/scheduled-posts/${postId}`)
+                .then(response => {
+                    if (response.ok) {
+                        return response.json();
+                    } else {
+                        throw new Error('投稿データの取得に失敗しました');
+                    }
+                })
+                .then(post => {
+                    // モーダルに投稿データを設定
+                    document.getElementById('edit-post-id').value = post.id;
+                    
+                    // ISO形式の日時をdatetime-local形式に変換
+                    const scheduledAt = new Date(post.scheduled_at);
+                    const year = scheduledAt.getFullYear();
+                    const month = String(scheduledAt.getMonth() + 1).padStart(2, '0');
+                    const day = String(scheduledAt.getDate()).padStart(2, '0');
+                    const hours = String(scheduledAt.getHours()).padStart(2, '0');
+                    const minutes = String(scheduledAt.getMinutes()).padStart(2, '0');
+                    document.getElementById('edit-scheduled-at').value = `${year}-${month}-${day}T${hours}:${minutes}`;
+                    
+                    document.getElementById('edit-content').value = post.content;
+                    
+                    // 対象SNSのチェックボックスを生成
+                    const snsContainer = document.getElementById('edit-target-sns');
+                    snsContainer.innerHTML = '';
+                    const allSnsAccounts = {{ sns_accounts | tojson }};
+                    allSnsAccounts.forEach(account => {
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.id = `edit-sns-${account.name}`;
+                        checkbox.name = 'target_sns';
+                        checkbox.value = account.name;
+                        checkbox.checked = post.target_sns.includes(account.name);
+                        
+                        const label = document.createElement('label');
+                        label.htmlFor = `edit-sns-${account.name}`;
+                        label.textContent = ` ${account.name} (${account.type})`;
+                        
+                        snsContainer.appendChild(checkbox);
+                        snsContainer.appendChild(label);
+                        snsContainer.appendChild(document.createElement('br'));
+                    });
+                    
+                    // モーダルを表示
+                    document.getElementById('editModal').style.display = 'block';
+                })
+                .catch(error => {
+                    alert(`投稿データの取得中にエラーが発生しました: ${error}`);
+                });
+        }
+
+        function closeEditModal() {
+            document.getElementById('editModal').style.display = 'none';
+        }
+
+        // 編集フォームの送信
+        document.getElementById('edit-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            
+            const postId = document.getElementById('edit-post-id').value;
+            const formData = new FormData();
+            
+            const scheduledAt = document.getElementById('edit-scheduled-at').value;
+            formData.append('scheduled_at', new Date(scheduledAt).toISOString());
+            formData.append('content', document.getElementById('edit-content').value);
+            
+            const checkedSns = document.querySelectorAll('#edit-target-sns input[type="checkbox"]:checked');
+            checkedSns.forEach(checkbox => {
+                formData.append('target_sns', checkbox.value);
+            });
+            
+            fetch(`/api/scheduled-posts/${postId}`, {
+                method: 'PUT',
+                body: formData
+            })
+            .then(response => {
+                if (response.ok) {
+                    return response.json();
+                } else {
+                    return response.json().then(err => {
+                        throw new Error(err.detail || '更新に失敗しました');
+                    });
+                }
+            })
+            .then(data => {
+                alert('予約投稿を更新しました。');
+                closeEditModal();
+                location.reload();
+            })
+            .catch(error => {
+                alert(`更新中にエラーが発生しました: ${error}`);
+            });
+        });
+
+        // モーダル外クリックで閉じる
+        window.onclick = function(event) {
+            const modal = document.getElementById('editModal');
+            if (event.target == modal) {
+                closeEditModal();
+            }
+        }
+
+        function deletePost(postId) {
+            if (!confirm('本当にこの予約投稿を削除しますか？')) {
+                return;
+            }
+            fetch(`/api/scheduled-posts/${postId}`, {
+                method: 'DELETE'
+            })
+            .then(response => {
+                if (response.status === 204) {
+                    alert('予約投稿を削除しました。');
+                    location.reload();
+                } else {
+                    return response.json().then(err => {
+                        alert(`削除に失敗しました: ${err.detail}`);
+                    });
+                }
+            })
+            .catch(error => {
+                alert(`削除中にエラーが発生しました: ${error}`);
+            });
+        }
+
+        function reExecutePost(postId) {
+            if (!confirm('この失敗した予約投稿を再実行しますか？')) {
+                return;
+            }
+            fetch(`/api/scheduled-posts/${postId}/re-execute`, {
+                method: 'POST'
+            })
+            .then(response => {
+                if (response.ok) {
+                    return response.json();
+                } else {
+                    return response.json().then(err => {
+                        alert(`再実行に失敗しました: ${err.detail}`);
+                    });
+                }
+            })
+            .then(data => {
+                if (data) {
+                    alert('予約投稿を再実行キューに追加しました。');
+                    location.reload();
+                }
+            })
+            .catch(error => {
+                alert(`再実行中にエラーが発生しました: ${error}`);
+            });
+        }
+
+        function sendNowPost(postId) {
+            if (!confirm('この予約投稿をすぐに送信しますか？')) {
+                return;
+            }
+            fetch(`/api/scheduled-posts/${postId}/send-now`, {
+                method: 'POST'
+            })
+            .then(response => {
+                if (response.ok) {
+                    return response.json();
+                } else {
+                    return response.json().then(err => {
+                        alert(`即時送信に失敗しました: ${err.detail}`);
+                    });
+                }
+            })
+            .then(data => {
+                if (data) {
+                    alert('予約投稿を即時送信しました。');
+                    location.reload();
+                }
+            })
+            .catch(error => {
+                alert(`即時送信中にエラーが発生しました: ${error}`);
+            });
+        }
     </script>
 </body>
 </html>

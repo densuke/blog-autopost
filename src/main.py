@@ -537,6 +537,15 @@ def handle_list_feeds(config_manager):
     print("注意: --feed オプションでは上記の名前を指定できます。")
 
 
+def handle_touch_rss_posted(args, config_manager):
+    """
+    登録されたRSSフィードのアイテムをすべて投稿済みとしてマークします。
+    """
+    print("RSSフィードのアイテムをすべて投稿済みとしてマークします。")
+    article_manager = ArticleManager(config_manager)
+    result = article_manager.force_mark_all_as_posted()
+    print(f"処理結果: {result}")
+
 def handle_direct_text_post(args, config_manager):
     """
     直接テキスト投稿を処理します
@@ -589,10 +598,23 @@ def main():
     parser.add_argument("--optimize", action="store_true", help="直接投稿時にもテキスト最適化（URL短縮など）を適用します。")
     parser.add_argument("--media", action="append", help="投稿にメディアファイルを添付します（複数回指定可能）。")
     parser.add_argument("--sensitive", action="store_true", help="Misskeyでメディアファイルをセンシティブコンテンツとしてマークします。")
+
+    subparsers = parser.add_subparsers(dest='command', help='利用可能なコマンド')
+
+    # touch-rss-posted サブコマンド
+    touch_rss_posted_parser = subparsers.add_parser(
+        'touch-rss-posted', help='登録されたRSSフィードのアイテムをすべて投稿済みとしてマークします。'
+    )
+    touch_rss_posted_parser.set_defaults(func=handle_touch_rss_posted)
+
     args = parser.parse_args()
 
     config_data = load_config(args.config)
     config_manager = ConfigManager(config_data)
+
+    if hasattr(args, 'func'):
+        args.func(args, config_manager)
+        return
     
     # SNS一覧表示モードかどうかチェック
     if args.list_sns:

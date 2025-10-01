@@ -74,3 +74,30 @@ def test_main_flow_no_new_articles(mock_print, mock_article_manager, mock_load_c
 
     # --- Assert ---
     mock_print.assert_any_call("新しい記事はありませんでした。")
+
+def test_main_unknown_subcommand_exits_with_error():
+    """ 未知のサブコマンドが指定された場合にエラーで終了することをテスト """
+    with patch.object(sys, 'argv', ['src/main.py', 'unknown-command']):
+        with pytest.raises(SystemExit) as excinfo:
+            main()
+    assert excinfo.value.code != 0 # 0以外の終了コードで終了することを確認
+
+@patch('src.main.load_config')
+@patch('src.main.ArticleManager')
+@patch('builtins.print')
+def test_main_touch_rss_posted_calls_article_manager_method(
+    mock_print, mock_article_manager, mock_load_config
+):
+    """ 'touch-rss-posted' サブコマンドがArticleManagerのメソッドを呼び出すことをテスト """
+    # --- Arrange ---
+    mock_load_config.return_value = {'blog': {'feed_url': 'http://test.com/feed'}}
+    mock_am_instance = MagicMock()
+    mock_article_manager.return_value = mock_am_instance
+
+    # --- Act ---
+    with patch.object(sys, 'argv', ['src/main.py', 'touch-rss-posted']):
+        main()
+
+    # --- Assert ---
+    mock_am_instance.force_mark_all_as_posted.assert_called_once()
+    mock_print.assert_any_call("RSSフィードのアイテムをすべて投稿済みとしてマークします。")
