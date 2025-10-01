@@ -178,24 +178,40 @@ def create_scheduled_post(
     target_sns: List[str] = Form(...),
     user: str = Depends(get_current_user)
 ):
-    # メディアファイルの保存処理は後で実装
-    # 現時点ではパスのみを保存
+    # メディアファイルの安全な保存
     media_paths = []
     if media_files:
-        # 仮のメディア保存ロジック。実際には永続化パスに保存する
-        temp_dir = tempfile.mkdtemp()
+        # 予約投稿用のメディア保存ディレクトリを作成
+        scheduled_media_dir = os.path.join(DATA_DIR, "scheduled_media")
+        os.makedirs(scheduled_media_dir, exist_ok=True)
+        
+        # 今回の予約投稿に紐づくユニークなサブディレクトリを作成
+        import uuid
+        post_media_dir = os.path.join(scheduled_media_dir, str(uuid.uuid4()))
+        os.makedirs(post_media_dir, exist_ok=True)
+        
+        # セキュリティ: ディレクトリパーミッションを設定（所有者のみアクセス可能）
+        os.chmod(post_media_dir, 0o700)
+        
         for file in media_files:
-            path = os.path.join(temp_dir, file.filename)
+            # ファイル名のサニタイズ（パストラバーサル攻撃対策）
+            safe_filename = os.path.basename(file.filename)
+            path = os.path.join(post_media_dir, safe_filename)
+            
             with open(path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
+            
+            # セキュリティ: ファイルパーミッションを設定（所有者のみ読み書き可能）
+            os.chmod(path, 0o600)
+            
             media_paths.append(path)
-        # TODO: 永続化パスへの移動とtemp_dirのクリーンアップ
 
     # SNS制限違反チェック
     supported_sns = config_manager.get_all_sns_names()
     if not all(sns in supported_sns for sns in target_sns):
         raise HTTPException(status_code=400, detail="Unsupported SNS target specified")
 
+    logger.info(f"User {user} creating scheduled post for {scheduled_at}")
     new_post = ScheduledPost(
         scheduled_at=scheduled_at,
         content=content,

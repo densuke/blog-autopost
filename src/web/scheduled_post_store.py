@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
 import uuid
+import os
 
 from src.web.scheduled_post_model import ScheduledPost
 
@@ -19,6 +20,8 @@ class ScheduledPostStore:
             self.file_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.file_path, 'w', encoding='utf-8') as f:
                 json.dump([], f, ensure_ascii=False, indent=4)
+            # セキュリティ: ファイルパーミッションを設定（ファイル所有者のみ読み書き可能）
+            os.chmod(self.file_path, 0o600)
 
     def _read_posts(self) -> List[ScheduledPost]:
         """
@@ -34,6 +37,8 @@ class ScheduledPostStore:
         """
         with open(self.file_path, 'w', encoding='utf-8') as f:
             json.dump([post.to_dict() for post in posts], f, ensure_ascii=False, indent=4)
+        # セキュリティ: ファイルパーミッションを維持
+        os.chmod(self.file_path, 0o600)
 
     # CRUD operations
     def get_all_posts(self) -> List[ScheduledPost]:

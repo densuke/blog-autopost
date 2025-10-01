@@ -95,8 +95,8 @@
   - メディアファイルの安全な保存
   - _Requirements: Security Considerations_
 
-- [ ] 9. ログと監視
-- [ ] 9.1 エラーロギングと監視機能を実装する
+- [x] 9. ログと監視
+- [x] 9.1 エラーロギングと監視機能を実装する
   - Webアプリケーションのエラーログ出力
   - スケジューラーと `PostExecutor` の実行ログ出力
   - _Requirements: Monitoring_
