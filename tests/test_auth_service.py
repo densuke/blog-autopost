@@ -4,8 +4,6 @@
 import pytest
 from unittest.mock import MagicMock
 
-# AuthServiceがまだ存在しないため、このインポートは失敗する
-# from src.web.auth_service import AuthService
 
 @pytest.fixture
 def mock_config_manager():
