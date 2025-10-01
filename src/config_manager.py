@@ -1,6 +1,8 @@
 import yaml
 import os
 
+from typing import Dict, Optional, List
+
 class ConfigManager:
     def __init__(self, config_path):
         """
@@ -63,6 +65,20 @@ class ConfigManager:
             if feed.get('name') == feed_name:
                 return feed
         return None
+
+    def get_all_sns_names(self) -> List[str]:
+        """
+        設定ファイルからすべてのSNSの名前を取得します。
+        配列形式とオブジェクト形式の両方をサポートします。
+        """
+        sns_configs = self.config.get("sns", {})
+        if isinstance(sns_configs, dict):
+            # オブジェクト形式の場合
+            return list(sns_configs.keys())
+        elif isinstance(sns_configs, list):
+            # 配列形式の場合、各設定の'name'フィールドを取得
+            return [config.get('name') for config in sns_configs if 'name' in config]
+        return []
 
     def get_sns_config(self, sns_name):
         """後方互換性のためのメソッド（オブジェクト形式用）"""
