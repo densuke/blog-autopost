@@ -2,8 +2,19 @@ import yaml
 import os
 
 class ConfigManager:
-    def __init__(self, config):
-        self.config = config
+    def __init__(self, config_path):
+        """
+        設定管理オブジェクトを初期化します。
+
+        Args:
+            config_path (str): 設定ファイルのパス
+        """
+        if isinstance(config_path, str):
+            # 設定ファイルのパスが渡された場合は読み込み
+            self.config = load_config(config_path)
+        else:
+            # 辞書が直接渡された場合はそのまま使用
+            self.config = config_path
 
     def get_feed_url(self):
         """後方互換性のためのメソッド（単一フィード用）"""

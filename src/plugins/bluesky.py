@@ -8,12 +8,39 @@ from . import SocialMediaPlugin
 from ..image_resizer import create_image_resizer
 
 class Bluesky(SocialMediaPlugin):
-    def __init__(self, identifier, password, config=None):
+    def __init__(self, identifier, password, config=None, dry_run=False):
         self.sns_type = "bluesky"
         self.client = Client()
         self.config = config or {}
-        # Blueskyにログイン
-        self.client.login(identifier, password)
+        self.dry_run = dry_run
+        
+        # ドライラン時はログインをスキップ
+        if not dry_run:
+            try:
+                # Blueskyにログイン
+                self.client.login(identifier, password)
+            except Exception as e:
+                # ネットワーク系エラーの詳細情報を表示
+                import traceback
+                import httpx
+                from atproto_client import exceptions as atproto_exceptions
+                
+                print(f"Blueskyログインエラー: {e}")
+                
+                # エラー種別の判定と適切なメッセージ表示
+                if isinstance(e, (httpx.ConnectTimeout, httpx.TimeoutException)):
+                    print("→ ネットワーク接続タイムアウトです。インターネット接続を確認してください。")
+                elif isinstance(e, httpx.ConnectError):
+                    print("→ Blueskyサーバーに接続できません。サーバーの状態を確認してください。")
+                elif isinstance(e, atproto_exceptions.BadRequestError):
+                    print("→ 認証情報が間違っています。identifier/passwordを確認してください。")
+                elif isinstance(e, atproto_exceptions.InvokeTimeoutError):
+                    print("→ Blueskyサーバーの応答タイムアウトです。しばらく時間をおいて再試行してください。")
+                else:
+                    print("→ 詳細なエラー情報:")
+                    traceback.print_exc()
+                
+                raise
 
     def supports_rich_content(self) -> bool:
         """リッチコンテンツ（リンクカード）をサポートする"""
@@ -247,17 +274,47 @@ class Bluesky(SocialMediaPlugin):
                 self._debug_print("article_dataがない", debug)
         
         try:
-            # Blueskyに投稿
-            response = self.client.send_post(**post_params)
-            
-            if images:
-                print(f"Blueskyに投稿しました（画像 {len(images)}件添付）: {response.uri}")
-            elif enable_link_cards and link:
-                print(f"Blueskyにリンクカード付きで投稿しました: {response.uri}")
+            if self.dry_run:
+                # ドライラン時は実際の投稿は行わない
+                if images:
+                    print(f"[ドライラン] Blueskyに投稿予定（画像 {len(images)}件添付）")
+                elif enable_link_cards and link:
+                    print(f"[ドライラン] Blueskyにリンクカード付きで投稿予定")
+                else:
+                    print(f"[ドライラン] Blueskyに投稿予定")
             else:
-                print(f"Blueskyに投稿しました: {response.uri}")
+                # Blueskyに投稿
+                response = self.client.send_post(**post_params)
+                
+                if images:
+                    print(f"Blueskyに投稿しました（画像 {len(images)}件添付）: {response.uri}")
+                elif enable_link_cards and link:
+                    print(f"Blueskyにリンクカード付きで投稿しました: {response.uri}")
+                else:
+                    print(f"Blueskyに投稿しました: {response.uri}")
         except Exception as e:
+            # 投稿エラーの詳細情報を表示
+            import traceback
+            import httpx
+            from atproto_client import exceptions as atproto_exceptions
+            
             print(f"Blueskyへの投稿中にエラー: {e}")
+            
+            # エラー種別の判定と適切なメッセージ表示
+            if isinstance(e, (httpx.ConnectTimeout, httpx.TimeoutException)):
+                print("→ ネットワーク接続タイムアウトです。インターネット接続を確認してください。")
+            elif isinstance(e, httpx.ConnectError):
+                print("→ Blueskyサーバーに接続できません。サーバーの状態を確認してください。")
+            elif isinstance(e, atproto_exceptions.BadRequestError):
+                print("→ 投稿内容に問題があります。文字数制限や画像サイズ制限を確認してください。")
+            elif isinstance(e, atproto_exceptions.InvokeTimeoutError):
+                print("→ Blueskyサーバーの応答タイムアウトです。しばらく時間をおいて再試行してください。")
+            elif isinstance(e, atproto_exceptions.UnauthorizedError):
+                print("→ 認証エラーです。ログイン情報を確認してください。")
+            else:
+                print("→ 詳細なエラー情報:")
+                traceback.print_exc()
+            
             raise
     
     def _create_link_card(self, url: str, article_data: Dict[str, Any], debug: bool = False) -> models.AppBskyEmbedExternal.Main | None:

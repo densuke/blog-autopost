@@ -361,7 +361,7 @@ def validate_and_filter_plugins(args, config_manager):
     
     # プラグインを読み込み
     if not args.dry_run:
-        all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None)
+        all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None, dry_run=args.dry_run)
         
         # SNS限定がある場合はフィルタリング
         if target_sns:
@@ -402,7 +402,7 @@ def execute_sns_posting(original_text, media_files, plugins, target_sns, text_op
     
     # ドライラン時は警告用に仮のプラグイン情報を作成
     if args.dry_run and target_sns:
-        all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None)
+        all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None, dry_run=args.dry_run)
         plugins_for_warning = {}
         for plugin_name, plugin_instance in all_plugins.items():
             sns_type = getattr(plugin_instance, 'sns_type', None) or plugin_name.split('-')[0]
@@ -490,7 +490,7 @@ def execute_sns_posting(original_text, media_files, plugins, target_sns, text_op
         if target_sns:
             print(f"- 投稿対象: {', '.join(target_sns)}")
         else:
-            all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None)
+            all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None, dry_run=args.dry_run)
             print(f"- 投稿対象: {', '.join(all_plugins.keys())}")
         print("[ドライラン] 直接投稿をシミュレートしました。")
 
@@ -631,7 +631,7 @@ def main():
             
             # プラグインを読み込み
             if not args.dry_run:
-                all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None)
+                all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None, dry_run=args.dry_run)
                 
                 # SNS限定がある場合はフィルタリング
                 if args.sns:
@@ -713,7 +713,7 @@ def main():
             
             # プラグインを読み込み
             if not args.dry_run:
-                all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None)
+                all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None, dry_run=args.dry_run)
                 
                 # SNS限定がある場合はフィルタリング
                 if args.sns:
