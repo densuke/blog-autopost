@@ -2,10 +2,12 @@ from fastapi import FastAPI, Request, Depends, Form, HTTPException, status, File
 from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
-from typing import List
+from typing import List, Optional
 import shutil
 import tempfile
 import os
+from pathlib import Path
+from datetime import datetime
 
 from ..config_manager import ConfigManager
 from .auth_service import AuthService
@@ -16,12 +18,19 @@ from .posting_service import PostingService
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 
+from .scheduled_post_store import ScheduledPostStore
+from .scheduled_post_model import ScheduledPost
+
 app = FastAPI()
 
 # データディレクトリの確認と作成
 DATA_DIR = os.environ.get("DATA_DIR", "data")
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
+
+# 予約投稿データストアのパス
+SCHEDULED_POSTS_FILE = Path(DATA_DIR) / "scheduled_posts.json"
+scheduled_post_store = ScheduledPostStore(SCHEDULED_POSTS_FILE)
 
 # スケジューラの設定
 jobstores = {
@@ -135,6 +144,148 @@ def api_post(
 
     finally:
         shutil.rmtree(temp_dir)
+
+@app.get("/api/scheduled-posts", response_model=List[ScheduledPost])
+def get_all_scheduled_posts(user: str = Depends(get_current_user)):
+    return scheduled_post_store.get_all_posts()
+
+@app.get("/api/scheduled-posts/{post_id}", response_model=ScheduledPost)
+def get_scheduled_post(post_id: str, user: str = Depends(get_current_user)):
+    post = scheduled_post_store.get_post_by_id(post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="Scheduled post not found")
+    return post
+
+@app.post("/api/scheduled-posts", response_model=ScheduledPost, status_code=status.HTTP_201_CREATED)
+def create_scheduled_post(
+    scheduled_at: datetime = Form(...),
+    content: str = Form(...),
+    media_files: List[UploadFile] = File([]),
+    target_sns: List[str] = Form(...),
+    user: str = Depends(get_current_user)
+):
+    # メディアファイルの保存処理は後で実装
+    # 現時点ではパスのみを保存
+    media_paths = []
+    if media_files:
+        # 仮のメディア保存ロジック。実際には永続化パスに保存する
+        temp_dir = tempfile.mkdtemp()
+        for file in media_files:
+            path = os.path.join(temp_dir, file.filename)
+            with open(path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            media_paths.append(path)
+        # TODO: 永続化パスへの移動とtemp_dirのクリーンアップ
+
+    # SNS制限違反チェック
+    supported_sns = config_manager.get_all_sns_names()
+    if not all(sns in supported_sns for sns in target_sns):
+        raise HTTPException(status_code=400, detail="Unsupported SNS target specified")
+
+    new_post = ScheduledPost(
+        scheduled_at=scheduled_at,
+        content=content,
+        media_files=media_paths,
+        target_sns=target_sns,
+        created_at=datetime.now(),
+        updated_at=datetime.now()
+    )
+    scheduled_post_store.create_post(new_post)
+    return new_post
+
+@app.put("/api/scheduled-posts/{post_id}", response_model=ScheduledPost)
+def update_scheduled_post(
+    post_id: str,
+    scheduled_at: Optional[datetime] = Form(None),
+    content: Optional[str] = Form(None),
+    media_files: List[UploadFile] = File([]), # 更新時は既存のものをどう扱うか検討
+    target_sns: Optional[List[str]] = Form(None), # Optionalに変更
+    user: str = Depends(get_current_user)
+):
+    existing_post = scheduled_post_store.get_post_by_id(post_id)
+    if not existing_post:
+        raise HTTPException(status_code=404, detail="Scheduled post not found")
+    
+    # 実行済みまたは失敗した投稿は更新不可
+    if existing_post.status in ["実行済み", "失敗"]:
+        raise HTTPException(status_code=409, detail="Cannot update an already executed or failed post")
+
+    updates = {}
+    if scheduled_at:
+        updates["scheduled_at"] = scheduled_at
+    if content:
+        updates["content"] = content
+    if target_sns is not None: # target_snsがNoneでない場合のみ更新
+        # SNS制限違反チェック
+        supported_sns = config_manager.get_all_sns_names()
+        if not all(sns in supported_sns for sns in target_sns):
+            raise HTTPException(status_code=400, detail="Unsupported SNS target specified")
+        updates["target_sns"] = target_sns
+    # media_filesの更新ロジックは複雑になるため後で検討
+
+    updated_post = scheduled_post_store.update_post(post_id, updates)
+    if not updated_post:
+        raise HTTPException(status_code=404, detail="Scheduled post not found after update attempt")
+    return updated_post
+
+@app.delete("/api/scheduled-posts/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_scheduled_post(post_id: str, user: str = Depends(get_current_user)):
+    existing_post = scheduled_post_store.get_post_by_id(post_id)
+    if not existing_post:
+        raise HTTPException(status_code=404, detail="Scheduled post not found")
+    
+    # 実行済みまたは失敗した投稿は削除不可
+    if existing_post.status in ["実行済み", "失敗"]:
+        raise HTTPException(status_code=409, detail="Cannot delete an already executed or failed post")
+
+    if not scheduled_post_store.delete_post(post_id):
+        raise HTTPException(status_code=404, detail="Scheduled post not found for deletion")
+    return
+
+@app.post("/api/scheduled-posts/{post_id}/re-execute", response_model=ScheduledPost)
+def re_execute_scheduled_post(post_id: str, user: str = Depends(get_current_user)):
+    existing_post = scheduled_post_store.get_post_by_id(post_id)
+    if not existing_post:
+        raise HTTPException(status_code=404, detail="Scheduled post not found")
+    
+    # 成功済みの投稿は再実行不可
+    if existing_post.status == "実行済み":
+        raise HTTPException(status_code=409, detail="Cannot re-execute an already successful post")
+
+    # 投稿日時を現在時刻+1分に更新し、ステータスを「予約済み」に戻す
+    from datetime import timedelta
+    updates = {
+        "scheduled_at": datetime.now() + timedelta(minutes=1),
+        "status": "予約済み",
+        "error_message": None
+    }
+    updated_post = scheduled_post_store.update_post(post_id, updates)
+    if not updated_post:
+        raise HTTPException(status_code=404, detail="Scheduled post not found for re-execution")
+    
+    # TODO: APSchedulerにジョブを再登録するロジックが必要
+    return updated_post
+
+@app.post("/api/scheduled-posts/{post_id}/send-now", response_model=ScheduledPost)
+def send_scheduled_post_now(post_id: str, user: str = Depends(get_current_user)):
+    existing_post = scheduled_post_store.get_post_by_id(post_id)
+    if not existing_post:
+        raise HTTPException(status_code=404, detail="Scheduled post not found")
+    
+    # 実行済みの投稿は即時送信不可
+    if existing_post.status == "実行済み":
+        raise HTTPException(status_code=409, detail="Cannot send an already executed post immediately")
+
+    # TODO: 投稿実行サービスを呼び出すロジックが必要
+    # 現時点ではステータスを更新するのみ
+    updates = {
+        "status": "実行済み", # 仮に実行済みとする
+        "updated_at": datetime.now()
+    }
+    updated_post = scheduled_post_store.update_post(post_id, updates)
+    if not updated_post:
+        raise HTTPException(status_code=404, detail="Scheduled post not found for immediate sending")
+    return updated_post
 
 @app.post("/api/schedule")
 def api_schedule(

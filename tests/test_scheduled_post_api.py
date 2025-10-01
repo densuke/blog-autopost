@@ -145,7 +145,7 @@ def test_update_scheduled_post(pre_existing_post):
         data={
             "content": updated_content,
             "scheduled_at": (datetime.now() + timedelta(days=2)).isoformat(),
-            "target_sns": ["mastodon"]
+            "target_sns": ["mastodon-social"]
         }
     )
     assert response.status_code == status.HTTP_200_OK
@@ -163,7 +163,7 @@ def test_update_scheduled_post_not_found():
         data={
             "content": "Updated content",
             "scheduled_at": (datetime.now() + timedelta(days=2)).isoformat(),
-            "target_sns": json.dumps(["mastodon"])
+            "target_sns": ["mastodon-social"]
         }
     )
     assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -179,7 +179,7 @@ def test_update_scheduled_post_conflict_executed(pre_existing_post):
         data={
             "content": "Updated content",
             "scheduled_at": (datetime.now() + timedelta(days=2)).isoformat(),
-            "target_sns": json.dumps(["mastodon"])
+            "target_sns": ["mastodon-social"]
         }
     )
     assert response.status_code == status.HTTP_409_CONFLICT
@@ -233,15 +233,24 @@ def test_re_execute_scheduled_post(pre_existing_post):
     """
     失敗した予約投稿を再実行できることを確認します。
     """
+    # 失敗状態に変更
     pre_existing_post.status = "失敗"
     scheduled_post_store.update_post(pre_existing_post.id, {"status": "失敗"})
+    
+    # 再実行前の時刻を記録
+    before_re_execute = datetime.now()
+    
     response = client.post(f"/api/scheduled-posts/{pre_existing_post.id}/re-execute")
     assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["id"] == pre_existing_post.id
     assert data["status"] == "予約済み"
-    # scheduled_atが更新されたことを確認（元の時刻より新しいことを確認）
-    assert datetime.fromisoformat(data["scheduled_at"]) > pre_existing_post.scheduled_at
+    
+    # scheduled_atが未来の時刻に更新されたことを確認（現在時刻+1分程度）
+    new_scheduled_at = datetime.fromisoformat(data["scheduled_at"])
+    assert new_scheduled_at > before_re_execute
+    # エラーメッセージがクリアされたことを確認
+    assert data["error_message"] is None
 
 def test_re_execute_scheduled_post_not_found():
     """
