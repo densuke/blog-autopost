@@ -306,6 +306,46 @@ character_limits:
 # 投稿テキスト: "長いタイトルの記事について... https://is.gd/abc123"
 ```
 
+## Web UI機能
+
+このツールは、CLI機能に加えて、手動投稿や予約投稿を行うためのWebインターフェースを提供します。
+
+### Web UIの起動
+
+以下のコマンドでWebサーバーを起動します。
+
+```bash
+just run-web
+# または
+uv run uvicorn src.web.main_web:app --reload
+```
+
+サーバー起動後、ブラウザで `http://127.0.0.1:8000` にアクセスしてください。
+
+### 機能
+
+- **手動投稿**: テキスト、URL、画像をアップロードして、選択したSNSに即時投稿します。
+- **予約投稿**: 指定した日時に投稿を予約できます。
+- **リアルタイム検証**: 投稿前に文字数などをクライアントサイドでチェックします。
+
+### Web UI用の設定
+
+Web UIにアクセスするには、`config.yml`に認証情報を追加する必要があります。
+
+```yaml
+# Web UIの認証設定
+web_auth:
+  username: "admin"  # ログインユーザー名
+  password: "your_strong_password_here"  # ログインパスワード
+  secret_key: "your_very_secret_key_here"  # セッション管理用の秘密鍵
+```
+
+`secret_key`は、以下のコマンドなどで生成したランダムな文字列を設定してください。
+
+```bash
+openssl rand -hex 32
+```
+
 ## 各種APIキーの取得方法
 
 #### X (旧Twitter)
