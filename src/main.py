@@ -452,33 +452,34 @@ def execute_sns_posting(original_text, media_files, plugins, target_sns, text_op
                     }
                 
                 # 最適化が有効な場合はSNS別に最適化されたテキストを使用
+                optimized_text_to_post = original_text
                 if args.optimize and text_optimizer:
                     sns_type = getattr(plugin_instance, 'sns_type', None) or plugin_name.split('-')[0]
-                    # URLが含まれている場合のみ最適化を適用（タイトルとして空文字、リンクとして全文を扱う）
-                    
                     if urls:
-                        # URLを含む場合：URL以外の部分をタイトルとして扱う
-                        url = urls[-1]  # 最後のURLを使用
+                        url = urls[-1]
                         title_part = original_text.replace(url, '').strip()
-                        optimized_text = text_optimizer.optimize_text(title_part, url, sns_type, force_optimize=True)
+                        optimized_text_to_post = text_optimizer.optimize_text(title_part, url, sns_type, force_optimize=True)
                     else:
-                        # URLを含まない場合：そのまま投稿
-                        optimized_text = original_text
-                    
+                        optimized_text_to_post = original_text # URLを含まない場合はそのまま
+
                     if args.debug:
-                        print(f"  最適化後: {optimized_text} ({len(optimized_text)}文字)")
-                    
-                    # リンクカード対応プラグインの場合はarticle_dataを渡す
-                    if article_data:
-                        plugin_instance.post(optimized_text, media_files if media_files else None, article_data=article_data, debug=args.debug)
-                    else:
-                        plugin_instance.post(optimized_text, media_files if media_files else None, debug=args.debug)
-                else:
-                    # リンクカード対応プラグインの場合はarticle_dataを渡す
-                    if article_data:
-                        plugin_instance.post(original_text, media_files if media_files else None, article_data=article_data, debug=args.debug)
-                    else:
-                        plugin_instance.post(original_text, media_files if media_files else None, debug=args.debug)
+                        print(f"  最適化後: {optimized_text_to_post} ({len(optimized_text_to_post)}文字)")
+
+                # リンクカード対応プラグインのために簡易article_dataを作成
+                article_data_to_post = None
+                if urls and hasattr(plugin_instance, 'supports_rich_content') and plugin_instance.supports_rich_content():
+                    url = urls[-1]
+                    title_part = original_text.replace(url, '').strip()
+                    image_url = extract_image_from_url(url, debug=args.debug)
+                    article_data_to_post = {
+                        'title': title_part if title_part else 'ブログ記事',
+                        'link': url,
+                        'description': title_part,
+                        'image': image_url if image_url else None
+                    }
+
+                # 投稿実行
+                plugin_instance.post(optimized_text_to_post, media_files if media_files else None, article_data=article_data_to_post, debug=args.debug)
                 
                 if args.debug:
                     print(f"- {plugin_name}: 投稿完了")

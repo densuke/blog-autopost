@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import shutil # shutilモジュールをインポート
+import os # osモジュールをインポート
+
 from ..config_manager import ConfigManager
 from .. import plugin_loader
 from ..media_validator import validate_media_for_posting
@@ -70,4 +73,22 @@ class PostingService:
             except Exception as e:
                 results[name] = {'success': False, 'message': str(e)}
         
+        return results
+
+    def post_now_and_cleanup(self, post_data: dict, debug: bool = False) -> dict:
+        """
+        post_nowを呼び出し、その後メディアファイルを保存したディレクトリをクリーンアップします。
+        APSchedulerから呼び出されることを想定しています。
+        """
+        results = self.post_now(post_data, debug)
+        
+        job_media_dir = post_data.get('job_media_dir')
+        if job_media_dir and os.path.exists(job_media_dir):
+            try:
+                shutil.rmtree(job_media_dir)
+                if debug:
+                    print(f"Scheduled media directory cleaned up: {job_media_dir}")
+            except Exception as e:
+                if debug:
+                    print(f"Error cleaning up scheduled media directory {job_media_dir}: {e}")
         return results

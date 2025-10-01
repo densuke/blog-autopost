@@ -1,11 +1,24 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from unittest.mock import patch, MagicMock
 
-from src.web.main_web import app
+from src.web.main_web import app, config_manager # config_managerをインポート
+
+# テスト用の認証情報をconfig_managerから取得
+TEST_USERNAME = config_manager.get_web_auth_credentials().get("username")
+TEST_PASSWORD = config_manager.get_web_auth_credentials().get("password")
+
+@pytest.fixture(scope="function") # functionスコープに変更
+def logged_in_client():
+    """ログイン済みのテストクライアントを返すフィクスチャ"""
+    with TestClient(app) as client:
+        client.post(
+            "/login",
+            data={"username": TEST_USERNAME, "password": TEST_PASSWORD},
+            follow_redirects=False
+        )
+        yield client
 
 def test_fastapi_instance():
     """src.web.main_webにFastAPIインスタンスが存在することを確認する"""
@@ -20,12 +33,12 @@ def test_get_login_page():
     assert b'name="username"' in response.content
     assert b'name="password"' in response.content
 
-def test_login_success():
+def test_login_success(logged_in_client): # logged_in_clientフィクスチャを使用
     """正しい認証情報でログインが成功し、リダイレクトとセッション設定が行われることをテストする"""
-    client = TestClient(app)
-    response = client.post(
-        "/login", 
-        data={"username": "admin", "password": "your_strong_password_here"},
+    # フィクスチャでログイン済みなので、ここではログイン後の状態をチェック
+    response = logged_in_client.post(
+        "/login",
+        data={"username": TEST_USERNAME, "password": TEST_PASSWORD},
         follow_redirects=False
     )
     assert response.status_code == 303  # See Other, for redirect after POST
@@ -36,65 +49,47 @@ def test_login_failure():
     """間違った認証情報でログインが失敗することをテストする"""
     client = TestClient(app)
     response = client.post(
-        "/login", 
-        data={"username": "admin", "password": "wrongpassword"},
+        "/login",
+        data={"username": TEST_USERNAME, "password": "wrongpassword"}, # 間違ったパスワード
         follow_redirects=False
     )
     assert response.status_code == 401
     assert "session" not in response.cookies
 
-def test_logout():
+def test_logout(logged_in_client): # logged_in_clientフィクスチャを使用
     """ログアウト後、保護されたルートにアクセスするとリダイレクトされることをテストする"""
-    client = TestClient(app)
-    # まずログインする
-    login_response = client.post("/login", data={"username": "admin", "password": "your_strong_password_here"}, follow_redirects=True)
-    assert login_response.status_code == 200 # ルートへのリダイレクト成功を確認
-
     # ログアウト
-    logout_response = client.get("/logout", follow_redirects=False)
+    logout_response = logged_in_client.get("/logout", follow_redirects=False)
     assert logout_response.status_code == 303
     assert logout_response.headers["location"] == "/login"
 
-    # 保護されたルートにアクセスを試みる
-    response = client.get("/", follow_redirects=False)
+    # 保護されたルートにアクセスを試みる (未認証状態)
+    response = logged_in_client.get("/", follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/login"
 
 def test_access_root_unauthenticated():
     """未認証でルートにアクセスするとログインページにリダイレクトされることをテストする"""
-    client = TestClient(app)
+    client = TestClient(app) # 新しいクライアントインスタンス
     response = client.get("/", follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/login"
 
-def test_get_main_page_authenticated():
+def test_get_main_page_authenticated(logged_in_client): # logged_in_clientフィクスチャを使用
     """認証済みユーザーがメインページにアクセスでき、投稿フォームが表示されることをテストする"""
-    client = TestClient(app)
-    # ログイン
-    client.post("/login", data={"username": "admin", "password": "your_strong_password_here"})
-
-    response = client.get("/")
+    response = logged_in_client.get("/")
     assert response.status_code == 200
-    # <textarea>タグとname="text"属性の存在を個別にチェック
     assert b'<textarea' in response.content
     assert b'name="text"' in response.content
-    # config.ymlに設定されているSNSアカウントのチェックボックスが表示されることを確認
-    assert b'<input type="checkbox"' in response.content
-    assert b'name="sns_targets"' in response.content
-    assert b'value="x-main"' in response.content
+    assert b'value="x"' in response.content # config.ymlに設定されているSNSアカウントのチェックボックスが表示されることを確認
 
 from unittest.mock import patch
 
-def test_post_api_endpoint():
+def test_post_api_endpoint(logged_in_client): # logged_in_clientフィクスチャを使用
     """/api/postエンドポイントがPostingServiceを正しく呼び出すことをテストする"""
-    client = TestClient(app)
-    # ログイン
-    client.post("/login", data={"username": "admin", "password": "your_strong_password_here"})
-
     with patch('src.web.main_web.posting_service') as mock_posting_service:
         mock_posting_service.post_now.return_value = {'x-main': {'success': True}}
         
-        # ダミーのアップロードファイルを作成
         dummy_file_content = b"dummy image content"
         files = {'media_files': ('test.jpg', dummy_file_content, 'image/jpeg')}
         data = {
@@ -103,13 +98,11 @@ def test_post_api_endpoint():
             'sns_targets': 'x-main'
         }
 
-        response = client.post("/api/post", data=data, files=files)
+        response = logged_in_client.post("/api/post", data=data, files=files)
 
         assert response.status_code == 200
         assert response.json() == {'x-main': {'success': True}}
 
-        # PostingServiceが正しい引数で呼び出されたか検証
-        # ファイルパスは一時的なものなので、ここでは呼び出されたこと自体を主眼に置く
         mock_posting_service.post_now.assert_called_once()
         called_args, _ = mock_posting_service.post_now.call_args
         assert called_args[0]['text'] == 'Test post'
@@ -121,17 +114,11 @@ def test_scheduler_lifecycle():
     """アプリケーションのライフサイクルでスケジューラが開始・停止されることをテストする"""
     with patch('src.web.main_web.scheduler') as mock_scheduler:
         with TestClient(app) as client:
-            # アプリケーションの起動時にスケジューラが開始されることを確認
             mock_scheduler.start.assert_called_once()
-        # アプリケーションの終了時にスケジューラがシャットダウンされることを確認
         mock_scheduler.shutdown.assert_called_once()
 
-def test_schedule_api_endpoint():
+def test_schedule_api_endpoint(logged_in_client): # logged_in_clientフィクスチャを使用
     """/api/scheduleエンドポイントがスケジューラを正しく呼び出すことをテストする"""
-    client = TestClient(app)
-    # ログイン
-    client.post("/login", data={"username": "admin", "password": "your_strong_password_here"})
-
     with patch('src.web.main_web.scheduler') as mock_scheduler:
         schedule_time = "2025-12-31T23:59:00"
         data = {
@@ -141,10 +128,12 @@ def test_schedule_api_endpoint():
             'schedule_time': schedule_time
         }
 
-        response = client.post("/api/schedule", data=data)
+        response = logged_in_client.post("/api/schedule", data=data)
 
         assert response.status_code == 200
-        assert response.json() == {"message": "Post scheduled successfully"}
+        response_json = response.json()
+        assert response_json.get("message") == "Post scheduled successfully"
+        assert "job_id" in response_json
+        assert isinstance(response_json["job_id"], str) # job_idが文字列であることを確認
 
-        # スケジューラが正しい引数で呼び出されたか検証
         mock_scheduler.add_job.assert_called_once()

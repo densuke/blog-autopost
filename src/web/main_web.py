@@ -77,7 +77,8 @@ def read_root(request: Request, user: str = Depends(get_current_user)):
             sns_accounts.append({'name': config.get('name'), 'type': config.get('type')})
     elif isinstance(sns_configs, dict):
         for name, config in sns_configs.items():
-            sns_accounts.append({'name': name, 'type': name})
+            sns_type = config.get('type', name) # configにtypeがあればそれを使用、なければnameをtypeとする
+            sns_accounts.append({'name': name, 'type': sns_type})
 
     return templates.TemplateResponse("index.html", {"request": request, "user": user, "sns_accounts": sns_accounts})
 
@@ -143,12 +144,20 @@ def api_schedule(
     user: str = Depends(get_current_user)
 ):
     from datetime import datetime
+    import uuid # ユニークなディレクトリ名生成用
 
-    temp_dir = tempfile.mkdtemp()
+    # 予約投稿用のメディア保存ディレクトリ
+    SCHEDULED_MEDIA_DIR = os.path.join(DATA_DIR, "scheduled_media")
+    os.makedirs(SCHEDULED_MEDIA_DIR, exist_ok=True)
+
+    # 今回の予約投稿に紐づくユニークなサブディレクトリを作成
+    job_media_dir = os.path.join(SCHEDULED_MEDIA_DIR, str(uuid.uuid4()))
+    os.makedirs(job_media_dir, exist_ok=True)
+
     media_paths = []
     try:
         for file in media_files:
-            path = os.path.join(temp_dir, file.filename)
+            path = os.path.join(job_media_dir, file.filename)
             with open(path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
             media_paths.append(path)
@@ -157,18 +166,27 @@ def api_schedule(
             'text': text,
             'url': url,
             'sns_targets': sns_targets,
-            'media_files': media_paths
+            'media_files': media_paths,
+            'job_media_dir': job_media_dir # 投稿後に削除するためにディレクトリパスも渡す
         }
 
         run_date = datetime.fromisoformat(schedule_time)
 
-        scheduler.add_job(posting_service.post_now, 'date', run_date=run_date, args=[post_data])
+        # ジョブIDを生成し、後でメディアファイルを削除するために使用
+        job_id = str(uuid.uuid4())
+        scheduler.add_job(
+            posting_service.post_now_and_cleanup, # 新しいクリーンアップ付きメソッドを呼び出す
+            'date',
+            run_date=run_date,
+            args=[post_data],
+            id=job_id,
+            misfire_grace_time=600 # 10分間の猶予
+        )
         
-        return JSONResponse(content={"message": "Post scheduled successfully"})
+        return JSONResponse(content={"message": "Post scheduled successfully", "job_id": job_id})
 
     except Exception as e:
-        # In a real app, you'd want more specific error handling
+        # エラー発生時は作成したディレクトリをクリーンアップ
+        if os.path.exists(job_media_dir):
+            shutil.rmtree(job_media_dir)
         raise HTTPException(status_code=400, detail=str(e))
-    # Note: The temporary directory with files for scheduled posts is not cleaned up here.
-    # This is a simplification for this implementation step.
-    # A more robust solution would involve a persistent storage for uploaded files.
