@@ -4,11 +4,6 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-# PostingServiceがまだ存在しないため、このインポートは失敗する
-# from src.web.posting_service import PostingService
-
-    # from src.web.posting_service import PostingService
-
 @pytest.fixture
 def mock_dependencies():
     """PostingServiceの依存関係のモックを作成する"""
