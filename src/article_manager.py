@@ -25,6 +25,54 @@ class ArticleManager:
             
         self.text_optimizer = TextOptimizer(config_manager.config)
 
+    def force_mark_all_as_posted(self) -> dict:
+        """
+        登録されているすべてのRSSフィードのアイテムを「投稿済み」としてマークします。
+        """
+        all_feed_configs = self.config_manager.get_all_feed_configs()
+        all_posted_urls = set()
+        processed_feeds_count = 0
+        processed_articles_count = 0
+
+        for feed_config in all_feed_configs:
+            feed_name = feed_config.get('name', 'default')
+            feed_url = feed_config.get('feed_url')
+            if not feed_url:
+                print(f"警告: フィード '{feed_name}' のURLが設定されていません。スキップします。")
+                continue
+
+            print(f"フィード '{feed_name}' ({feed_url}) の記事を取得中...")
+            feed = feedparser.parse(feed_url)
+            if feed.bozo:
+                print(f"警告: フィード '{feed_name}' の解析に失敗しました: {feed.bozo_exception}")
+                continue
+
+            for entry in feed.entries:
+                all_posted_urls.add(entry.link)
+                processed_articles_count += 1
+            processed_feeds_count += 1
+
+        # 既存の保存済み記事を読み込む
+        saved_data = {}
+        if os.path.exists(DATA_FILE):
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                saved_data = json.load(f)
+
+        # __forced_posted_urls__ を更新
+        saved_data['__forced_posted_urls__'] = list(all_posted_urls)
+
+        # ファイルに保存
+        os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
+        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(saved_data, f, indent=4, ensure_ascii=False)
+
+        return {
+            "status": "success",
+            "processed_feeds": processed_feeds_count,
+            "processed_articles": processed_articles_count,
+            "total_posted_urls": len(all_posted_urls)
+        }
+
     def get_latest_articles(self, debug=False):
         if debug:
             print(f"フィードを解析中: {self.feed_url}")
@@ -74,6 +122,14 @@ class ArticleManager:
 
     def get_new_articles(self, latest_articles, saved_articles, debug=False, limit=None):
         saved_links = {article['link'] for article in saved_articles}
+
+        # __forced_posted_urls__ を読み込み、saved_linksに追加
+        if os.path.exists(DATA_FILE):
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                forced_posted_urls = set(data.get('__forced_posted_urls__', []))
+                saved_links.update(forced_posted_urls)
+
         new_articles = [article for article in latest_articles if article['link'] not in saved_links]
         
         # limit指定がある場合は制限を適用

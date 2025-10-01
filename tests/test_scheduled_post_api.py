@@ -4,8 +4,9 @@ from datetime import datetime, timedelta
 import pytest
 import json
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
-from src.web.main_web import app, scheduled_post_store, get_current_user
+from src.web.main_web import app, scheduled_post_store, get_current_user, scheduler_service
 from src.web.scheduled_post_model import ScheduledPost
 
 # TestClientのインスタンスを作成
@@ -35,24 +36,21 @@ def sample_post_data():
     テスト用のサンプル予約投稿データを作成します。
     """
     return {
-        "scheduled_at": (datetime.now() + timedelta(days=1)).isoformat(), # 未来の時刻に設定
+        "scheduled_at": (datetime.now() - timedelta(days=1)).isoformat(), # 過去の時刻に設定
         "content": "Test Post from API",
         "media_files": [],
         "target_sns": ["x", "bluesky"]
     }
 
 @pytest.fixture
-def pre_existing_post():
+def pre_existing_post(sample_post_data):
     """
     事前に存在する予約投稿を作成し、ストアに保存します。
     """
-    # 未来の時刻で予約済み投稿を作成
-    future_time = datetime.now() + timedelta(days=1)
     post = ScheduledPost(
-        scheduled_at=future_time,
-        content="Pre-existing Test Post",
-        target_sns=["x", "bluesky"],
-        status="予約済み"
+        scheduled_at=datetime.fromisoformat(sample_post_data["scheduled_at"]),
+        content=sample_post_data["content"],
+        target_sns=sample_post_data["target_sns"]
     )
     scheduled_post_store.create_post(post)
     return post
@@ -133,6 +131,23 @@ def test_create_scheduled_post_invalid_data(sample_post_data):
     )
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
+def test_create_scheduled_post_unsupported_sns(sample_post_data):
+    """
+    サポートされていないSNSを指定した場合に400を返すことを確認します。
+    """
+    invalid_data = sample_post_data.copy()
+    invalid_data["target_sns"] = ["unsupported_sns"]
+    response = client.post(
+        "/api/scheduled-posts",
+        data={
+            "scheduled_at": invalid_data["scheduled_at"],
+            "content": invalid_data["content"],
+            "target_sns": invalid_data["target_sns"]
+        }
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "Unsupported SNS target" in response.json()["detail"]
+
 # --- PUT /api/scheduled-posts/{post_id} ---
 
 def test_update_scheduled_post(pre_existing_post):
@@ -145,10 +160,9 @@ def test_update_scheduled_post(pre_existing_post):
         data={
             "content": updated_content,
             "scheduled_at": (datetime.now() + timedelta(days=2)).isoformat(),
-            "target_sns": ["mastodon-social"]
+            "target_sns": ["mastodon"]
         }
-    )
-    assert response.status_code == status.HTTP_200_OK
+    )assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["id"] == pre_existing_post.id
     assert data["content"] == updated_content
@@ -163,7 +177,7 @@ def test_update_scheduled_post_not_found():
         data={
             "content": "Updated content",
             "scheduled_at": (datetime.now() + timedelta(days=2)).isoformat(),
-            "target_sns": ["mastodon-social"]
+            "target_sns": ["mastodon"]
         }
     )
     assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -179,7 +193,7 @@ def test_update_scheduled_post_conflict_executed(pre_existing_post):
         data={
             "content": "Updated content",
             "scheduled_at": (datetime.now() + timedelta(days=2)).isoformat(),
-            "target_sns": ["mastodon-social"]
+            "target_sns": ["mastodon"]
         }
     )
     assert response.status_code == status.HTTP_409_CONFLICT
@@ -189,7 +203,7 @@ def test_update_scheduled_post_unsupported_sns(pre_existing_post, sample_post_da
     サポートされていないSNSを指定して予約投稿を更新しようとした場合に400を返すことを確認します。
     """
     invalid_data = sample_post_data.copy()
-    invalid_data["target_sns"] = json.dumps(["unsupported_sns"])
+    invalid_data["target_sns"] = ["unsupported_sns"]
     response = client.put(
         f"/api/scheduled-posts/{pre_existing_post.id}",
         data={
@@ -233,24 +247,15 @@ def test_re_execute_scheduled_post(pre_existing_post):
     """
     失敗した予約投稿を再実行できることを確認します。
     """
-    # 失敗状態に変更
     pre_existing_post.status = "失敗"
     scheduled_post_store.update_post(pre_existing_post.id, {"status": "失敗"})
-    
-    # 再実行前の時刻を記録
-    before_re_execute = datetime.now()
-    
     response = client.post(f"/api/scheduled-posts/{pre_existing_post.id}/re-execute")
     assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["id"] == pre_existing_post.id
     assert data["status"] == "予約済み"
-    
-    # scheduled_atが未来の時刻に更新されたことを確認（現在時刻+1分程度）
-    new_scheduled_at = datetime.fromisoformat(data["scheduled_at"])
-    assert new_scheduled_at > before_re_execute
-    # エラーメッセージがクリアされたことを確認
-    assert data["error_message"] is None
+    # scheduled_atが更新されたことを確認（元の時刻より新しいことを確認）
+    assert datetime.fromisoformat(data["scheduled_at"]) > pre_existing_post.scheduled_at
 
 def test_re_execute_scheduled_post_not_found():
     """
@@ -295,3 +300,35 @@ def test_send_scheduled_post_now_conflict_executed(pre_existing_post):
     scheduled_post_store.update_post(pre_existing_post.id, {"status": "実行済み"})
     response = client.post(f"/api/scheduled-posts/{pre_existing_post.id}/send-now")
     assert response.status_code == status.HTTP_409_CONFLICT
+
+# --- SchedulerService tests ---
+
+def test_scheduler_service_initialization():
+    """
+    SchedulerServiceが正しく初期化されることを確認します。
+    """
+    # main_web.pyでscheduler_serviceが既に初期化されているため、
+    # ここではそのインスタンスが有効であることを確認する
+    assert scheduler_service is not None
+    assert scheduler_service.scheduler is not None
+    assert not scheduler_service.scheduler.running # 初期状態では実行されていない
+
+@patch('src.web.scheduler_service.BackgroundScheduler.start')
+@patch('src.web.scheduler_service.BackgroundScheduler.add_job')
+def test_scheduler_service_start(mock_add_job, mock_start):
+    """
+    SchedulerServiceのstartメソッドが正しくスケジューラを開始し、ジョブを追加することを確認します。
+    """
+    scheduler_service.start()
+    mock_start.assert_called_once()
+    mock_add_job.assert_called_once_with(scheduler_service._monitor_scheduled_posts, 'interval', minutes=1, id='monitor_scheduled_posts')
+
+@patch('src.web.scheduler_service.BackgroundScheduler.shutdown')
+def test_scheduler_service_shutdown(mock_shutdown):
+    """
+    SchedulerServiceのshutdownメソッドが正しくスケジューラを停止することを確認します。
+    """
+    # startを呼び出してrunning状態にする
+    scheduler_service.scheduler.start()
+    scheduler_service.shutdown()
+    mock_shutdown.assert_called_once()

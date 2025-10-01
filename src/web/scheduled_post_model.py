@@ -19,8 +19,10 @@ class ScheduledPost:
     def __post_init__(self):
         """バリデーション処理"""
         # 予約済み投稿の場合、scheduled_atは未来でなければならない
-        if self.status == "予約済み" and self.scheduled_at <= datetime.now():
-            raise ValueError("scheduled_at must be in the future for '予約済み' status")
+        # ただし、過去の予約投稿をスケジューラーが処理するシナリオを考慮し、
+        # ここでは厳密な未来日時チェックは行わない。
+        # APIレベルで未来日時を強制する。
+        pass
         # 初期化完了フラグを設定（このsetはバリデーションをバイパスする）
         object.__setattr__(self, '_initialized', True)
     

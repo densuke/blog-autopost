@@ -20,6 +20,8 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 
 from .scheduled_post_store import ScheduledPostStore
 from .scheduled_post_model import ScheduledPost
+from .post_executor import PostExecutor
+from .scheduler_service import SchedulerService
 
 app = FastAPI()
 
@@ -32,24 +34,22 @@ if not os.path.exists(DATA_DIR):
 SCHEDULED_POSTS_FILE = Path(DATA_DIR) / "scheduled_posts.json"
 scheduled_post_store = ScheduledPostStore(SCHEDULED_POSTS_FILE)
 
-# スケジューラの設定
-jobstores = {
-    'default': SQLAlchemyJobStore(url=f'sqlite:///{DATA_DIR}/jobs.sqlite')
-}
-scheduler = BackgroundScheduler(jobstores=jobstores)
-
-@app.on_event("startup")
-def startup_event():
-    scheduler.start()
-
-@app.on_event("shutdown")
-def shutdown_event():
-    scheduler.shutdown()
-
-
 # 設定と認証サービスのインスタンス化
 config_manager = ConfigManager("config.yml")
 auth_service = AuthService(config_manager)
+
+# 投稿実行サービスとスケジューラーサービスのインスタンス化
+post_executor = PostExecutor(scheduled_post_store, config_manager)
+scheduler_service = SchedulerService(scheduled_post_store, post_executor, DATA_DIR)
+
+@app.on_event("startup")
+def startup_event():
+    scheduler_service.start()
+
+@app.on_event("shutdown")
+def shutdown_event():
+    scheduler_service.shutdown()
+
 
 # 投稿関連サービスのインスタンス化
 # media_validator = MediaValidator() # PostingService内で直接呼び出すため不要
@@ -92,7 +92,9 @@ def read_root(request: Request, user: str = Depends(get_current_user)):
             sns_type = config.get('type', name) # configにtypeがあればそれを使用、なければnameをtypeとする
             sns_accounts.append({'name': name, 'type': sns_type})
 
-    return templates.TemplateResponse("index.html", {"request": request, "user": user, "sns_accounts": sns_accounts})
+    scheduled_posts = scheduled_post_store.get_all_posts()
+
+    return templates.TemplateResponse("index.html", {"request": request, "user": user, "sns_accounts": sns_accounts, "scheduled_posts": scheduled_posts, "now": datetime.now()})
 
 @app.get("/login")
 def login_form(request: Request):
@@ -276,15 +278,13 @@ def send_scheduled_post_now(post_id: str, user: str = Depends(get_current_user))
     if existing_post.status == "実行済み":
         raise HTTPException(status_code=409, detail="Cannot send an already executed post immediately")
 
-    # TODO: 投稿実行サービスを呼び出すロジックが必要
-    # 現時点ではステータスを更新するのみ
-    updates = {
-        "status": "実行済み", # 仮に実行済みとする
-        "updated_at": datetime.now()
-    }
-    updated_post = scheduled_post_store.update_post(post_id, updates)
+    # PostExecutorを使って投稿を実行
+    success = post_executor.execute_post(post_id, debug=True)
+    
+    # 更新された投稿を取得して返す
+    updated_post = scheduled_post_store.get_post_by_id(post_id)
     if not updated_post:
-        raise HTTPException(status_code=404, detail="Scheduled post not found for immediate sending")
+        raise HTTPException(status_code=404, detail="Scheduled post not found after immediate sending")
     return updated_post
 
 @app.post("/api/schedule")
