@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from src.web.scheduled_post_model import ScheduledPost
 from src.web.scheduled_post_store import ScheduledPostStore
 from src.web.core_posting_logic import CorePostingLogic
@@ -6,9 +6,14 @@ from src.config_manager import ConfigManager
 from datetime import datetime
 
 class PostExecutor:
-    def __init__(self, scheduled_post_store: ScheduledPostStore, config_manager: ConfigManager):
+    def __init__(
+        self, 
+        scheduled_post_store: ScheduledPostStore, 
+        config_manager: ConfigManager,
+        core_posting_logic: Optional[CorePostingLogic] = None
+    ):
         self.scheduled_post_store = scheduled_post_store
-        self.core_posting_logic = CorePostingLogic(config_manager)
+        self.core_posting_logic = core_posting_logic or CorePostingLogic(config_manager)
 
     def execute_post(self, post_id: str, debug: bool = False) -> bool:
         """
