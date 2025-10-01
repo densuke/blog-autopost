@@ -43,7 +43,7 @@
   - _Requirements: 2.3, 2.4_
 
 - [ ] 4. 即時投稿機能の実装
-- [ ] 4.1 投稿処理サービスの作成
+- [x] 4.1 投稿処理サービスの作成
   - 既存の`media_validator`, `image_resizer`, `text_optimizer`, `plugin_loader`を呼び出し、一連の投稿処理をまとめる`PostingService`を実装します。
   - _Requirements: 3.3, 3.4, 4.4_
 - [ ] 4.2 即時投稿APIエンドポイントの実装
