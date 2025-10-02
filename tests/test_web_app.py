@@ -153,3 +153,20 @@ def test_edit_scheduled_post_from_ui(mock_store, logged_in_client):
     response = logged_in_client.put(f"/api/scheduled-posts/some_id", data={'content': 'new'})
     assert response.status_code == 200
     mock_store.update_post.assert_called_once()
+
+@patch('src.web.main_web.scheduled_post_store')
+def test_read_root_with_sorting(mock_scheduled_post_store, logged_in_client):
+    """
+    ルートエンドポイントがsort_byパラメータを正しく処理することを確認します。
+    """
+    mock_scheduled_post_store.get_all_posts.return_value = []
+
+    # sort_by パラメータなしで呼び出し
+    logged_in_client.get("/")
+    # デフォルト値 'date_asc' で呼び出されることを確認
+    mock_scheduled_post_store.get_all_posts.assert_called_with(sort_by='date_asc')
+
+    # sort_by パラメータ付きで呼び出し
+    logged_in_client.get("/?sort_by=date_desc")
+    # 指定された値で呼び出されることを確認
+    mock_scheduled_post_store.get_all_posts.assert_called_with(sort_by='date_desc')
