@@ -204,6 +204,13 @@ class ConfigManager:
         secret_key = web_auth_config.get('secret_key')
         return secret_key
 
+    def get_web_server_settings(self):
+        """Webサーバーの設定を取得する"""
+        server_config = self.config.get('web_server', {})
+        host = server_config.get('host', '127.0.0.1')
+        port = server_config.get('port', 8000)
+        return {"host": host, "port": port}
+
 def load_config(config_path="config.yml"):
     """
     設定ファイルを読み込みます。
