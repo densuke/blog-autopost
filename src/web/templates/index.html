@@ -112,6 +112,15 @@
     <div id="status-messages"></div>
 
     <h2>予約投稿一覧</h2>
+    <div>
+        <label for="sort-by">並び替え:</label>
+        <select id="sort-by" name="sort-by">
+            <option value="date_asc" {% if current_sort_by == 'date_asc' %}selected{% endif %}>投稿日時 (昇順)</option>
+            <option value="date_desc" {% if current_sort_by == 'date_desc' %}selected{% endif %}>投稿日時 (降順)</option>
+            <option value="status_failed" {% if current_sort_by == 'status_failed' %}selected{% endif %}>ステータス (失敗優先)</option>
+            <option value="status_completed" {% if current_sort_by == 'status_completed' %}selected{% endif %}>ステータス (完了優先)</option>
+        </select>
+    </div>
     <table border="1">
         <thead>
             <tr>
