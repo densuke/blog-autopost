@@ -93,7 +93,7 @@ def get_current_user(request: Request):
     return user
 
 @app.get("/")
-def read_root(request: Request, user: str = Depends(get_current_user)):
+def read_root(request: Request, sort_by: Optional[str] = 'date_asc', user: str = Depends(get_current_user)):
     sns_configs = config_manager.get_all_sns_configs()
     sns_accounts = []
     if isinstance(sns_configs, list):
@@ -104,13 +104,13 @@ def read_root(request: Request, user: str = Depends(get_current_user)):
             sns_type = config.get('type', name) # configにtypeがあればそれを使用、なければnameをtypeとする
             sns_accounts.append({'name': name, 'type': sns_type})
 
-    scheduled_posts = scheduled_post_store.get_all_posts()
+    scheduled_posts = scheduled_post_store.get_all_posts(sort_by=sort_by)
     # UTCで保存されている日時をローカルタイムゾーンに変換して表示
     for post in scheduled_posts:
         if post.scheduled_at.tzinfo:
             post.scheduled_at = post.scheduled_at.astimezone()
 
-    return templates.TemplateResponse("index.html", {"request": request, "user": user, "sns_accounts": sns_accounts, "scheduled_posts": scheduled_posts, "now": datetime.now()})
+    return templates.TemplateResponse("index.html", {"request": request, "user": user, "sns_accounts": sns_accounts, "scheduled_posts": scheduled_posts, "now": datetime.now(), "current_sort_by": sort_by})
 
 @app.get("/login")
 def login_form(request: Request):
