@@ -40,6 +40,10 @@ sync:
 run-web:
     uv run uvicorn src.web.main_web:app --reload
 
+# メンテナンスコマンド
+touch-rss-posted *args='':
+    uv run -m src.main touch-rss-posted {{args}}
+
 # 使用例とヘルプ
 help:
     @echo "blog-autopost justfile コマンド一覧:"
@@ -65,3 +69,6 @@ help:
     @echo ""
     @echo "環境構築:"
     @echo "  just sync                          # 依存関係の同期"
+    @echo ""
+    @echo "メンテナンス:"
+    @echo "  just touch-rss-posted              # 全RSSフィードを既読にする"

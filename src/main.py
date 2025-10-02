@@ -541,11 +541,17 @@ def handle_touch_rss_posted(args, config_manager):
     """
     登録されたRSSフィードのアイテムをすべて投稿済みとしてマークします。
     """
+    if args.dry_run:
+        print("[ドライラン] RSSフィードのアイテムをすべて投稿済みとしてマークします。")
+        return
+
     print("RSSフィードのアイテムをすべて投稿済みとしてマークします。")
     article_manager = ArticleManager(config_manager)
     result = article_manager.force_mark_all_as_posted()
-    print(f"処理結果: {result}")
-
+    if result.get('status') == 'success':
+        print(f"処理が完了しました。処理された記事数: {result.get('processed_count', 0)}")
+    else:
+        print(f"エラーが発生しました: {result.get('message', '不明なエラー')}")
 def handle_direct_text_post(args, config_manager):
     """
     直接テキスト投稿を処理します
@@ -605,6 +611,7 @@ def main():
     touch_rss_posted_parser = subparsers.add_parser(
         'touch-rss-posted', help='登録されたRSSフィードのアイテムをすべて投稿済みとしてマークします。'
     )
+    touch_rss_posted_parser.add_argument("--dry-run", action="store_true", help="ドライランを実行します。")
     touch_rss_posted_parser.set_defaults(func=handle_touch_rss_posted)
 
     args = parser.parse_args()
@@ -613,6 +620,9 @@ def main():
     config_manager = ConfigManager(config_data)
 
     if hasattr(args, 'func'):
+        # dry-run引数がない場合に備えてデフォルト値を設定
+        if not hasattr(args, 'dry_run'):
+            args.dry_run = False
         args.func(args, config_manager)
         return
     
