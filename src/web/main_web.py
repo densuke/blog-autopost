@@ -105,6 +105,10 @@ def read_root(request: Request, user: str = Depends(get_current_user)):
             sns_accounts.append({'name': name, 'type': sns_type})
 
     scheduled_posts = scheduled_post_store.get_all_posts()
+    # UTCで保存されている日時をローカルタイムゾーンに変換して表示
+    for post in scheduled_posts:
+        if post.scheduled_at.tzinfo:
+            post.scheduled_at = post.scheduled_at.astimezone()
 
     return templates.TemplateResponse("index.html", {"request": request, "user": user, "sns_accounts": sns_accounts, "scheduled_posts": scheduled_posts, "now": datetime.now()})
 
@@ -365,7 +369,7 @@ def api_schedule(
 
         # ジョブIDを生成し、後でメディアファイルを削除するために使用
         job_id = str(uuid.uuid4())
-        scheduler.add_job(
+        scheduler_service.scheduler.add_job(
             posting_service.post_now_and_cleanup, # 新しいクリーンアップ付きメソッドを呼び出す
             'date',
             run_date=run_date,

@@ -1,6 +1,6 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List
 import os
 import logging
@@ -16,26 +16,38 @@ def _monitor_scheduled_posts_job(scheduled_post_store: ScheduledPostStore, post_
     """
     予約投稿を監視し、実行日時が来たものをPostExecutorに渡します。
     """
-    logger.info("Monitoring scheduled posts...")
-    print("Monitoring scheduled posts...")
-    now = datetime.now()
-    posts = scheduled_post_store.get_all_posts()
+    logger.info("--- Running scheduled post monitor job ---")
+    now_utc = datetime.now(timezone.utc)
+    logger.info(f"Current UTC time: {now_utc.isoformat()}")
     
-    executed_count = 0
-    for post in posts:
-        if post.status == "予約済み" and post.scheduled_at <= now:
-            logger.info(f"Found scheduled post to execute: {post.id}")
-            print(f"Found scheduled post to execute: {post.id}")
-            # PostExecutorに実行を依頼
-            # 実際のPostExecutorの呼び出しは非同期にするか、別のスレッドで行うべきだが、
-            # 現時点ではシンプルに同期呼び出しとする
-            success = post_executor.execute_post(post.id)
-            if success:
-                executed_count += 1
-    
-    if executed_count > 0:
-        logger.info(f"Executed {executed_count} scheduled post(s).")
-        print(f"Executed {executed_count} scheduled post(s).")
+    try:
+        posts = scheduled_post_store.get_all_posts()
+        logger.info(f"Found {len(posts)} posts to check.")
+
+        executed_count = 0
+        for post in posts:
+            scheduled_time = post.scheduled_at
+            # 保存されている日時にタイムゾーン情報がない場合、UTCとして扱う
+            if scheduled_time and scheduled_time.tzinfo is None:
+                scheduled_time = scheduled_time.replace(tzinfo=timezone.utc)
+
+            logger.info(f"Checking post ID: {post.id}, Status: {post.status}, Scheduled: {scheduled_time.isoformat() if scheduled_time else 'N/A'}")
+            # 投稿が予約済み状態で、スケジュール時刻を過ぎているかチェック
+            if post.status == "予約済み" and scheduled_time and scheduled_time <= now_utc:
+                logger.info(f"Executing post ID: {post.id}")
+                success = post_executor.execute_post(post.id)
+                if success:
+                    executed_count += 1
+                    logger.info(f"Successfully executed post ID: {post.id}")
+                else:
+                    logger.error(f"Failed to execute post ID: {post.id}")
+        
+        if executed_count > 0:
+            logger.info(f"Finished job. Executed {executed_count} post(s).")
+
+    except Exception as e:
+        logger.error(f"An error occurred in the monitor job: {e}", exc_info=True)
+    logger.info("--- Finished scheduled post monitor job ---")
 
 class SchedulerService:
     def __init__(self, scheduled_post_store: ScheduledPostStore, post_executor: PostExecutor, data_dir: str = "data"):
@@ -56,9 +68,10 @@ class SchedulerService:
             self.scheduler.add_job(
                 _monitor_scheduled_posts_job, 
                 'interval', 
-                minutes=1, 
+                seconds=30, 
                 id='monitor_scheduled_posts', 
-                args=[self.scheduled_post_store, self.post_executor]
+                args=[self.scheduled_post_store, self.post_executor],
+                replace_existing=True
             )
             logger.info("Scheduler started and monitoring job added.")
             print("Scheduler started and monitoring job added.")

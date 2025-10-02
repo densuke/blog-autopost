@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. 予約投稿管理機能のWeb APIを実装する
+- [x] 1. 予約投稿管理機能のWeb APIを実装する
 - [x] 1.1 `ScheduledPostAPI`のエンドポイントを定義する
   - GET `/scheduled-posts` (全予約投稿取得)
   - GET `/scheduled-posts/{id}` (特定予約投稿取得)
@@ -41,13 +41,13 @@
   - `status`による操作制限
   - _Requirements: Domain Model: ScheduledPost_
 
-- [ ] 3. 投稿実行サービス (`PostExecutor`) を実装する
+- [x] 3. 投稿実行サービス (`PostExecutor`) を実装する
 - [x] 3.1 `PostExecutor`の`execute_post`メソッドを実装する
   - `CorePostingLogic` (既存の `main.py` の投稿処理をラップしたもの) を呼び出す
   - 投稿結果に基づいて `ScheduledPostStore` のステータスを更新する (成功/失敗)
   - _Requirements: PostExecutor Contract Definition, 4.1, 4.2, 5.2_
 
-- [ ] 4. スケジューラー (`Scheduler`) バックグラウンドプロセスを実装する
+- [x] 4. スケジューラー (`Scheduler`) バックグラウンドプロセスを実装する
 - [x] 4.1 `APScheduler` を利用して定期実行ロジックを実装する
   - `ScheduledPostStore` を定期的に監視し、実行日時が来た予約投稿を検出
   - 検出した予約投稿を `PostExecutor` に渡す
@@ -58,7 +58,7 @@
   - プロセス停止時の復旧ロジック (未実行の過去の予約投稿の検出と実行)
   - _Requirements: Scheduler Contract Definition_
 
-- [ ] 5. Web UIとの統合と表示ロジックを実装する
+- [x] 5. Web UIとの統合と表示ロジックを実装する
 - [x] 5.1 予約投稿の一覧表示機能をWeb UIに実装する
   - 各予約投稿の投稿日時、内容の概要、対象SNS、現在のステータスを表示
   - 失敗した予約投稿の強調表示
@@ -80,7 +80,7 @@
   - `ScheduledPostStore`, `ScheduledPostAPI`, `PostExecutor`, `Scheduler`
   - _Requirements: Unit Tests_
 
-- [ ] 7.2 統合テストとE2Eテストを実装する
+- [x] 7.2 統合テストとE2Eテストを実装する
   - Web UIからの一連の操作のテスト
   - スケジュール実行のテスト
   - _Requirements: Integration Tests, E2E/UI Tests_
