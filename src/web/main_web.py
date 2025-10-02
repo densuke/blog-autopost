@@ -163,6 +163,13 @@ def api_post(
     finally:
         shutil.rmtree(temp_dir)
 
+@app.get("/api/posts", response_model=List[ScheduledPost])
+def get_api_posts(sort_by: Optional[str] = 'date_asc', user: str = Depends(get_current_user)):
+    """
+    ソート順を指定して、すべての予約投稿をJSON形式で取得します。
+    """
+    return scheduled_post_store.get_all_posts(sort_by=sort_by)
+
 @app.get("/api/scheduled-posts", response_model=List[ScheduledPost])
 def get_all_scheduled_posts(user: str = Depends(get_current_user)):
     return scheduled_post_store.get_all_posts()

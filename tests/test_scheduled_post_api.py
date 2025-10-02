@@ -344,3 +344,45 @@ def test_scheduler_service_shutdown(mock_shutdown):
     scheduler_service.scheduler.start()
     scheduler_service.shutdown()
     mock_shutdown.assert_called_once()
+
+# --- GET /api/posts ---
+
+def test_get_api_posts_empty():
+    """
+    /api/postsが予約投稿がない場合に空のリストを返すことを確認します。
+    """
+    response = client.get("/api/posts")
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == []
+
+def test_get_api_posts_with_data_and_sorting():
+    """
+    /api/postsがデータとソート順を正しく返すことを確認します。
+    """
+    # テストデータ
+    posts_to_create = [
+        ScheduledPost(id="post_future", scheduled_at=datetime(2025, 10, 5, 10, 0), content="Future", status="予約済み"),
+        ScheduledPost(id="post_past", scheduled_at=datetime(2025, 10, 1, 10, 0), content="Past", status="実行済み"),
+        ScheduledPost(id="post_failed", scheduled_at=datetime(2025, 10, 2, 10, 0), content="Failed", status="失敗"),
+        ScheduledPost(id="post_recent", scheduled_at=datetime(2025, 10, 4, 10, 0), content="Recent", status="予約済み"),
+    ]
+    scheduled_post_store._write_posts(posts_to_create)
+
+    # 1. デフォルトソート (date_asc)
+    response_asc = client.get("/api/posts?sort_by=date_asc")
+    assert response_asc.status_code == status.HTTP_200_OK
+    data_asc = response_asc.json()
+    assert [p["id"] for p in data_asc] == ["post_past", "post_failed", "post_recent", "post_future"]
+
+    # 2. 日付降順 (date_desc)
+    response_desc = client.get("/api/posts?sort_by=date_desc")
+    assert response_desc.status_code == status.HTTP_200_OK
+    data_desc = response_desc.json()
+    assert [p["id"] for p in data_desc] == ["post_future", "post_recent", "post_failed", "post_past"]
+
+    # 3. 失敗優先 (status_failed)
+    response_failed = client.get("/api/posts?sort_by=status_failed")
+    assert response_failed.status_code == status.HTTP_200_OK
+    data_failed = response_failed.json()
+    assert [p["id"] for p in data_failed] == ["post_failed", "post_recent", "post_future", "post_past"]
+
