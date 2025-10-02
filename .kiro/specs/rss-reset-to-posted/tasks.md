@@ -25,20 +25,20 @@
 - [x] 2.4 既存のRSSフィード処理ロジック (`ArticleManager` 内の `get_new_articles` など) が `__forced_posted_urls__` リストを参照し、リストに含まれるURLを新しい記事として扱わないように修正する。
   - _Requirements: 1.2, 2.2_
 
-- [ ] 3. ユーザーへのフィードバック
-- [ ] 3.1 `main.py` で `touch-rss-posted` コマンドの実行結果（成功/失敗、処理された記事数など）をユーザーに表示する。
+- [x] 3. ユーザーへのフィードバック
+- [x] 3.1 `main.py` で `touch-rss-posted` コマンドの実行結果（成功/失敗、処理された記事数など）をユーザーに表示する。
   - _Requirements: 3.1_
 
-- [ ] 4. テストの追加
-- [ ] 4.1 `tests/test_article_manager.py` に `force_mark_all_as_posted` メソッドのユニットテストを追加する。
+- [x] 4. テストの追加
+- [x] 4.1 `tests/test_article_manager.py` に `force_mark_all_as_posted` メソッドのユニットテストを追加する。
   - モックの `config_manager` と `feedparser` を使用して、JSONファイルが正しく更新されることを検証する。
   - _Requirements: 1.1, 2.1_
 
-- [ ] 4.2 `tests/test_main.py` に `touch-rss-posted` サブコマンドの結合テストを追加する。
+- [x] 4.2 `tests/test_main.py` に `touch-rss-posted` サブコマンドの結合テストを追加する。
   - `subprocess` を使用してCLIコマンドを実行し、期待される出力とJSONファイルの状態を検証する。
   - `--dry-run` オプションが正しく機能し、ファイルが変更されないことを検証するテストを追加する。
   - _Requirements: 1.1, 2.1, 3.1_
 
-- [ ] 5. `justfile` の更新
-- [ ] 5.1 `justfile` に `touch-rss-posted` コマンドを実行するためのエントリを追加する。
+- [x] 5. `justfile` の更新
+- [x] 5.1 `justfile` に `touch-rss-posted` コマンドを実行するためのエントリを追加する。
   - _Requirements: 1.1_

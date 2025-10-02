@@ -82,7 +82,7 @@ def test_force_mark_all_as_posted_excludes_new_articles(mock_config_manager, moc
     # 既存の保存済み記事ファイルを作成（空または関連しない記事）
     saved_articles_path = tmp_path / "test_articles.json"
     with open(saved_articles_path, 'w', encoding='utf-8') as f:
-        json.dump([], f) # 既存の保存済み記事は空とする
+        json.dump([], f)
 
     # 最新記事として、force_mark_all_as_postedでマークされた記事を含むリストを用意
     latest_articles = [
@@ -93,9 +93,32 @@ def test_force_mark_all_as_posted_excludes_new_articles(mock_config_manager, moc
 
     # --- Act ---
     # get_new_articlesを呼び出す
-    new_articles = am.get_new_articles(latest_articles, [], debug=False) # saved_articlesは空で渡す
+    new_articles = am.get_new_articles(latest_articles, [], debug=False)
 
     # --- Assert ---
     # force_mark_all_as_postedでマークされた記事が除外され、新しい記事のみが返されることを確認
     assert len(new_articles) == 1
     assert new_articles[0]['link'] == "http://example.com/feed1/new_article"
+
+def test_force_mark_all_as_posted_writes_to_file(mock_config_manager, mock_feedparser, tmp_path):
+    """ force_mark_all_as_postedが正しくJSONファイルに書き込むことをテスト """
+    # --- Arrange ---
+    am = ArticleManager(mock_config_manager, feed_name='feed1')
+    data_file_path = tmp_path / "test_articles.json"
+    ArticleManager.DATA_FILE = data_file_path
+
+    # --- Act ---
+    result = am.force_mark_all_as_posted()
+
+    # --- Assert ---
+    assert result['status'] == 'success'
+    assert result['processed_articles'] == 3 # 2つのフィードから合計3つの記事
+
+    with open(data_file_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    
+    assert '__forced_posted_urls__' in data
+    forced_urls = set(data['__forced_posted_urls__'])
+    assert "http://example.com/feed1/article1" in forced_urls
+    assert "http://example.com/feed1/article2" in forced_urls
+    assert "http://example.com/feed2/article1" in forced_urls
