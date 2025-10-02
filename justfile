@@ -38,7 +38,7 @@ sync:
 
 # Webサーバーの起動
 run-web:
-    uv run uvicorn src.web.main_web:app --reload
+    uv run -m src.web.runner
 
 # メンテナンスコマンド
 touch-rss-posted *args='':
