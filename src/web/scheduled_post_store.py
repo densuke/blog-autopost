@@ -41,11 +41,26 @@ class ScheduledPostStore:
         os.chmod(self.file_path, 0o600)
 
     # CRUD operations
-    def get_all_posts(self) -> List[ScheduledPost]:
+    def get_all_posts(self, sort_by: Optional[str] = 'date_asc') -> List[ScheduledPost]:
         """
-        すべての予約投稿を取得します。
+        すべての予約投稿を取得し、指定されたキーでソートします。
         """
-        return self._read_posts()
+        posts = self._read_posts()
+
+        if sort_by == 'date_desc':
+            posts.sort(key=lambda p: p.scheduled_at, reverse=True)
+        elif sort_by == 'status_failed':
+            # 失敗 -> 予約済み -> 実行済みの順
+            status_order = {"失敗": 0, "予約済み": 1, "実行済み": 2}
+            posts.sort(key=lambda p: (status_order.get(p.status, 99), p.scheduled_at))
+        elif sort_by == 'status_completed':
+            # 実行済み -> 予約済み -> 失敗の順
+            status_order = {"実行済み": 0, "予約済み": 1, "失敗": 2}
+            posts.sort(key=lambda p: (status_order.get(p.status, 99), p.scheduled_at))
+        else: # date_asc (default)
+            posts.sort(key=lambda p: p.scheduled_at)
+            
+        return posts
 
     def get_post_by_id(self, post_id: str) -> Optional[ScheduledPost]:
         """

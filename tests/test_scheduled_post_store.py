@@ -186,3 +186,42 @@ def test_delete_post(temp_file, sample_posts):
     # 存在しないIDの削除
     non_existent_delete = store.delete_post("non_existent_id")
     assert non_existent_delete is None
+
+def test_get_all_posts_with_sorting(temp_file):
+    """
+    get_all_postsがsort_byパラメータに従って正しく投稿をソートすることを確認します。
+    """
+    store = ScheduledPostStore(temp_file)
+    
+    # テストデータ
+    posts_to_create = [
+        ScheduledPost(id="post_future", scheduled_at=datetime(2025, 10, 5, 10, 0), content="Future", status="予約済み"),
+        ScheduledPost(id="post_past", scheduled_at=datetime(2025, 10, 1, 10, 0), content="Past", status="実行済み"),
+        ScheduledPost(id="post_failed", scheduled_at=datetime(2025, 10, 2, 10, 0), content="Failed", status="失敗"),
+        ScheduledPost(id="post_recent", scheduled_at=datetime(2025, 10, 4, 10, 0), content="Recent", status="予約済み"),
+    ]
+    store._write_posts(posts_to_create)
+
+    # 1. デフォルト (date_asc)
+    sorted_posts_asc = store.get_all_posts(sort_by='date_asc')
+    assert [p.id for p in sorted_posts_asc] == ["post_past", "post_failed", "post_recent", "post_future"]
+
+    # 2. 日付降順 (date_desc)
+    sorted_posts_desc = store.get_all_posts(sort_by='date_desc')
+    assert [p.id for p in sorted_posts_desc] == ["post_future", "post_recent", "post_failed", "post_past"]
+
+    # 3. 失敗優先 (status_failed)
+    # 失敗 -> 予約済み -> 実行済みの順になることを期待
+    sorted_posts_failed = store.get_all_posts(sort_by='status_failed')
+    assert [p.id for p in sorted_posts_failed] == ["post_failed", "post_future", "post_recent", "post_past"] or \
+           [p.id for p in sorted_posts_failed] == ["post_failed", "post_recent", "post_future", "post_past"] # 予約済み内の順序は問わない
+
+    # 4. 完了優先 (status_completed)
+    # 実行済み -> 予約済み -> 失敗の順になることを期待
+    sorted_posts_completed = store.get_all_posts(sort_by='status_completed')
+    assert [p.id for p in sorted_posts_completed] == ["post_past", "post_future", "post_recent", "post_failed"] or \
+           [p.id for p in sorted_posts_completed] == ["post_past", "post_recent", "post_future", "post_failed"] # 予約済み内の順序は問わない
+           
+    # 5. 引数なし（デフォルトの動作確認）
+    default_sorted_posts = store.get_all_posts()
+    assert [p.id for p in default_sorted_posts] == ["post_past", "post_failed", "post_recent", "post_future"]
