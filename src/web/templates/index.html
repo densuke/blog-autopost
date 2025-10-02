@@ -284,27 +284,31 @@
                 alert('予約日時を指定してください。');
                 return;
             }
-            submitPost('/api/schedule');
+            submitPost('/api/scheduled-posts', true);
         });
 
-        function submitPost(endpoint) {
+        function submitPost(endpoint, isScheduled = false) {
             statusMessages.innerHTML = '送信中...';
 
             const formData = new FormData();
-            formData.append('text', document.getElementById('text').value);
-            formData.append('url', document.getElementById('url').value);
             
-            document.querySelectorAll('input[name="sns_targets"]:checked').forEach(checkbox => {
-                formData.append('sns_targets', checkbox.value);
-            });
+            if (isScheduled) {
+                formData.append('content', document.getElementById('text').value);
+                formData.append('scheduled_at', document.getElementById('schedule_time').value);
+                document.querySelectorAll('input[name="sns_targets"]:checked').forEach(checkbox => {
+                    formData.append('target_sns', checkbox.value);
+                });
+            } else {
+                formData.append('text', document.getElementById('text').value);
+                formData.append('url', document.getElementById('url').value);
+                document.querySelectorAll('input[name="sns_targets"]:checked').forEach(checkbox => {
+                    formData.append('sns_targets', checkbox.value);
+                });
+            }
 
             uploadedFiles.forEach(file => {
                 formData.append('media_files', file);
             });
-
-            if (endpoint === '/api/schedule') {
-                formData.append('schedule_time', document.getElementById('schedule_time').value);
-            }
 
             fetch(endpoint, {
                 method: 'POST',
@@ -322,8 +326,10 @@
                     statusMessages.innerHTML = `<p class="warning">エラー: ${data.error}</p>`;
                     return;
                 }
-                if (endpoint === '/api/schedule') {
-                    statusMessages.innerHTML = `<p>${data.message}</p>`;
+
+                if (isScheduled) {
+                    alert('予約投稿を作成しました。');
+                    location.reload();
                 } else {
                     for (const [sns, result] of Object.entries(data)) {
                         const p = document.createElement('p');
