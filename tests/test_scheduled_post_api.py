@@ -386,3 +386,32 @@ def test_get_api_posts_with_data_and_sorting():
     data_failed = response_failed.json()
     assert [p["id"] for p in data_failed] == ["post_failed", "post_recent", "post_future", "post_past"]
 
+
+def test_root_endpoint_with_sorting():
+    """
+    ルートエンドポイント(`/`)がsort_byパラメータに応じて正しくソートされたHTMLを返すことを確認します。
+    """
+    # テストデータ
+    posts_to_create = [
+        ScheduledPost(id="post_future", scheduled_at=datetime(2025, 10, 5, 10, 0), content="Future", status="予約済み"),
+        ScheduledPost(id="post_past", scheduled_at=datetime(2025, 10, 1, 10, 0), content="Past", status="実行済み"),
+        ScheduledPost(id="post_failed", scheduled_at=datetime(2025, 10, 2, 10, 0), content="Failed", status="失敗"),
+    ]
+    scheduled_post_store._write_posts(posts_to_create)
+
+    # 日付降順でリクエスト
+    response = client.get("/?sort_by=date_desc")
+    assert response.status_code == status.HTTP_200_OK
+    
+    html_content = response.text
+    
+    # HTMLコンテンツ内でのIDの出現順序を確認
+    pos_future = html_content.find("post_future")
+    pos_failed = html_content.find("post_failed")
+    pos_past = html_content.find("post_past")
+
+    # date_descなので、future -> failed -> past の順になるはず
+    assert pos_future != -1 and pos_failed != -1 and pos_past != -1
+    assert pos_future < pos_failed < pos_past
+
+
