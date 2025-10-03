@@ -7,7 +7,7 @@ import shutil
 import tempfile
 import os
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import logging
 
 from ..config_manager import ConfigManager
@@ -64,7 +64,6 @@ def shutdown_event():
 
 
 # 投稿関連サービスのインスタンス化
-# media_validator = MediaValidator() # PostingService内で直接呼び出すため不要
 image_resizer = ImageResizer()
 text_optimizer = TextOptimizer(config_manager.config)
 posting_service = PostingService(
@@ -101,16 +100,15 @@ def read_root(request: Request, sort_by: Optional[str] = 'date_asc', user: str =
             sns_accounts.append({'name': config.get('name'), 'type': config.get('type')})
     elif isinstance(sns_configs, dict):
         for name, config in sns_configs.items():
-            sns_type = config.get('type', name) # configにtypeがあればそれを使用、なければnameをtypeとする
+            sns_type = config.get('type', name)
             sns_accounts.append({'name': name, 'type': sns_type})
 
     scheduled_posts = scheduled_post_store.get_all_posts(sort_by=sort_by)
-    # UTCで保存されている日時をローカルタイムゾーンに変換して表示
     for post in scheduled_posts:
-        if post.scheduled_at.tzinfo:
+        if post.scheduled_at and post.scheduled_at.tzinfo:
             post.scheduled_at = post.scheduled_at.astimezone()
 
-    return templates.TemplateResponse("index.html", {"request": request, "user": user, "sns_accounts": sns_accounts, "scheduled_posts": scheduled_posts, "now": datetime.now(), "current_sort_by": sort_by})
+    return templates.TemplateResponse("index.html", {"request": request, "user": user, "sns_accounts": sns_accounts, "scheduled_posts": scheduled_posts, "now": datetime.now(timezone.utc), "current_sort_by": sort_by})
 
 @app.get("/login")
 def login_form(request: Request):
@@ -165,9 +163,6 @@ def api_post(
 
 @app.get("/api/posts", response_model=List[ScheduledPost])
 def get_api_posts(sort_by: Optional[str] = 'date_asc', user: str = Depends(get_current_user)):
-    """
-    ソート順を指定して、すべての予約投稿をJSON形式で取得します。
-    """
     return scheduled_post_store.get_all_posts(sort_by=sort_by)
 
 @app.get("/api/scheduled-posts", response_model=List[ScheduledPost])
@@ -189,35 +184,23 @@ def create_scheduled_post(
     target_sns: List[str] = Form(...),
     user: str = Depends(get_current_user)
 ):
-    # メディアファイルの安全な保存
     media_paths = []
     if media_files:
-        # 予約投稿用のメディア保存ディレクトリを作成
-        scheduled_media_dir = os.path.join(DATA_DIR, "scheduled_media")
-        os.makedirs(scheduled_media_dir, exist_ok=True)
-        
-        # 今回の予約投稿に紐づくユニークなサブディレクトリを作成
         import uuid
-        post_media_dir = os.path.join(scheduled_media_dir, str(uuid.uuid4()))
+        post_media_dir = os.path.join(DATA_DIR, "scheduled_media", str(uuid.uuid4()))
         os.makedirs(post_media_dir, exist_ok=True)
-        
-        # セキュリティ: ディレクトリパーミッションを設定（所有者のみアクセス可能）
         os.chmod(post_media_dir, 0o700)
         
         for file in media_files:
-            # ファイル名のサニタイズ（パストラバーサル攻撃対策）
             safe_filename = os.path.basename(file.filename)
             path = os.path.join(post_media_dir, safe_filename)
             
             with open(path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
             
-            # セキュリティ: ファイルパーミッションを設定（所有者のみ読み書き可能）
             os.chmod(path, 0o600)
-            
             media_paths.append(path)
 
-    # SNS制限違反チェック
     supported_sns = config_manager.get_all_sns_names()
     if not all(sns in supported_sns for sns in target_sns):
         raise HTTPException(status_code=400, detail="Unsupported SNS target specified")
@@ -227,9 +210,7 @@ def create_scheduled_post(
         scheduled_at=scheduled_at,
         content=content,
         media_files=media_paths,
-        target_sns=target_sns,
-        created_at=datetime.now(),
-        updated_at=datetime.now()
+        target_sns=target_sns
     )
     scheduled_post_store.create_post(new_post)
     return new_post
@@ -239,15 +220,14 @@ def update_scheduled_post(
     post_id: str,
     scheduled_at: Optional[datetime] = Form(None),
     content: Optional[str] = Form(None),
-    media_files: List[UploadFile] = File([]), # 更新時は既存のものをどう扱うか検討
-    target_sns: Optional[List[str]] = Form(None), # Optionalに変更
+    media_files: List[UploadFile] = File([]),
+    target_sns: Optional[List[str]] = Form(None),
     user: str = Depends(get_current_user)
 ):
     existing_post = scheduled_post_store.get_post_by_id(post_id)
     if not existing_post:
         raise HTTPException(status_code=404, detail="Scheduled post not found")
     
-    # 実行済みまたは失敗した投稿は更新不可
     if existing_post.status in ["実行済み", "失敗"]:
         raise HTTPException(status_code=409, detail="Cannot update an already executed or failed post")
 
@@ -256,13 +236,11 @@ def update_scheduled_post(
         updates["scheduled_at"] = scheduled_at
     if content:
         updates["content"] = content
-    if target_sns is not None: # target_snsがNoneでない場合のみ更新
-        # SNS制限違反チェック
+    if target_sns is not None:
         supported_sns = config_manager.get_all_sns_names()
         if not all(sns in supported_sns for sns in target_sns):
             raise HTTPException(status_code=400, detail="Unsupported SNS target specified")
         updates["target_sns"] = target_sns
-    # media_filesの更新ロジックは複雑になるため後で検討
 
     updated_post = scheduled_post_store.update_post(post_id, updates)
     if not updated_post:
@@ -275,7 +253,6 @@ def delete_scheduled_post(post_id: str, user: str = Depends(get_current_user)):
     if not existing_post:
         raise HTTPException(status_code=404, detail="Scheduled post not found")
     
-    # 実行済みまたは失敗した投稿は削除不可
     if existing_post.status in ["実行済み", "失敗"]:
         raise HTTPException(status_code=409, detail="Cannot delete an already executed or failed post")
 
@@ -289,14 +266,11 @@ def re_execute_scheduled_post(post_id: str, user: str = Depends(get_current_user
     if not existing_post:
         raise HTTPException(status_code=404, detail="Scheduled post not found")
     
-    # 成功済みの投稿は再実行不可
     if existing_post.status == "実行済み":
         raise HTTPException(status_code=409, detail="Cannot re-execute an already successful post")
 
-    # 投稿日時を現在時刻+1分に更新し、ステータスを「予約済み」に戻す
-    from datetime import timedelta
     updates = {
-        "scheduled_at": datetime.now() + timedelta(minutes=1),
+        "scheduled_at": datetime.now(timezone.utc) + timedelta(minutes=1),
         "status": "予約済み",
         "error_message": None
     }
@@ -304,7 +278,6 @@ def re_execute_scheduled_post(post_id: str, user: str = Depends(get_current_user
     if not updated_post:
         raise HTTPException(status_code=404, detail="Scheduled post not found for re-execution")
     
-    # TODO: APSchedulerにジョブを再登録するロジックが必要
     return updated_post
 
 @app.post("/api/scheduled-posts/{post_id}/send-now", response_model=ScheduledPost)
@@ -314,16 +287,13 @@ def send_scheduled_post_now(post_id: str, user: str = Depends(get_current_user))
         logger.warning(f"User {user} attempted to send non-existent post {post_id}")
         raise HTTPException(status_code=404, detail="Scheduled post not found")
     
-    # 実行済みの投稿は即時送信不可
     if existing_post.status == "実行済み":
         logger.warning(f"User {user} attempted to send already executed post {post_id}")
         raise HTTPException(status_code=409, detail="Cannot send an already executed post immediately")
 
     logger.info(f"User {user} requested immediate sending of post {post_id}")
-    # PostExecutorを使って投稿を実行
     success = post_executor.execute_post(post_id, debug=True)
     
-    # 更新された投稿を取得して返す
     updated_post = scheduled_post_store.get_post_by_id(post_id)
     if not updated_post:
         raise HTTPException(status_code=404, detail="Scheduled post not found after immediate sending")
@@ -345,14 +315,10 @@ def api_schedule(
     schedule_time: str = Form(...),
     user: str = Depends(get_current_user)
 ):
-    from datetime import datetime
-    import uuid # ユニークなディレクトリ名生成用
-
-    # 予約投稿用のメディア保存ディレクトリ
+    import uuid
     SCHEDULED_MEDIA_DIR = os.path.join(DATA_DIR, "scheduled_media")
     os.makedirs(SCHEDULED_MEDIA_DIR, exist_ok=True)
 
-    # 今回の予約投稿に紐づくユニークなサブディレクトリを作成
     job_media_dir = os.path.join(SCHEDULED_MEDIA_DIR, str(uuid.uuid4()))
     os.makedirs(job_media_dir, exist_ok=True)
 
@@ -369,26 +335,24 @@ def api_schedule(
             'url': url,
             'sns_targets': sns_targets,
             'media_files': media_paths,
-            'job_media_dir': job_media_dir # 投稿後に削除するためにディレクトリパスも渡す
+            'job_media_dir': job_media_dir
         }
 
         run_date = datetime.fromisoformat(schedule_time)
 
-        # ジョブIDを生成し、後でメディアファイルを削除するために使用
         job_id = str(uuid.uuid4())
         scheduler_service.scheduler.add_job(
-            posting_service.post_now_and_cleanup, # 新しいクリーンアップ付きメソッドを呼び出す
+            posting_service.post_now_and_cleanup,
             'date',
             run_date=run_date,
             args=[post_data],
             id=job_id,
-            misfire_grace_time=600 # 10分間の猶予
+            misfire_grace_time=600
         )
         
         return JSONResponse(content={"message": "Post scheduled successfully", "job_id": job_id})
 
     except Exception as e:
-        # エラー発生時は作成したディレクトリをクリーンアップ
         if os.path.exists(job_media_dir):
             shutil.rmtree(job_media_dir)
         raise HTTPException(status_code=400, detail=str(e))

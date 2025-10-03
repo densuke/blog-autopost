@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 from typing import List, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 import os
 
@@ -87,7 +87,7 @@ class ScheduledPostStore:
             if post.id == post_id:
                 for key, value in updates.items():
                     setattr(post, key, value)
-                post.updated_at = datetime.now() # 更新日時を更新
+                post.updated_at = datetime.now(timezone.utc) # 更新日時を更新
                 posts[i] = post
                 self._write_posts(posts)
                 return post
