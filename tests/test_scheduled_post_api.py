@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 from fastapi import status
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pytest
 import json
 from pathlib import Path
@@ -44,7 +44,7 @@ def sample_post_data():
     テスト用のサンプル予約投稿データを作成します。
     """
     return {
-        "scheduled_at": (datetime.now() - timedelta(days=1)).isoformat(), # 過去の時刻に設定
+        "scheduled_at": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(), # 過去の時刻に設定
         "content": "Test Post from API",
         "media_files": [],
         "target_sns": ["x", "bluesky"]
@@ -163,7 +163,7 @@ def test_update_scheduled_post(pre_existing_post):
     既存の予約投稿を正常に更新することを確認します。
     """
     updated_content = "Updated content from API"
-    scheduled_at_value = (datetime.now() + timedelta(days=2)).isoformat()
+    scheduled_at_value = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
     
     response = client.put(
         f"/api/scheduled-posts/{pre_existing_post.id}",
@@ -187,7 +187,7 @@ def test_update_scheduled_post_not_found():
         "/api/scheduled-posts/non_existent_id",
         data={
             "content": "Updated content",
-            "scheduled_at": (datetime.now() + timedelta(days=2)).isoformat(),
+            "scheduled_at": (datetime.now(timezone.utc) + timedelta(days=2)).isoformat(),
             "target_sns": ["mastodon"]
         }
     )
@@ -203,7 +203,7 @@ def test_update_scheduled_post_conflict_executed(pre_existing_post):
         f"/api/scheduled-posts/{pre_existing_post.id}",
         data={
             "content": "Updated content",
-            "scheduled_at": (datetime.now() + timedelta(days=2)).isoformat(),
+            "scheduled_at": (datetime.now(timezone.utc) + timedelta(days=2)).isoformat(),
             "target_sns": ["mastodon"]
         }
     )
@@ -361,10 +361,10 @@ def test_get_api_posts_with_data_and_sorting():
     """
     # テストデータ
     posts_to_create = [
-        ScheduledPost(id="post_future", scheduled_at=datetime(2025, 10, 5, 10, 0), content="Future", status="予約済み"),
-        ScheduledPost(id="post_past", scheduled_at=datetime(2025, 10, 1, 10, 0), content="Past", status="実行済み"),
-        ScheduledPost(id="post_failed", scheduled_at=datetime(2025, 10, 2, 10, 0), content="Failed", status="失敗"),
-        ScheduledPost(id="post_recent", scheduled_at=datetime(2025, 10, 4, 10, 0), content="Recent", status="予約済み"),
+        ScheduledPost(id="post_future", scheduled_at=datetime(2025, 10, 5, 10, 0, tzinfo=timezone.utc), content="Future", status="予約済み"),
+        ScheduledPost(id="post_past", scheduled_at=datetime(2025, 10, 1, 10, 0, tzinfo=timezone.utc), content="Past", status="実行済み"),
+        ScheduledPost(id="post_failed", scheduled_at=datetime(2025, 10, 2, 10, 0, tzinfo=timezone.utc), content="Failed", status="失敗"),
+        ScheduledPost(id="post_recent", scheduled_at=datetime(2025, 10, 4, 10, 0, tzinfo=timezone.utc), content="Recent", status="予約済み"),
     ]
     scheduled_post_store._write_posts(posts_to_create)
 
@@ -393,9 +393,9 @@ def test_root_endpoint_with_sorting():
     """
     # テストデータ
     posts_to_create = [
-        ScheduledPost(id="post_future", scheduled_at=datetime(2025, 10, 5, 10, 0), content="Future", status="予約済み"),
-        ScheduledPost(id="post_past", scheduled_at=datetime(2025, 10, 1, 10, 0), content="Past", status="実行済み"),
-        ScheduledPost(id="post_failed", scheduled_at=datetime(2025, 10, 2, 10, 0), content="Failed", status="失敗"),
+        ScheduledPost(id="post_future", scheduled_at=datetime(2025, 10, 5, 10, 0, tzinfo=timezone.utc), content="Future", status="予約済み"),
+        ScheduledPost(id="post_past", scheduled_at=datetime(2025, 10, 1, 10, 0, tzinfo=timezone.utc), content="Past", status="実行済み"),
+        ScheduledPost(id="post_failed", scheduled_at=datetime(2025, 10, 2, 10, 0, tzinfo=timezone.utc), content="Failed", status="失敗"),
     ]
     scheduled_post_store._write_posts(posts_to_create)
 
@@ -420,8 +420,8 @@ def test_cleanup_deleted_post_from_ui():
     """
     # 1. 複数の投稿を作成
     posts_to_create = [
-        ScheduledPost(id="post1", content="Post 1", scheduled_at=datetime.now()),
-        ScheduledPost(id="post2", content="Post 2", scheduled_at=datetime.now()),
+        ScheduledPost(id="post1", content="Post 1", scheduled_at=datetime.now(timezone.utc)),
+        ScheduledPost(id="post2", content="Post 2", scheduled_at=datetime.now(timezone.utc)),
     ]
     scheduled_post_store._write_posts(posts_to_create)
 
@@ -445,6 +445,3 @@ def test_cleanup_deleted_post_from_ui():
     data2 = response2.json()
     assert len(data2) == 1
     assert data2[0]['id'] == 'post2'
-
-
-
