@@ -211,16 +211,14 @@ def test_get_all_posts_with_sorting(temp_file):
     assert [p.id for p in sorted_posts_desc] == ["post_future", "post_recent", "post_failed", "post_past"]
 
     # 3. 失敗優先 (status_failed)
-    # 失敗 -> 予約済み -> 実行済みの順になることを期待
+    # 失敗 -> 予約済み -> 実行済みの順。同じステータス内では日付昇順。
     sorted_posts_failed = store.get_all_posts(sort_by='status_failed')
-    assert [p.id for p in sorted_posts_failed] == ["post_failed", "post_future", "post_recent", "post_past"] or \
-           [p.id for p in sorted_posts_failed] == ["post_failed", "post_recent", "post_future", "post_past"] # 予約済み内の順序は問わない
+    assert [p.id for p in sorted_posts_failed] == ["post_failed", "post_recent", "post_future", "post_past"]
 
     # 4. 完了優先 (status_completed)
-    # 実行済み -> 予約済み -> 失敗の順になることを期待
+    # 実行済み -> 予約済み -> 失敗の順。同じステータス内では日付昇順。
     sorted_posts_completed = store.get_all_posts(sort_by='status_completed')
-    assert [p.id for p in sorted_posts_completed] == ["post_past", "post_future", "post_recent", "post_failed"] or \
-           [p.id for p in sorted_posts_completed] == ["post_past", "post_recent", "post_future", "post_failed"] # 予約済み内の順序は問わない
+    assert [p.id for p in sorted_posts_completed] == ["post_past", "post_recent", "post_future", "post_failed"]
            
     # 5. 引数なし（デフォルトの動作確認）
     default_sorted_posts = store.get_all_posts()
