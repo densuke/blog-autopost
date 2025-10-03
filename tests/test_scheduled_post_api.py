@@ -414,4 +414,37 @@ def test_root_endpoint_with_sorting():
     assert pos_future != -1 and pos_failed != -1 and pos_past != -1
     assert pos_future < pos_failed < pos_past
 
+def test_cleanup_deleted_post_from_ui():
+    """
+    JSONファイルから直接削除された投稿がAPIから返されないことを確認します。
+    """
+    # 1. 複数の投稿を作成
+    posts_to_create = [
+        ScheduledPost(id="post1", content="Post 1", scheduled_at=datetime.now()),
+        ScheduledPost(id="post2", content="Post 2", scheduled_at=datetime.now()),
+    ]
+    scheduled_post_store._write_posts(posts_to_create)
+
+    # 2. APIを呼び出し、すべての投稿が存在することを確認
+    response1 = client.get("/api/posts")
+    assert response1.status_code == status.HTTP_200_OK
+    assert len(response1.json()) == 2
+
+    # 3. JSONファイルを直接編集して1件削除
+    with open(scheduled_post_store.file_path, 'r', encoding='utf-8') as f:
+        current_posts = json.load(f)
+    
+    posts_after_deletion = [p for p in current_posts if p['id'] != 'post1']
+    
+    with open(scheduled_post_store.file_path, 'w', encoding='utf-8') as f:
+        json.dump(posts_after_deletion, f)
+
+    # 4. 再度APIを呼び出し、投稿が1件になっていることを確認
+    response2 = client.get("/api/posts")
+    assert response2.status_code == status.HTTP_200_OK
+    data2 = response2.json()
+    assert len(data2) == 1
+    assert data2[0]['id'] == 'post2'
+
+
 
