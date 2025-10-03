@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from src.web.scheduled_post_store import ScheduledPostStore
 from src.web.scheduled_post_model import ScheduledPost
@@ -21,24 +21,25 @@ def sample_posts():
     """
     テスト用のサンプル予約投稿リストを生成します。
     """
+    now = datetime.now(timezone.utc)
     return [
         ScheduledPost(
             id="post1",
-            scheduled_at=datetime.now() + timedelta(days=1),
+            scheduled_at=now + timedelta(days=1),
             content="Test Post 1",
             target_sns=["x"],
             status="予約済み"
         ),
         ScheduledPost(
             id="post2",
-            scheduled_at=datetime.now() + timedelta(days=2),
+            scheduled_at=now + timedelta(days=2),
             content="Test Post 2",
             target_sns=["bluesky"],
             status="予約済み"
         ),
         ScheduledPost(
             id="post3",
-            scheduled_at=datetime.now() - timedelta(days=1),
+            scheduled_at=now - timedelta(days=1),
             content="Failed Post",
             target_sns=["mastodon"],
             status="失敗",
@@ -134,7 +135,7 @@ def test_create_post(temp_file):
     """
     store = ScheduledPostStore(temp_file)
     new_post = ScheduledPost(
-        scheduled_at=datetime.now() + timedelta(hours=1),
+        scheduled_at=datetime.now(timezone.utc) + timedelta(hours=1),
         content="New Post",
         target_sns=["threads"]
     )
@@ -195,10 +196,10 @@ def test_get_all_posts_with_sorting(temp_file):
     
     # テストデータ
     posts_to_create = [
-        ScheduledPost(id="post_future", scheduled_at=datetime(2025, 10, 5, 10, 0), content="Future", status="予約済み"),
-        ScheduledPost(id="post_past", scheduled_at=datetime(2025, 10, 1, 10, 0), content="Past", status="実行済み"),
-        ScheduledPost(id="post_failed", scheduled_at=datetime(2025, 10, 2, 10, 0), content="Failed", status="失敗"),
-        ScheduledPost(id="post_recent", scheduled_at=datetime(2025, 10, 4, 10, 0), content="Recent", status="予約済み"),
+        ScheduledPost(id="post_future", scheduled_at=datetime(2025, 10, 5, 10, 0, tzinfo=timezone.utc), content="Future", status="予約済み"),
+        ScheduledPost(id="post_past", scheduled_at=datetime(2025, 10, 1, 10, 0, tzinfo=timezone.utc), content="Past", status="実行済み"),
+        ScheduledPost(id="post_failed", scheduled_at=datetime(2025, 10, 2, 10, 0, tzinfo=timezone.utc), content="Failed", status="失敗"),
+        ScheduledPost(id="post_recent", scheduled_at=datetime(2025, 10, 4, 10, 0, tzinfo=timezone.utc), content="Recent", status="予約済み"),
     ]
     store._write_posts(posts_to_create)
 

@@ -1,45 +1,33 @@
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 import uuid
 
 @dataclass
 class ScheduledPost:
-    scheduled_at: datetime = field(metadata={'by_alias': True})
+    scheduled_at: datetime
     content: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     media_files: List[str] = field(default_factory=list)
     target_sns: List[str] = field(default_factory=list)
     status: str = "予約済み"  # 予約済み, 実行済み, 失敗
     error_message: Optional[str] = None
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
-    _initialized: bool = field(default=False, init=False, repr=False)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     
     def __post_init__(self):
-        """バリデーション処理"""
-        # 予約済み投稿の場合、scheduled_atは未来でなければならない
-        # ただし、過去の予約投稿をスケジューラーが処理するシナリオを考慮し、
-        # ここでは厳密な未来日時チェックは行わない。
-        # APIレベルで未来日時を強制する。
-        pass
-        # 初期化完了フラグを設定（このsetはバリデーションをバイパスする）
-        object.__setattr__(self, '_initialized', True)
-    
-    def __setattr__(self, name, value):
-        """属性の設定時のバリデーション"""
-        # 初期化中または内部フラグの場合はバリデーションをスキップ
-        if name == '_initialized' or not getattr(self, '_initialized', False):
-            object.__setattr__(self, name, value)
-            return
+        """
+        タイムゾーンの正規化処理
+        naiveなdatetimeをUTCのawareなdatetimeに変換します。
+        """
+        if self.scheduled_at and self.scheduled_at.tzinfo is None:
+            self.scheduled_at = self.scheduled_at.replace(tzinfo=timezone.utc)
         
-        # 実行済みまたは失敗の投稿は編集不可（特定フィールド以外）
-        if self.status in ["実行済み", "失敗"]:
-            # これらのフィールドは更新可能
-            if name not in ['status', 'error_message', 'updated_at', 'scheduled_at']:
-                raise ValueError(f"Cannot edit a post with status '{self.status}'")
-        
-        object.__setattr__(self, name, value)
+        if self.created_at and self.created_at.tzinfo is None:
+            self.created_at = self.created_at.replace(tzinfo=timezone.utc)
+
+        if self.updated_at and self.updated_at.tzinfo is None:
+            self.updated_at = self.updated_at.replace(tzinfo=timezone.utc)
 
     def to_dict(self):
         return {
@@ -56,14 +44,19 @@ class ScheduledPost:
 
     @classmethod
     def from_dict(cls, data: dict):
+        # fromisoformatはawareなdatetimeを返すことがある
+        scheduled_at = datetime.fromisoformat(data["scheduled_at"]) if data.get("scheduled_at") else None
+        created_at = datetime.fromisoformat(data["created_at"]) if data.get("created_at") else datetime.now(timezone.utc)
+        updated_at = datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else datetime.now(timezone.utc)
+
         return cls(
             id=data["id"],
-            scheduled_at=datetime.fromisoformat(data["scheduled_at"]),
+            scheduled_at=scheduled_at,
             content=data["content"],
             media_files=data.get("media_files", []),
             target_sns=data.get("target_sns", []),
             status=data.get("status", "予約済み"),
             error_message=data.get("error_message"),
-            created_at=datetime.fromisoformat(data["created_at"]) if "created_at" in data else datetime.now(),
-            updated_at=datetime.fromisoformat(data["updated_at"]) if "updated_at" in data else datetime.now(),
+            created_at=created_at,
+            updated_at=updated_at,
         )
