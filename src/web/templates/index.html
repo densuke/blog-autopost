@@ -427,7 +427,7 @@
             const formData = new FormData();
             
             const scheduledAt = document.getElementById('edit-scheduled-at').value;
-            formData.append('scheduled_at', new Date(scheduledAt).toISOString());
+            formData.append('scheduled_at', scheduledAt);
             formData.append('content', document.getElementById('edit-content').value);
             
             const checkedSns = document.querySelectorAll('#edit-target-sns input[type="checkbox"]:checked');

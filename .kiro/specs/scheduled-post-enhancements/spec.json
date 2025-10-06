@@ -1,0 +1,22 @@
+{
+  "feature_name": "scheduled-post-enhancements",
+  "created_at": "2025-10-02T23:22:50Z",
+  "updated_at": "2025-10-02T23:32:21Z",
+  "language": "ja",
+  "phase": "tasks-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": false
+    }
+  },
+  "ready_for_implementation": false
+}

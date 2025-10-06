@@ -1,0 +1,2 @@
+[console_scripts]
+blog-autopost = src.main:main

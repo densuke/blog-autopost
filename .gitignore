@@ -1,5 +1,16 @@
 # APScheduler database
 data/jobs.sqlite
+data
+!data/.gitkeep
 
 # Log files
 log
+
+# Config
+config.yml
+
+# dev
+**/__pycache__
+
+# filesystem
+.DS_Store

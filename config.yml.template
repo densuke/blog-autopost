@@ -4,3 +4,7 @@
 web_server:
   host: "127.0.0.1"
   port: 8000
+
+# Scheduled post settings
+scheduled_posts:
+  completed_retention_hours: 12  # 送信済みエントリを自動削除するまでの時間（時間単位）

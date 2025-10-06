@@ -198,6 +198,21 @@ class ConfigManager:
         """Web UIの認証情報を取得する"""
         return self.config.get('web_auth', {})
 
+    def get_completed_post_retention_hours(self, default: float = 12) -> float:
+        """
+        送信済み予約投稿を保持する時間(時間単位)を取得します。
+        設定が存在しない、または不正な場合はdefaultを返します。
+        """
+        settings = self.config.get('scheduled_posts', {})
+        raw_value = settings.get('completed_retention_hours', default)
+        try:
+            hours = float(raw_value)
+        except (TypeError, ValueError):
+            return default
+        if hours <= 0:
+            return default
+        return hours
+
     def get_secret_key(self):
         """セッション管理用の秘密鍵を取得する"""
         web_auth_config = self.config.get('web_auth', {})
