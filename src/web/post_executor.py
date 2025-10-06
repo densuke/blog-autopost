@@ -3,7 +3,7 @@ from src.web.scheduled_post_model import ScheduledPost
 from src.web.scheduled_post_store import ScheduledPostStore
 from src.web.core_posting_logic import CorePostingLogic
 from src.config_manager import ConfigManager
-from datetime import datetime
+from src.web.timezone_utils import now_local
 import logging
 
 # ロガーの設定
@@ -52,13 +52,13 @@ class PostExecutor:
 
         # 投稿結果に応じてステータスを更新
         if result['success']:
-            updates = {"status": "実行済み", "updated_at": datetime.now(), "error_message": None}
+            updates = {"status": "実行済み", "updated_at": now_local(), "error_message": None}
             logger.info(f"Post {post_id} executed successfully: {result['results']}")
             if debug:
                 print(f"Post {post_id} executed successfully: {result['results']}")
         else:
             error_details = '; '.join([f"{k}: {v}" for k, v in result['errors'].items()])
-            updates = {"status": "失敗", "error_message": error_details, "updated_at": datetime.now()}
+            updates = {"status": "失敗", "error_message": error_details, "updated_at": now_local()}
             logger.error(f"Post {post_id} failed: {error_details}")
             if debug:
                 print(f"Post {post_id} failed: {error_details}")

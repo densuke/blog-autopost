@@ -1,24 +1,24 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
-from datetime import datetime, timedelta, timezone
-from typing import List
+from datetime import timedelta
 import os
 import logging
 
 from src.web.scheduled_post_store import ScheduledPostStore
 from src.web.post_executor import PostExecutor
 from src.web.scheduled_post_model import ScheduledPost
+from src.web.timezone_utils import ensure_local_timezone, now_local
 
 # ロガーの設定
 logger = logging.getLogger(__name__)
 
-def _monitor_scheduled_posts_job(scheduled_post_store: ScheduledPostStore, post_executor: PostExecutor):
+def _monitor_scheduled_posts_job(scheduled_post_store: ScheduledPostStore, post_executor: PostExecutor, retention_hours: float):
     """
     予約投稿を監視し、実行日時が来たものをPostExecutorに渡します。
     """
     logger.info("--- Running scheduled post monitor job ---")
-    now_utc = datetime.now(timezone.utc)
-    logger.info(f"Current UTC time: {now_utc.isoformat()}")
+    now_local_dt = now_local()
+    logger.info(f"Current local time: {now_local_dt.isoformat()}")
     
     try:
         posts = scheduled_post_store.get_all_posts()
@@ -26,14 +26,11 @@ def _monitor_scheduled_posts_job(scheduled_post_store: ScheduledPostStore, post_
 
         executed_count = 0
         for post in posts:
-            scheduled_time = post.scheduled_at
-            # 保存されている日時にタイムゾーン情報がない場合、UTCとして扱う
-            if scheduled_time and scheduled_time.tzinfo is None:
-                scheduled_time = scheduled_time.replace(tzinfo=timezone.utc)
+            scheduled_time = ensure_local_timezone(post.scheduled_at)
 
             logger.info(f"Checking post ID: {post.id}, Status: {post.status}, Scheduled: {scheduled_time.isoformat() if scheduled_time else 'N/A'}")
             # 投稿が予約済み状態で、スケジュール時刻を過ぎているかチェック
-            if post.status == "予約済み" and scheduled_time and scheduled_time <= now_utc:
+            if post.status == "予約済み" and scheduled_time and scheduled_time <= now_local_dt:
                 logger.info(f"Executing post ID: {post.id}")
                 success = post_executor.execute_post(post.id)
                 if success:
@@ -45,14 +42,20 @@ def _monitor_scheduled_posts_job(scheduled_post_store: ScheduledPostStore, post_
         if executed_count > 0:
             logger.info(f"Finished job. Executed {executed_count} post(s).")
 
+        cutoff = now_local_dt - timedelta(hours=retention_hours)
+        removed = scheduled_post_store.delete_posts_older_than(cutoff, statuses=["実行済み"])
+        if removed:
+            logger.info(f"Cleaned up {removed} completed post(s) older than {retention_hours}h.")
+
     except Exception as e:
         logger.error(f"An error occurred in the monitor job: {e}", exc_info=True)
     logger.info("--- Finished scheduled post monitor job ---")
 
 class SchedulerService:
-    def __init__(self, scheduled_post_store: ScheduledPostStore, post_executor: PostExecutor, data_dir: str = "data"):
+    def __init__(self, scheduled_post_store: ScheduledPostStore, post_executor: PostExecutor, data_dir: str = "data", completed_post_retention_hours: float = 12.0):
         self.scheduled_post_store = scheduled_post_store
         self.post_executor = post_executor
+        self.completed_post_retention_hours = completed_post_retention_hours if completed_post_retention_hours > 0 else 12.0
         
         jobstores = {
             'default': SQLAlchemyJobStore(url=f'sqlite:///{data_dir}/jobs.sqlite')
@@ -70,7 +73,7 @@ class SchedulerService:
                 'interval', 
                 seconds=30, 
                 id='monitor_scheduled_posts', 
-                args=[self.scheduled_post_store, self.post_executor],
+                args=[self.scheduled_post_store, self.post_executor, self.completed_post_retention_hours],
                 replace_existing=True
             )
             logger.info("Scheduler started and monitoring job added.")

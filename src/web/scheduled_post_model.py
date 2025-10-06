@@ -1,7 +1,10 @@
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Optional
 import uuid
+
+from src.web.timezone_utils import ensure_local_timezone, now_local
+
 
 @dataclass
 class ScheduledPost:
@@ -12,22 +15,22 @@ class ScheduledPost:
     target_sns: List[str] = field(default_factory=list)
     status: str = "予約済み"  # 予約済み, 実行済み, 失敗
     error_message: Optional[str] = None
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    
+    created_at: datetime = field(default_factory=now_local)
+    updated_at: datetime = field(default_factory=now_local)
+
     def __post_init__(self):
         """
         タイムゾーンの正規化処理
-        naiveなdatetimeをUTCのawareなdatetimeに変換します。
+        naiveなdatetimeをローカルタイムのawareなdatetimeに変換します。
         """
-        if self.scheduled_at and self.scheduled_at.tzinfo is None:
-            self.scheduled_at = self.scheduled_at.replace(tzinfo=timezone.utc)
-        
-        if self.created_at and self.created_at.tzinfo is None:
-            self.created_at = self.created_at.replace(tzinfo=timezone.utc)
+        if self.scheduled_at:
+            self.scheduled_at = ensure_local_timezone(self.scheduled_at)
 
-        if self.updated_at and self.updated_at.tzinfo is None:
-            self.updated_at = self.updated_at.replace(tzinfo=timezone.utc)
+        if self.created_at:
+            self.created_at = ensure_local_timezone(self.created_at)
+
+        if self.updated_at:
+            self.updated_at = ensure_local_timezone(self.updated_at)
 
     def to_dict(self):
         return {
@@ -44,10 +47,13 @@ class ScheduledPost:
 
     @classmethod
     def from_dict(cls, data: dict):
-        # fromisoformatはawareなdatetimeを返すことがある
         scheduled_at = datetime.fromisoformat(data["scheduled_at"]) if data.get("scheduled_at") else None
-        created_at = datetime.fromisoformat(data["created_at"]) if data.get("created_at") else datetime.now(timezone.utc)
-        updated_at = datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else datetime.now(timezone.utc)
+        created_at = datetime.fromisoformat(data["created_at"]) if data.get("created_at") else now_local()
+        updated_at = datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else now_local()
+
+        scheduled_at = ensure_local_timezone(scheduled_at)
+        created_at = ensure_local_timezone(created_at)
+        updated_at = ensure_local_timezone(updated_at)
 
         return cls(
             id=data["id"],

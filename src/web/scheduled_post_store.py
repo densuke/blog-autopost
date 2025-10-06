@@ -1,11 +1,12 @@
 import json
 from pathlib import Path
 from typing import List, Dict, Optional
-from datetime import datetime, timezone
+from datetime import datetime
 import uuid
 import os
 
 from src.web.scheduled_post_model import ScheduledPost
+from src.web.timezone_utils import ensure_local_timezone, now_local
 
 class ScheduledPostStore:
     def __init__(self, file_path: Path):
@@ -86,12 +87,42 @@ class ScheduledPostStore:
         for i, post in enumerate(posts):
             if post.id == post_id:
                 for key, value in updates.items():
+                    if isinstance(value, datetime):
+                        value = ensure_local_timezone(value)
                     setattr(post, key, value)
-                post.updated_at = datetime.now(timezone.utc) # 更新日時を更新
+                post.updated_at = now_local()  # 更新日時を更新
                 posts[i] = post
                 self._write_posts(posts)
                 return post
         return None
+
+    def delete_posts_older_than(self, cutoff: datetime, statuses: Optional[List[str]] = None) -> int:
+        """
+        指定した日時以前の投稿を削除します。
+        """
+        posts = self._read_posts()
+        kept_posts = []
+        removed = 0
+
+        for post in posts:
+            status_match = statuses is None or post.status in statuses
+            if not status_match:
+                kept_posts.append(post)
+                continue
+
+            reference_time = post.updated_at or post.scheduled_at
+            reference_time = ensure_local_timezone(reference_time) if reference_time else None
+
+            if reference_time and reference_time <= cutoff:
+                removed += 1
+            else:
+                kept_posts.append(post)
+
+        if removed > 0:
+            self._write_posts(kept_posts)
+
+        return removed
+
 
     def delete_post(self, post_id: str) -> Optional[str]:
         """

@@ -7,7 +7,7 @@ import shutil
 import tempfile
 import os
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 import logging
 
 from ..config_manager import ConfigManager
@@ -23,6 +23,8 @@ from .scheduled_post_store import ScheduledPostStore
 from .scheduled_post_model import ScheduledPost
 from .post_executor import PostExecutor
 from .scheduler_service import SchedulerService
+
+from .timezone_utils import ensure_local_timezone, now_local
 
 # ログの設定
 logging.basicConfig(
@@ -52,7 +54,8 @@ auth_service = AuthService(config_manager)
 
 # 投稿実行サービスとスケジューラーサービスのインスタンス化
 post_executor = PostExecutor(scheduled_post_store, config_manager)
-scheduler_service = SchedulerService(scheduled_post_store, post_executor, DATA_DIR)
+retention_hours = config_manager.get_completed_post_retention_hours()
+scheduler_service = SchedulerService(scheduled_post_store, post_executor, data_dir=DATA_DIR, completed_post_retention_hours=retention_hours)
 
 @app.on_event("startup")
 def startup_event():
@@ -105,10 +108,9 @@ def read_root(request: Request, sort_by: Optional[str] = 'date_asc', user: str =
 
     scheduled_posts = scheduled_post_store.get_all_posts(sort_by=sort_by)
     for post in scheduled_posts:
-        if post.scheduled_at and post.scheduled_at.tzinfo:
-            post.scheduled_at = post.scheduled_at.astimezone()
+        post.scheduled_at = ensure_local_timezone(post.scheduled_at)
 
-    return templates.TemplateResponse("index.html", {"request": request, "user": user, "sns_accounts": sns_accounts, "scheduled_posts": scheduled_posts, "now": datetime.now(timezone.utc), "current_sort_by": sort_by})
+    return templates.TemplateResponse("index.html", {"request": request, "user": user, "sns_accounts": sns_accounts, "scheduled_posts": scheduled_posts, "now": now_local(), "current_sort_by": sort_by})
 
 @app.get("/login")
 def login_form(request: Request):
@@ -205,6 +207,7 @@ def create_scheduled_post(
     if not all(sns in supported_sns for sns in target_sns):
         raise HTTPException(status_code=400, detail="Unsupported SNS target specified")
 
+    scheduled_at = ensure_local_timezone(scheduled_at)
     logger.info(f"User {user} creating scheduled post for {scheduled_at}")
     new_post = ScheduledPost(
         scheduled_at=scheduled_at,
@@ -233,7 +236,7 @@ def update_scheduled_post(
 
     updates = {}
     if scheduled_at:
-        updates["scheduled_at"] = scheduled_at
+        updates["scheduled_at"] = ensure_local_timezone(scheduled_at)
     if content:
         updates["content"] = content
     if target_sns is not None:
@@ -253,8 +256,6 @@ def delete_scheduled_post(post_id: str, user: str = Depends(get_current_user)):
     if not existing_post:
         raise HTTPException(status_code=404, detail="Scheduled post not found")
     
-    if existing_post.status in ["実行済み", "失敗"]:
-        raise HTTPException(status_code=409, detail="Cannot delete an already executed or failed post")
 
     if not scheduled_post_store.delete_post(post_id):
         raise HTTPException(status_code=404, detail="Scheduled post not found for deletion")
@@ -270,7 +271,7 @@ def re_execute_scheduled_post(post_id: str, user: str = Depends(get_current_user
         raise HTTPException(status_code=409, detail="Cannot re-execute an already successful post")
 
     updates = {
-        "scheduled_at": datetime.now(timezone.utc) + timedelta(minutes=1),
+        "scheduled_at": now_local() + timedelta(minutes=1),
         "status": "予約済み",
         "error_message": None
     }
@@ -338,7 +339,7 @@ def api_schedule(
             'job_media_dir': job_media_dir
         }
 
-        run_date = datetime.fromisoformat(schedule_time)
+        run_date = ensure_local_timezone(datetime.fromisoformat(schedule_time))
 
         job_id = str(uuid.uuid4())
         scheduler_service.scheduler.add_job(
