@@ -20,6 +20,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 
 from .scheduled_post_store import ScheduledPostStore
+from .scheduled_post_store_sqlite import ScheduledPostStoreSQLite
 from .scheduled_post_model import ScheduledPost
 from .post_executor import PostExecutor
 from .scheduler_service import SchedulerService
@@ -44,9 +45,11 @@ DATA_DIR = os.environ.get("DATA_DIR", "data")
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
-# 予約投稿データストアのパス
+# 予約投稿データストアのパス（SQLite ベース）
 SCHEDULED_POSTS_FILE = Path(DATA_DIR) / "scheduled_posts.json"
-scheduled_post_store = ScheduledPostStore(SCHEDULED_POSTS_FILE)
+SCHEDULED_POSTS_DB = str(Path(DATA_DIR) / "scheduled_posts.db")
+# SQLite ストアを使用（自動的に JSONからのマイグレーションも実行）
+scheduled_post_store = ScheduledPostStoreSQLite(SCHEDULED_POSTS_DB)
 
 # 設定と認証サービスのインスタンス化
 config_manager = ConfigManager("config.yml")
@@ -260,6 +263,32 @@ def delete_scheduled_post(post_id: str, user: str = Depends(get_current_user)):
     if not scheduled_post_store.delete_post(post_id):
         raise HTTPException(status_code=404, detail="Scheduled post not found for deletion")
     return
+
+
+@app.post("/api/scheduled-posts/batch-delete")
+def batch_delete_scheduled_posts(
+    post_ids: List[str] = Form(...),
+    user: str = Depends(get_current_user)
+):
+    """複数の予約投稿を一括削除
+    
+    Args:
+        post_ids: 削除対象の投稿ID リスト（Form パラメータ）
+        user: 認証済みユーザー
+    
+    Returns:
+        { "deleted_count": 削除件数 }
+    """
+    if not post_ids:
+        raise HTTPException(status_code=400, detail="No post IDs provided")
+    
+    logger.info(f"User {user} requesting batch delete for {len(post_ids)} posts")
+    
+    deleted_count = scheduled_post_store.batch_delete_posts(post_ids)
+    
+    logger.info(f"User {user} batch deleted {deleted_count} posts")
+    
+    return {"deleted_count": deleted_count}
 
 @app.post("/api/scheduled-posts/{post_id}/re-execute", response_model=ScheduledPost)
 def re_execute_scheduled_post(post_id: str, user: str = Depends(get_current_user)):
