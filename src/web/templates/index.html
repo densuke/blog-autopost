@@ -112,18 +112,33 @@
     <div id="status-messages"></div>
 
     <h2>予約投稿一覧</h2>
-    <div>
-        <label for="sort-by">並び替え:</label>
-        <select id="sort-by" name="sort-by">
-            <option value="date_asc" {% if current_sort_by == 'date_asc' %}selected{% endif %}>投稿日時 (昇順)</option>
-            <option value="date_desc" {% if current_sort_by == 'date_desc' %}selected{% endif %}>投稿日時 (降順)</option>
-            <option value="status_failed" {% if current_sort_by == 'status_failed' %}selected{% endif %}>ステータス (失敗優先)</option>
-            <option value="status_completed" {% if current_sort_by == 'status_completed' %}selected{% endif %}>ステータス (完了優先)</option>
-        </select>
+    <div style="margin-bottom: 15px;">
+        <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
+            <label for="sort-by">並び替え:</label>
+            <select id="sort-by" name="sort-by">
+                <option value="date_asc" {% if current_sort_by == 'date_asc' %}selected{% endif %}>投稿日時 (昇順)</option>
+                <option value="date_desc" {% if current_sort_by == 'date_desc' %}selected{% endif %}>投稿日時 (降順)</option>
+                <option value="status_failed" {% if current_sort_by == 'status_failed' %}selected{% endif %}>ステータス (失敗優先)</option>
+                <option value="status_completed" {% if current_sort_by == 'status_completed' %}selected{% endif %}>ステータス (完了優先)</option>
+            </select>
+        </div>
+        <div id="batch-delete-controls" style="display: none; gap: 10px;">
+            <span id="selected-count">選択中: 0件</span>
+            <button id="batch-delete-btn" type="button" style="background-color: #ff6b6b; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer;">
+                選択したものを削除
+            </button>
+            <button id="select-all-btn" type="button" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; cursor: pointer;">
+                すべて選択
+            </button>
+            <button id="deselect-all-btn" type="button" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; cursor: pointer;">
+                すべて解除
+            </button>
+        </div>
     </div>
     <table border="1">
         <thead>
             <tr>
+                <th style="width: 30px;"><input type="checkbox" id="select-all-checkbox"></th>
                 <th>ID</th>
                 <th>投稿日時</th>
                 <th>内容</th>
@@ -135,7 +150,9 @@
         </thead>
         <tbody>
             {% for post in scheduled_posts %}
-                            <tr class="{% if post.status == '失敗' and post.scheduled_at < now %}warning{% endif %}">                <td>{{ post.id }}</td>
+                            <tr class="{% if post.status == '失敗' and post.scheduled_at < now %}warning{% endif %}">
+                <td><input type="checkbox" class="post-checkbox" value="{{ post.id }}"></td>
+                <td>{{ post.id }}</td>
                 <td>{{ post.scheduled_at.strftime('%Y-%m-%d %H:%M') }}</td>
                 <td>{{ post.content[:50] }}...</td>
                 <td>{{ post.target_sns | join(', ') }}</td>
@@ -197,6 +214,104 @@
         const statusMessages = document.getElementById('status-messages');
 
         let uploadedFiles = [];
+
+        // --- 一括削除機能 ---
+        const batchDeleteControls = document.getElementById('batch-delete-controls');
+        const selectAllCheckbox = document.getElementById('select-all-checkbox');
+        const postCheckboxes = document.querySelectorAll('input.post-checkbox');
+        const batchDeleteBtn = document.getElementById('batch-delete-btn');
+        const selectAllBtn = document.getElementById('select-all-btn');
+        const deselectAllBtn = document.getElementById('deselect-all-btn');
+        const selectedCount = document.getElementById('selected-count');
+
+        // チェックボックス状態管理
+        function updateBatchDeleteUI() {
+            const checkedCount = document.querySelectorAll('input.post-checkbox:checked').length;
+            selectedCount.textContent = `選択中: ${checkedCount}件`;
+            
+            // 削除機能を表示/非表示切り替え
+            if (checkedCount > 0) {
+                batchDeleteControls.style.display = 'flex';
+            } else {
+                batchDeleteControls.style.display = 'none';
+            }
+            
+            // 「すべて選択」チェックボックスの状態を更新
+            const allCount = document.querySelectorAll('input.post-checkbox').length;
+            selectAllCheckbox.checked = (checkedCount === allCount && allCount > 0);
+            selectAllCheckbox.indeterminate = (checkedCount > 0 && checkedCount < allCount);
+        }
+
+        // 個別チェックボックスのイベントリスナー
+        postCheckboxes.forEach(checkbox => {
+            checkbox.addEventListener('change', updateBatchDeleteUI);
+        });
+
+        // 「すべて選択」チェックボックスのイベントリスナー
+        selectAllCheckbox.addEventListener('change', function() {
+            document.querySelectorAll('input.post-checkbox').forEach(checkbox => {
+                checkbox.checked = this.checked;
+            });
+            updateBatchDeleteUI();
+        });
+
+        // 「すべて選択」ボタン
+        selectAllBtn.addEventListener('click', function() {
+            document.querySelectorAll('input.post-checkbox').forEach(checkbox => {
+                checkbox.checked = true;
+            });
+            updateBatchDeleteUI();
+        });
+
+        // 「すべて解除」ボタン
+        deselectAllBtn.addEventListener('click', function() {
+            document.querySelectorAll('input.post-checkbox').forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            updateBatchDeleteUI();
+        });
+
+        // 一括削除ボタンのイベントリスナー
+        batchDeleteBtn.addEventListener('click', function() {
+            const selectedIds = Array.from(document.querySelectorAll('input.post-checkbox:checked'))
+                .map(checkbox => checkbox.value);
+            
+            if (selectedIds.length === 0) {
+                alert('削除する投稿を選択してください。');
+                return;
+            }
+            
+            if (!confirm(`${selectedIds.length}件の予約投稿を削除してもよろしいですか？`)) {
+                return;
+            }
+            
+            // 一括削除APIを呼び出し
+            const formData = new FormData();
+            selectedIds.forEach(id => {
+                formData.append('post_ids', id);
+            });
+            
+            fetch('/api/scheduled-posts/batch-delete', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                alert(`${data.deleted_count}件の予約投稿を削除しました。`);
+                location.reload();
+            })
+            .catch(error => {
+                alert(`削除中にエラーが発生しました: ${error}`);
+            });
+        });
+
+        // 初期UI更新
+        updateBatchDeleteUI();
 
         // --- 文字数カウンター --- 
         function updateCounter() {
@@ -586,6 +701,7 @@
                     }
 
                     row.innerHTML = `
+                        <td><input type="checkbox" class="post-checkbox" value="${post.id}"></td>
                         <td>${post.id}</td>
                         <td>${scheduledAtFormatted}</td>
                         <td>${post.content.substring(0, 50)}...</td>
@@ -596,6 +712,12 @@
                     `;
                     postsTableBody.appendChild(row);
                 });
+                
+                // チェックボックス機能を再初期化
+                document.querySelectorAll('input.post-checkbox').forEach(checkbox => {
+                    checkbox.addEventListener('change', updateBatchDeleteUI);
+                });
+                updateBatchDeleteUI();
 
             } catch (error) {
                 console.error('Failed to fetch and render posts:', error);
