@@ -1106,6 +1106,84 @@
             submitPost('/api/scheduled-posts', true);
         });
 
+        /**
+         * フォームをリセット
+         */
+        function clearPostForm() {
+            // テキスト入力をクリア
+            document.getElementById('text').value = '';
+            document.getElementById('url').value = '';
+
+            // SNS選択をリセット
+            document.querySelectorAll('ion-checkbox[name="sns_targets"]').forEach(checkbox => {
+                checkbox.checked = false;
+            });
+
+            // 画像プレビューをクリア
+            uploadedFiles.length = 0;
+            const previewArea = document.getElementById('preview-area');
+            if (previewArea) {
+                previewArea.innerHTML = '';
+            }
+
+            // 文字カウンター更新
+            updateCounter();
+
+            console.log('🧹 フォームをクリアしました');
+            showToast('フォームをリセットしました', 'success', 2000);
+        }
+
+        /**
+         * 投稿履歴をデータベースに保存
+         */
+        function savePostHistory(postData) {
+            const textArea = document.getElementById('text');
+            const content = textArea.value;
+
+            // 成功したSNSを抽出
+            const successfulSns = [];
+            for (const [sns, result] of Object.entries(postData)) {
+                if (result.success) {
+                    successfulSns.push(sns);
+                }
+            }
+
+            // 投稿履歴を保存するデータを構築
+            const historyData = {
+                content: content,
+                target_sns: successfulSns,
+                status: '投稿完了',
+                error_message: null,
+                scheduled_at: new Date().toISOString()
+            };
+
+            console.log('💾 投稿履歴を保存:', historyData);
+
+            // APIエンドポイントに送信（即時投稿履歴として記録）
+            fetch('/api/post-history', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(historyData)
+            })
+            .then(response => {
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                return response.json();
+            })
+            .then(data => {
+                console.log('✅ 投稿履歴がデータベースに保存されました:', data);
+
+                // フォームをクリア
+                clearPostForm();
+            })
+            .catch(error => {
+                console.error('❌ 投稿履歴の保存に失敗しました:', error);
+                // エラーでもフォームはクリアする
+                clearPostForm();
+            });
+        }
+
         function submitPost(endpoint, isScheduled = false) {
             statusMessages.innerHTML = '<ion-text color="medium"><p>送信中...</p></ion-text>';
 
@@ -1155,15 +1233,26 @@
                     showToast('予約投稿を作成しました。', 'success');
                     setTimeout(() => location.reload(), 1000);
                 } else {
+                    // 即時投稿の場合：投稿成功後にデータベースに記録
+                    let successCount = 0;
                     for (const [sns, result] of Object.entries(data)) {
                         const text = document.createElement('ion-text');
                         text.color = result.success ? 'success' : 'danger';
                         const p = document.createElement('p');
-                        p.textContent = result.success 
+                        p.textContent = result.success
                             ? `✅ ${sns}: 投稿に成功しました。`
                             : `❌ ${sns}: 投稿に失敗しました - ${result.message}`;
                         text.appendChild(p);
                         statusMessages.appendChild(text);
+
+                        if (result.success) {
+                            successCount++;
+                        }
+                    }
+
+                    // 少なくとも1つのSNSに成功した場合、投稿履歴を記録
+                    if (successCount > 0) {
+                        savePostHistory(data);
                     }
                 }
             })
