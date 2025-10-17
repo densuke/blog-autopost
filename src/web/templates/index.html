@@ -374,7 +374,7 @@
 
                         <!-- 予約投稿 -->
                         <ion-item>
-                            <ion-label position="stacked">予約日時</ion-label>
+                            <ion-label position="stacked">予約日時 (JST: UTC+9)</ion-label>
                             <ion-datetime-button datetime="schedule_time"></ion-datetime-button>
                             <ion-modal id="datetime-modal" keepContentsMounted="true">
                                 <ion-datetime 
@@ -385,6 +385,9 @@
                                     prefer-wheel="false">
                                 </ion-datetime>
                             </ion-modal>
+                            <div slot="helper" style="font-size: 12px; color: var(--ion-color-medium); margin-top: 4px;">
+                                日本時間で入力してください
+                            </div>
                         </ion-item>
                         <ion-button id="schedule-btn" type="button" expand="block" fill="outline">
                             <ion-icon slot="start" name="calendar"></ion-icon>
@@ -507,11 +510,14 @@
                     <input type="hidden" id="edit-post-id" name="post_id">
                     
                     <ion-item>
-                        <ion-label position="stacked">投稿日時</ion-label>
+                        <ion-label position="stacked">投稿日時 (JST: UTC+9)</ion-label>
                         <ion-datetime-button datetime="edit-scheduled-at"></ion-datetime-button>
                         <ion-modal keepContentsMounted="true">
                             <ion-datetime id="edit-scheduled-at" name="scheduled_at"></ion-datetime>
                         </ion-modal>
+                        <div slot="helper" style="font-size: 12px; color: var(--ion-color-medium); margin-top: 4px;">
+                            日本時間で入力してください
+                        </div>
                     </ion-item>
 
                     <ion-item>
@@ -529,6 +535,63 @@
     </ion-app>
 
     <script>
+        // ==================== JST タイムゾーン対応 ====================
+        // JST (Asia/Tokyo, UTC+9) に統一して時刻を扱う
+        
+        /**
+         * 現在時刻をJSTで取得
+         */
+        function getNowInJST() {
+            const now = new Date();
+            // ローカルタイムゾーンオフセット（分）
+            const localOffset = now.getTimezoneOffset();
+            // JSTオフセット（UTC+9 = -540分）
+            const jstOffset = -540;
+            // オフセット差分（分）
+            const diff = (jstOffset - localOffset) * 60 * 1000;
+            return new Date(now.getTime() + diff);
+        }
+
+        /**
+         * ISO文字列（YYYY-MM-DDTHH:mm）をJSTのDateオブジェクトに変換
+         */
+        function parseJSTDatetime(isoString) {
+            if (!isoString) return null;
+            // isoString は "2025-10-17T10:30" の形式
+            const [datePart, timePart] = isoString.split('T');
+            const [year, month, day] = datePart.split('-').map(Number);
+            const [hours, minutes] = timePart.split(':').map(Number);
+            
+            // JST(UTC+9)の日時として解釈
+            // utcDate を JST として扱う
+            const d = new Date(Date.UTC(year, month - 1, day, hours, minutes, 0));
+            // UTC時刻から9時間引いて、JSTの見かけ上の時刻に
+            d.setHours(d.getHours() - 9);
+            return d;
+        }
+
+        /**
+         * DateオブジェクトをJST形式のISO文字列に変換（YYYY-MM-DDTHH:mm）
+         */
+        function formatJSTDatetime(date) {
+            if (!date) return '';
+            // ローカルタイムゾーンオフセット（分）
+            const localOffset = date.getTimezoneOffset();
+            // JSTオフセット（UTC+9 = -540分）
+            const jstOffset = -540;
+            // オフセット差分（分）
+            const diff = (jstOffset - localOffset) * 60 * 1000;
+            const jstDate = new Date(date.getTime() + diff);
+            
+            const year = jstDate.getFullYear();
+            const month = String(jstDate.getMonth() + 1).padStart(2, '0');
+            const day = String(jstDate.getDate()).padStart(2, '0');
+            const hours = String(jstDate.getHours()).padStart(2, '0');
+            const minutes = String(jstDate.getMinutes()).padStart(2, '0');
+            
+            return `${year}-${month}-${day}T${hours}:${minutes}`;
+        }
+
         // Ionic が読み込まれるまで待機
         if (window.customElements) {
             customElements.whenDefined('ion-app').then(() => {
@@ -772,20 +835,16 @@
             submitPost('/api/post');
         });
 
-        // 初期値を現在時刻+5分に設定
+        // 初期値をJST現在時刻+5分に設定
         function initializeScheduleTime() {
-            const now = new Date();
-            now.setMinutes(now.getMinutes() + 5);
-            const year = now.getFullYear();
-            const month = String(now.getMonth() + 1).padStart(2, '0');
-            const day = String(now.getDate()).padStart(2, '0');
-            const hours = String(now.getHours()).padStart(2, '0');
-            const minutes = String(now.getMinutes()).padStart(2, '0');
-            const defaultValue = `${year}-${month}-${day}T${hours}:${minutes}`;
+            const nowJST = getNowInJST();
+            nowJST.setMinutes(nowJST.getMinutes() + 5);
+            const defaultValue = formatJSTDatetime(nowJST);
             
             const scheduleTimeElement = document.getElementById('schedule_time');
             if (scheduleTimeElement) {
                 scheduleTimeElement.value = defaultValue;
+                console.log('📅 初期化: 予約日時を', defaultValue, '(JST)に設定しました');
             }
         }
         
@@ -811,7 +870,12 @@
             
             if (isScheduled) {
                 formData.append('content', textArea.value);
-                formData.append('scheduled_at', document.getElementById('schedule_time').value);
+                // schedule_time の値をJST形式として解釈し、ISO文字列に変換
+                const scheduledAtInput = document.getElementById('schedule_time').value;
+                const scheduledAtDate = parseJSTDatetime(scheduledAtInput);
+                const isoString = scheduledAtDate.toISOString();
+                formData.append('scheduled_at', isoString);
+                console.log('📅 予約投稿作成: 入力', scheduledAtInput, '(JST) →', isoString, '(ISO)に変換しました');
                 document.querySelectorAll('ion-checkbox[name="sns_targets"]').forEach(checkbox => {
                     if (checkbox.checked) {
                         formData.append('target_sns', checkbox.value);
@@ -874,13 +938,11 @@
                 .then(post => {
                     document.getElementById('edit-post-id').value = post.id;
                     
-                    const scheduledAt = new Date(post.scheduled_at);
-                    const year = scheduledAt.getFullYear();
-                    const month = String(scheduledAt.getMonth() + 1).padStart(2, '0');
-                    const day = String(scheduledAt.getDate()).padStart(2, '0');
-                    const hours = String(scheduledAt.getHours()).padStart(2, '0');
-                    const minutes = String(scheduledAt.getMinutes()).padStart(2, '0');
-                    document.getElementById('edit-scheduled-at').value = `${year}-${month}-${day}T${hours}:${minutes}`;
+                    // サーバーから返されたISO文字列をJSTで解釈
+                    const scheduledAtDate = new Date(post.scheduled_at);
+                    const formattedValue = formatJSTDatetime(scheduledAtDate);
+                    document.getElementById('edit-scheduled-at').value = formattedValue;
+                    console.log('📅 編集フォーム: 予約日時を', formattedValue, '(JST)で復元しました');
                     
                     document.getElementById('edit-content').value = post.content;
                     
@@ -919,7 +981,13 @@
         function submitEditForm() {
             const postId = document.getElementById('edit-post-id').value;
             const formData = new FormData();
-            formData.append('scheduled_at', document.getElementById('edit-scheduled-at').value);
+            
+            // edit-scheduled-at の値をJST形式として解釈し、ISO文字列に変換
+            const editScheduledAtInput = document.getElementById('edit-scheduled-at').value;
+            const editScheduledAtDate = parseJSTDatetime(editScheduledAtInput);
+            const isoString = editScheduledAtDate.toISOString();
+            formData.append('scheduled_at', isoString);
+            console.log('📅 予約投稿編集: 入力', editScheduledAtInput, '(JST) →', isoString, '(ISO)に変換しました');
             formData.append('content', document.getElementById('edit-content').value);
             
             document.querySelectorAll('#edit-target-sns ion-checkbox:checked').forEach(checkbox => {
@@ -1008,7 +1076,9 @@
                     const row = document.createElement('tr');
                     if (isFailed) row.classList.add('warning');
 
-                    const scheduledAtFormatted = `${scheduledAt.getFullYear()}-${String(scheduledAt.getMonth() + 1).padStart(2, '0')}-${String(scheduledAt.getDate()).padStart(2, '0')} ${String(scheduledAt.getHours()).padStart(2, '0')}:${String(scheduledAt.getMinutes()).padStart(2, '0')}`;
+                    // サーバーから返されたISO文字列をJST形式でフォーマット
+                    const scheduledAtFormatted = formatJSTDatetime(scheduledAt)
+                        .replace('T', ' ');
 
                     let buttonsHtml = `
                         <ion-button size="small" onclick="editPost('${post.id}')">
