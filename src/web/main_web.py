@@ -386,3 +386,70 @@ def api_schedule(
         if os.path.exists(job_media_dir):
             shutil.rmtree(job_media_dir)
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/post-history")
+async def save_post_history(
+    request: Request,
+    user: str = Depends(get_current_user)
+):
+    """
+    即時投稿の履歴を保存
+
+    即時投稿後に、投稿内容をデータベースに記録するエンドポイント。
+    予約投稿ではなく、既に実行された投稿の履歴を保存する。
+
+    リクエストボディ例:
+    {
+        "content": "投稿文",
+        "target_sns": ["x", "bluesky"],
+        "status": "投稿完了",
+        "error_message": null,
+        "scheduled_at": "2025-10-17T10:30:00.000Z"
+    }
+    """
+    try:
+        # リクエストボディをJSONで解析
+        body = await request.json()
+
+        content = body.get('content', '')
+        target_sns = body.get('target_sns', [])
+        status_val = body.get('status', '投稿完了')
+        error_message = body.get('error_message')
+
+        if not content:
+            raise HTTPException(status_code=400, detail="content is required")
+
+        if not target_sns:
+            raise HTTPException(status_code=400, detail="target_sns is required")
+
+        logger.info(f"User {user} saving post history: content={content[:50]}..., target_sns={target_sns}")
+
+        # 現在時刻をJSTで設定
+        now = now_local()
+
+        # 投稿履歴をスケジュール済み投稿として保存（status='投稿完了'）
+        history_post = ScheduledPost(
+            scheduled_at=now,
+            content=content,
+            target_sns=target_sns,
+            status=status_val,
+            error_message=error_message,
+            media_files=[]  # 即時投稿履歴はメディアファイル参照不要
+        )
+
+        # データベースに保存
+        scheduled_post_store.create_post(history_post)
+        logger.info(f"Post history saved: {history_post.id}")
+
+        return JSONResponse(content={
+            "success": True,
+            "id": history_post.id,
+            "message": "投稿履歴が保存されました"
+        }, status_code=status.HTTP_201_CREATED)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving post history: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Failed to save post history: {str(e)}")
