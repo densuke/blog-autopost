@@ -423,6 +423,82 @@
                 grid-column: 2;
             }
         }
+
+        /* ==================== 画像編集モーダル ==================== */
+        #imageEditModal {
+            --width: 90vw;
+            --max-width: 800px;
+            --height: 80vh;
+            --max-height: 600px;
+            --border-radius: 12px;
+        }
+
+        #imageEditModal ion-content {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 16px;
+        }
+
+        .image-edit-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            overflow: hidden;
+        }
+
+        .canvas-wrapper {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--ion-color-light);
+            border-radius: 8px;
+            border: 1px solid var(--ion-color-medium);
+            overflow: auto;
+            position: relative;
+        }
+
+        #editCanvas {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            cursor: crosshair;
+            display: block;
+        }
+
+        .crop-controls {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: space-between;
+        }
+
+        .crop-controls ion-button {
+            flex: 1;
+            min-width: 80px;
+        }
+
+        .crop-info {
+            font-size: 12px;
+            color: var(--ion-color-medium);
+            padding: 8px;
+            background: var(--ion-color-light);
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        .edit-modal-actions {
+            display: flex;
+            gap: 8px;
+            padding-top: 12px;
+            border-top: 1px solid var(--ion-color-medium);
+        }
+
+        .edit-modal-actions ion-button {
+            flex: 1;
+        }
     </style>
 </head>
 <body>
@@ -654,6 +730,50 @@
                     </ion-item>
                     <ion-list id="edit-target-sns"></ion-list>
                 </form>
+            </ion-content>
+        </ion-modal>
+
+        <!-- 画像編集モーダル -->
+        <ion-modal id="imageEditModal" keepContentsMounted="true">
+            <ion-header>
+                <ion-toolbar>
+                    <ion-buttons slot="start">
+                        <ion-button onclick="closeImageEditModal()">キャンセル</ion-button>
+                    </ion-buttons>
+                    <ion-title>画像を編集</ion-title>
+                    <ion-buttons slot="end">
+                        <ion-button strong="true" onclick="applyImageCrop()">適用</ion-button>
+                    </ion-buttons>
+                </ion-toolbar>
+            </ion-header>
+            <ion-content>
+                <div class="image-edit-container">
+                    <!-- 画像表示エリア -->
+                    <div class="canvas-wrapper">
+                        <canvas id="editCanvas"></canvas>
+                    </div>
+
+                    <!-- クロップ情報 -->
+                    <div class="crop-info">
+                        選択範囲: <span id="cropCoords">クリック＆ドラッグで範囲を選択</span>
+                    </div>
+
+                    <!-- コントロール -->
+                    <div class="crop-controls">
+                        <ion-button expand="block" fill="outline" onclick="undoImageEdit()">
+                            <ion-icon slot="start" name="arrow-undo"></ion-icon>
+                            元に戻す
+                        </ion-button>
+                        <ion-button expand="block" fill="outline" onclick="resetImageEdit()">
+                            <ion-icon slot="start" name="refresh"></ion-icon>
+                            リセット
+                        </ion-button>
+                        <ion-button expand="block" fill="outline" onclick="fitToCanvas()">
+                            <ion-icon slot="start" name="fit"></ion-icon>
+                            フィット
+                        </ion-button>
+                    </div>
+                </div>
             </ion-content>
         </ion-modal>
     </ion-app>
@@ -1254,6 +1374,475 @@
             const currentSortBy = sortSelect.value;
             fetchAndRenderPosts(currentSortBy);
         }, 300000);
+
+        // ==================== クリップボード画像ペースト対応 ====================
+        /**
+         * クリップボード画像をペースト処理
+         */
+        document.addEventListener('paste', (e) => {
+            if (!e.clipboardData) return;
+            
+            const items = e.clipboardData.items;
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.startsWith('image/')) {
+                    e.preventDefault();
+                    const file = items[i].getAsFile();
+                    if (file) {
+                        uploadedFiles.push(file);
+                        addImagePreview(file);
+                        showToast('📸 クリップボードから画像をペーストしました', 'success', 3000);
+                        console.log('📸 ペースト画像:', file.name);
+                    }
+                }
+            }
+        });
+
+        /**
+         * 画像プレビューを追加
+         */
+        function addImagePreview(file) {
+            const container = document.createElement('div');
+            container.classList.add('preview-image-container');
+
+            const img = document.createElement('img');
+            img.classList.add('preview-image');
+            img.src = URL.createObjectURL(file);
+
+            // 画像をクリックすると編集モーダルを開く
+            img.style.cursor = 'pointer';
+            img.onclick = (e) => {
+                e.preventDefault();
+                openImageEditModal(file);
+            };
+
+            const removeBtn = document.createElement('ion-button');
+            removeBtn.textContent = '×';
+            removeBtn.classList.add('remove-btn');
+            removeBtn.color = 'danger';
+            removeBtn.type = 'button';
+            removeBtn.onclick = (e) => {
+                e.preventDefault();
+                const index = uploadedFiles.indexOf(file);
+                if (index > -1) uploadedFiles.splice(index, 1);
+                container.remove();
+            };
+
+            container.appendChild(img);
+            container.appendChild(removeBtn);
+            previewArea.appendChild(container);
+        }
+
+        // ==================== 画像編集機能 ====================
+        /**
+         * 画像編集モーダルを開く
+         */
+        async function openImageEditModal(file) {
+            const modal = document.getElementById('imageEditModal');
+            const canvas = document.getElementById('editCanvas');
+            const ctx = canvas.getContext('2d');
+
+            // 画像を読み込み
+            const img = new Image();
+            img.onload = () => {
+                // キャンバスサイズを画像サイズに設定
+                canvas.width = img.width;
+                canvas.height = img.height;
+
+                // 画像を描画
+                ctx.drawImage(img, 0, 0);
+
+                // 初期化
+                document.getElementById('cropCoords').textContent = 'クリック＆ドラッグで範囲を選択';
+
+                // モーダルを表示
+                modal.present();
+            };
+
+            img.src = URL.createObjectURL(file);
+        }
+
+        /**
+         * 画像編集モーダルを閉じる
+         */
+        async function closeImageEditModal() {
+            const modal = document.getElementById('imageEditModal');
+            await modal.dismiss();
+        }
+
+        /**
+         * クロップを適用
+         */
+        async function applyImageCrop() {
+            showToast('クロップ機能は準備中です', 'warning', 2000);
+            // TODO: Task 3で実装
+        }
+
+        /**
+         * 編集を元に戻す
+         */
+        function undoImageEdit() {
+            // 履歴が空の場合は何もしない
+            if (cropState.history.length === 0) {
+                showToast('戻る操作がありません', 'info', 2000);
+                return;
+            }
+
+            const canvas = document.getElementById('editCanvas');
+            const ctx = canvas.getContext('2d');
+
+            // 履歴から前の状態を復元
+            const previousImage = cropState.history.pop();
+
+            // キャンバスサイズを前の画像のサイズに変更
+            canvas.width = previousImage.width;
+            canvas.height = previousImage.height;
+
+            // 前の画像を描画
+            ctx.drawImage(previousImage, 0, 0);
+
+            // 元の画像を更新
+            cropState.originalImage = new Image();
+            cropState.originalImage.src = previousImage.src;
+            cropState.originalImage.onload = () => {
+                // 選択状態をリセット
+                cropState.startX = 0;
+                cropState.startY = 0;
+                cropState.endX = 0;
+                cropState.endY = 0;
+                document.getElementById('cropCoords').textContent = 'クリック＆ドラッグで範囲を選択';
+
+                // Undo可能性を更新
+                updateUndoButtonState();
+
+                showToast('前の状態に戻りました', 'success', 2000);
+            };
+        }
+
+        /**
+         * Undoボタンの有効/無効を切り替え
+         */
+        function updateUndoButtonState() {
+            const undoButton = document.querySelector('.crop-controls ion-button:nth-child(1)');
+            if (undoButton) {
+                if (cropState.history.length > 0) {
+                    undoButton.disabled = false;
+                } else {
+                    undoButton.disabled = true;
+                }
+            }
+        }
+
+        /**
+         * リセット
+         */
+        function resetImageEdit() {
+            showToast('リセット処理は準備中です', 'warning', 2000);
+            // TODO: Task 3で実装
+        }
+
+        /**
+         * キャンバスに画像をフィット
+         */
+        function fitToCanvas() {
+            showToast('フィット処理は準備中です', 'warning', 2000);
+            // TODO: Task 3で実装
+        }
+
+        // ==================== クロップ機能の実装 ====================
+        // クロップ状態管理
+        let cropState = {
+            isSelecting: false,
+            startX: 0,
+            startY: 0,
+            endX: 0,
+            endY: 0,
+            originalImage: null,
+            history: [] // Undo用の履歴
+        };
+
+        /**
+         * キャンバスのマウスイベントをセットアップ
+         */
+        function setupCanvasEvents() {
+            const canvas = document.getElementById('editCanvas');
+            const modal = document.getElementById('imageEditModal');
+
+            // モーダルが表示された後にイベントをセットアップ
+            const originalPresent = modal.present.bind(modal);
+            modal.present = async function() {
+                await originalPresent();
+
+                // イベントリスナーを設定
+                canvas.addEventListener('mousedown', handleCanvasMouseDown);
+                canvas.addEventListener('mousemove', handleCanvasMouseMove);
+                canvas.addEventListener('mouseup', handleCanvasMouseUp);
+                canvas.addEventListener('mouseleave', handleCanvasMouseLeave);
+
+                // タッチ対応
+                canvas.addEventListener('touchstart', handleCanvasTouchStart);
+                canvas.addEventListener('touchmove', handleCanvasTouchMove);
+                canvas.addEventListener('touchend', handleCanvasTouchEnd);
+            };
+        }
+
+        /**
+         * マウスダウン処理
+         */
+        function handleCanvasMouseDown(e) {
+            const canvas = document.getElementById('editCanvas');
+            const rect = canvas.getBoundingClientRect();
+
+            cropState.isSelecting = true;
+            cropState.startX = (e.clientX - rect.left) * (canvas.width / rect.width);
+            cropState.startY = (e.clientY - rect.top) * (canvas.height / rect.height);
+        }
+
+        /**
+         * マウス移動処理（選択範囲のリアルタイム描画）
+         */
+        function handleCanvasMouseMove(e) {
+            if (!cropState.isSelecting) return;
+
+            const canvas = document.getElementById('editCanvas');
+            const rect = canvas.getBoundingClientRect();
+
+            cropState.endX = (e.clientX - rect.left) * (canvas.width / rect.width);
+            cropState.endY = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+            redrawCanvasWithSelection();
+        }
+
+        /**
+         * マウスアップ処理
+         */
+        function handleCanvasMouseUp(e) {
+            cropState.isSelecting = false;
+            redrawCanvasWithSelection();
+        }
+
+        /**
+         * マウス領域外処理
+         */
+        function handleCanvasMouseLeave(e) {
+            cropState.isSelecting = false;
+        }
+
+        /**
+         * タッチスタート処理
+         */
+        function handleCanvasTouchStart(e) {
+            const canvas = document.getElementById('editCanvas');
+            const rect = canvas.getBoundingClientRect();
+            const touch = e.touches[0];
+
+            cropState.isSelecting = true;
+            cropState.startX = (touch.clientX - rect.left) * (canvas.width / rect.width);
+            cropState.startY = (touch.clientY - rect.top) * (canvas.height / rect.height);
+        }
+
+        /**
+         * タッチムーブ処理
+         */
+        function handleCanvasTouchMove(e) {
+            if (!cropState.isSelecting) return;
+
+            const canvas = document.getElementById('editCanvas');
+            const rect = canvas.getBoundingClientRect();
+            const touch = e.touches[0];
+
+            cropState.endX = (touch.clientX - rect.left) * (canvas.width / rect.width);
+            cropState.endY = (touch.clientY - rect.top) * (canvas.height / rect.height);
+
+            redrawCanvasWithSelection();
+            e.preventDefault();
+        }
+
+        /**
+         * タッチエンド処理
+         */
+        function handleCanvasTouchEnd(e) {
+            cropState.isSelecting = false;
+            redrawCanvasWithSelection();
+        }
+
+        /**
+         * 選択範囲を描画してキャンバスを再描画
+         */
+        function redrawCanvasWithSelection() {
+            const canvas = document.getElementById('editCanvas');
+            const ctx = canvas.getContext('2d');
+
+            // 元の画像を再描画
+            if (cropState.originalImage) {
+                ctx.drawImage(cropState.originalImage, 0, 0);
+            }
+
+            // 選択範囲の座標を計算
+            const minX = Math.min(cropState.startX, cropState.endX);
+            const minY = Math.min(cropState.startY, cropState.endY);
+            const maxX = Math.max(cropState.startX, cropState.endX);
+            const maxY = Math.max(cropState.startY, cropState.endY);
+            const selWidth = maxX - minX;
+            const selHeight = maxY - minY;
+
+            // 選択範囲外を半透明でオーバーレイ
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 選択範囲をクリア
+            ctx.clearRect(minX, minY, selWidth, selHeight);
+
+            // 元の画像の選択範囲をもう一度描画
+            if (cropState.originalImage) {
+                ctx.drawImage(
+                    cropState.originalImage,
+                    minX, minY, selWidth, selHeight,
+                    minX, minY, selWidth, selHeight
+                );
+            }
+
+            // 選択範囲の枠線
+            ctx.strokeStyle = '#0084ff';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(minX, minY, selWidth, selHeight);
+
+            // 座標情報を更新
+            updateCropCoords(minX, minY, selWidth, selHeight);
+        }
+
+        /**
+         * クロップ座標情報を更新
+         */
+        function updateCropCoords(x, y, width, height) {
+            const coordsDisplay = document.getElementById('cropCoords');
+            const x1 = Math.round(x);
+            const y1 = Math.round(y);
+            const x2 = Math.round(x + width);
+            const y2 = Math.round(y + height);
+
+            coordsDisplay.textContent = `X: ${x1}-${x2}, Y: ${y1}-${y2} (${Math.round(width)}×${Math.round(height)})`;
+        }
+
+        /**
+         * リセット処理（元の画像に戻す）
+         */
+        function resetImageEdit() {
+            const canvas = document.getElementById('editCanvas');
+            const ctx = canvas.getContext('2d');
+
+            // 元の画像を再描画
+            if (cropState.originalImage) {
+                ctx.drawImage(cropState.originalImage, 0, 0);
+                cropState.startX = 0;
+                cropState.startY = 0;
+                cropState.endX = 0;
+                cropState.endY = 0;
+                document.getElementById('cropCoords').textContent = 'クリック＆ドラッグで範囲を選択';
+                showToast('画像をリセットしました', 'success', 2000);
+            }
+        }
+
+        /**
+         * クロップを適用
+         */
+        async function applyImageCrop() {
+            const canvas = document.getElementById('editCanvas');
+
+            // 選択範囲を確認
+            const minX = Math.min(cropState.startX, cropState.endX);
+            const minY = Math.min(cropState.startY, cropState.endY);
+            const maxX = Math.max(cropState.startX, cropState.endX);
+            const maxY = Math.max(cropState.startY, cropState.endY);
+            const selWidth = maxX - minX;
+            const selHeight = maxY - minY;
+
+            if (selWidth < 1 || selHeight < 1) {
+                showToast('範囲を選択してください', 'warning', 2000);
+                return;
+            }
+
+            // 履歴に追加（Undo用）
+            const beforeImage = new Image();
+            beforeImage.src = canvas.toDataURL();
+            cropState.history.push(beforeImage);
+
+            // 新しいキャンバスでクロップした画像を生成
+            const croppedCanvas = document.createElement('canvas');
+            croppedCanvas.width = selWidth;
+            croppedCanvas.height = selHeight;
+            const croppedCtx = croppedCanvas.getContext('2d');
+
+            croppedCtx.drawImage(
+                cropState.originalImage,
+                minX, minY, selWidth, selHeight,
+                0, 0, selWidth, selHeight
+            );
+
+            // クロップ後の画像をキャンバスに描画
+            cropState.originalImage = new Image();
+            cropState.originalImage.onload = () => {
+                canvas.width = croppedCanvas.width;
+                canvas.height = croppedCanvas.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(cropState.originalImage, 0, 0);
+
+                cropState.startX = 0;
+                cropState.startY = 0;
+                cropState.endX = 0;
+                cropState.endY = 0;
+                document.getElementById('cropCoords').textContent = 'クリック＆ドラッグで範囲を選択';
+
+                // Undoボタンの状態を更新
+                updateUndoButtonState();
+
+                showToast('クロップが適用されました', 'success', 2000);
+            };
+            cropState.originalImage.src = croppedCanvas.toDataURL();
+        }
+
+        /**
+         * 画像編集モーダルを開く（更新版）
+         */
+        async function openImageEditModal(file) {
+            const modal = document.getElementById('imageEditModal');
+            const canvas = document.getElementById('editCanvas');
+            const ctx = canvas.getContext('2d');
+
+            // 画像を読み込み
+            const img = new Image();
+            img.onload = () => {
+                // キャンバスサイズを画像サイズに設定
+                canvas.width = img.width;
+                canvas.height = img.height;
+
+                // 画像を描画
+                ctx.drawImage(img, 0, 0);
+
+                // 元の画像を保存（リセット用）
+                cropState.originalImage = new Image();
+                cropState.originalImage.src = img.src;
+                cropState.originalImage.onload = () => {
+                    // クロップ状態をリセット
+                    cropState.startX = 0;
+                    cropState.startY = 0;
+                    cropState.endX = 0;
+                    cropState.endY = 0;
+                    cropState.history = [];
+                    document.getElementById('cropCoords').textContent = 'クリック＆ドラッグで範囲を選択';
+
+                    // Undoボタンを無効に初期化
+                    updateUndoButtonState();
+
+                    // モーダルを表示
+                    modal.present();
+
+                    // キャンバスイベントをセットアップ
+                    setupCanvasEvents();
+                };
+            };
+
+            img.src = URL.createObjectURL(file);
+        }
 
         // 初期化
         updateBatchDeleteUI();
