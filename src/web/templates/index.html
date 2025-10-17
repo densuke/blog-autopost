@@ -2,277 +2,412 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
     <title>Blog AutoPost</title>
+    
+    <!-- Ionic Framework -->
+    <script type="module" src="https://cdn.jsdelivr.net/npm/@ionic/core/dist/ionic/ionic.esm.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@ionic/core/dist/ionic/ionic.bundle.css">
+    
+    <!-- Liquid Design Theme (iOS 26) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@rdlabo/ionic-theme-ios26/dist/css/default-variables.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@rdlabo/ionic-theme-ios26/dist/css/ionic-theme-ios26.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@rdlabo/ionic-theme-ios26/dist/css/md-remove-ios-class-effect.css">
+    
+    <!-- Dark Mode Support (System preference) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@rdlabo/ionic-theme-ios26/dist/css/ionic-theme-dark-system.css">
+    
+    <!-- Custom Styles -->
     <style>
-        .warning { color: red; font-weight: bold; }
-        #drop-zone {
-            border: 2px dashed #ccc;
+        ion-app {
+            --ion-safe-area-top: env(safe-area-inset-top);
+            --ion-safe-area-bottom: env(safe-area-inset-bottom);
+            --ion-safe-area-left: env(safe-area-inset-left);
+            --ion-safe-area-right: env(safe-area-inset-right);
+        }
+        
+        ion-content {
+            --padding-top: 16px;
+            --padding-bottom: 16px;
+            --padding-start: 16px;
+            --padding-end: 16px;
+        }
+        
+        .warning-text {
+            color: var(--ion-color-danger);
+            font-weight: bold;
+        }
+        
+        .drop-zone {
+            border: 2px dashed var(--ion-color-medium);
+            border-radius: 12px;
             padding: 20px;
             text-align: center;
             margin-top: 10px;
+            transition: all 0.2s;
+            cursor: pointer;
+            background-color: var(--ion-color-light);
         }
-        #drop-zone.dragover {
-            border-color: #333;
+        
+        .drop-zone.dragover {
+            border-color: var(--ion-color-primary);
+            background-color: rgba(0, 0, 0, 0.04);
         }
-        #preview-area {
-            margin-top: 10px;
+        
+        .preview-area {
             display: flex;
             flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 12px;
         }
+        
         .preview-image-container {
             position: relative;
-            margin: 5px;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
+        
         .preview-image {
             max-width: 100px;
             max-height: 100px;
+            display: block;
         }
+        
         .remove-btn {
             position: absolute;
-            top: 0;
-            right: 0;
-            cursor: pointer;
-            background: rgba(0,0,0,0.5);
-            color: white;
-            border: none;
-            border-radius: 50%;
+            top: 4px;
+            right: 4px;
+            --padding-top: 4px;
+            --padding-bottom: 4px;
+            --padding-start: 8px;
+            --padding-end: 8px;
+            --border-radius: 50%;
         }
-        /* モーダルのスタイル */
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 1;
-            left: 0;
-            top: 0;
+        
+        ion-card {
+            margin: 8px 0;
+        }
+        
+        ion-list {
+            padding: 0;
+            margin: 0;
+        }
+        
+        ion-item {
+            --padding-top: 12px;
+            --padding-bottom: 12px;
+            --inner-padding-top: 8px;
+            --inner-padding-bottom: 8px;
+        }
+        
+        .batch-delete-controls {
+            display: flex;
+            gap: 12px;
+            padding: 12px 0;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        
+        .table-wrapper {
+            overflow-x: auto;
+            margin-top: 16px;
+        }
+        
+        ion-table {
             width: 100%;
-            height: 100%;
-            overflow: auto;
-            background-color: rgba(0,0,0,0.4);
+            border-collapse: collapse;
         }
-        .modal-content {
-            background-color: #fefefe;
-            margin: 5% auto;
-            padding: 20px;
-            border: 1px solid #888;
-            width: 80%;
-            max-width: 600px;
+        
+        ion-table th,
+        ion-table td {
+            border: 1px solid var(--ion-color-light-shade);
+            padding: 12px;
         }
-        .close {
-            color: #aaa;
-            float: right;
-            font-size: 28px;
-            font-weight: bold;
-            cursor: pointer;
+        
+        ion-table th {
+            background-color: var(--ion-color-light);
+            font-weight: 600;
         }
-        .close:hover,
-        .close:focus {
-            color: black;
+        
+        ion-table tr.warning {
+            background-color: rgba(255, 200, 124, 0.1);
         }
     </style>
 </head>
 <body>
-    <h1>新規投稿</h1>
-    <form id="post-form">
-        <div>
-            <label for="text">投稿文:</label> 
-            <span id="char-counter">0</span> / <span id="char-limit">-</span>
-            <br>
-            <textarea id="text" name="text" rows="5" cols="50"></textarea>
-        </div>
-        <div>
-            <label for="url">URL (任意):</label><br>
-            <input type="url" id="url" name="url" size="50">
-        </div>
-        <div>
-            <label>投稿先SNS:</label><br>
-            {% for account in sns_accounts %}
-            <input type="checkbox" id="sns_{{ account.name }}" name="sns_targets" value="{{ account.name }}" 
-                   data-limit="{% if account.type == 'x' %}280{% elif account.type == 'bluesky' %}300{% elif account.type == 'mastodon' %}500{% elif account.type == 'misskey' %}3000{% else %}9999{% endif %}">
-            <label for="sns_{{ account.name }}">{{ account.name }} ({{ account.type }})</label><br>
-            {% endfor %}
-        </div>
-        
-        <div>
-            <label>画像アップロード:</label>
-            <div id="drop-zone">
-                ここにファイルをドラッグ＆ドロップするか、クリックしてファイルを選択
-            </div>
-            <input type="file" id="file-input" multiple accept="image/*" style="display: none;">
-            <div id="preview-area"></div>
-        </div>
+    <ion-app>
+        <ion-header translucent="true">
+            <ion-toolbar>
+                <ion-title>Blog AutoPost</ion-title>
+            </ion-toolbar>
+        </ion-header>
 
-        <button type="submit">すぐに投稿</button>
-        <hr>
-        <div>
-            <label for="schedule_time">予約日時:</label>
-            <input type="datetime-local" id="schedule_time" name="schedule_time">
-            <button type="button" id="schedule-btn">予約投稿</button>
-        </div>
-    </form>
-    <div id="status-messages"></div>
+        <ion-content fullscreen="true" scrollX="false">
+            <!-- 新規投稿セクション -->
+            <ion-card>
+                <ion-card-header>
+                    <ion-card-title>新規投稿</ion-card-title>
+                </ion-card-header>
+                <ion-card-content>
+                    <form id="post-form">
+                        <!-- 投稿文 -->
+                        <ion-item>
+                            <ion-label position="stacked">投稿文</ion-label>
+                            <ion-textarea id="text" name="text" rows="5" placeholder="投稿内容を入力..."></ion-textarea>
+                            <div slot="helper" style="font-size: 12px; margin-top: 8px;">
+                                <span id="char-counter">0</span> / <span id="char-limit">-</span>
+                            </div>
+                        </ion-item>
 
-    <h2>予約投稿一覧</h2>
-    <div style="margin-bottom: 15px;">
-        <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px;">
-            <label for="sort-by">並び替え:</label>
-            <select id="sort-by" name="sort-by">
-                <option value="date_asc" {% if current_sort_by == 'date_asc' %}selected{% endif %}>投稿日時 (昇順)</option>
-                <option value="date_desc" {% if current_sort_by == 'date_desc' %}selected{% endif %}>投稿日時 (降順)</option>
-                <option value="status_failed" {% if current_sort_by == 'status_failed' %}selected{% endif %}>ステータス (失敗優先)</option>
-                <option value="status_completed" {% if current_sort_by == 'status_completed' %}selected{% endif %}>ステータス (完了優先)</option>
-            </select>
-        </div>
-        <div id="batch-delete-controls" style="display: none; gap: 10px;">
-            <span id="selected-count">選択中: 0件</span>
-            <button id="batch-delete-btn" type="button" style="background-color: #ff6b6b; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer;">
-                選択したものを削除
-            </button>
-            <button id="select-all-btn" type="button" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; cursor: pointer;">
-                すべて選択
-            </button>
-            <button id="deselect-all-btn" type="button" style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; cursor: pointer;">
-                すべて解除
-            </button>
-        </div>
-    </div>
-    <table border="1">
-        <thead>
-            <tr>
-                <th style="width: 30px;"><input type="checkbox" id="select-all-checkbox"></th>
-                <th>ID</th>
-                <th>投稿日時</th>
-                <th>内容</th>
-                <th>対象SNS</th>
-                <th>ステータス</th>
-                <th>エラーメッセージ</th>
-                <th>操作</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for post in scheduled_posts %}
-                            <tr class="{% if post.status == '失敗' and post.scheduled_at < now %}warning{% endif %}">
-                <td><input type="checkbox" class="post-checkbox" value="{{ post.id }}"></td>
-                <td>{{ post.id }}</td>
-                <td>{{ post.scheduled_at.strftime('%Y-%m-%d %H:%M') }}</td>
-                <td>{{ post.content[:50] }}...</td>
-                <td>{{ post.target_sns | join(', ') }}</td>
-                <td>{{ post.status }}</td>
-                <td>{{ post.error_message if post.error_message else '-' }}</td>
-                <td>
-                    <button onclick="editPost('{{ post.id }}')">編集</button>
-                    <button onclick="deletePost('{{ post.id }}')">削除</button>
-                    {% if post.status == '失敗' %}
-                    <button onclick="reExecutePost('{{ post.id }}')">再実行</button>
-                    {% endif %}
-                    {% if post.status == '予約済み' %}
-                    <button onclick="sendNowPost('{{ post.id }}')">即時送信</button>
-                    {% endif %}
-                </td>
-            </tr>
-            {% else %}
-            <tr>
-                <td colspan="7">予約投稿はありません。</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+                        <!-- URL -->
+                        <ion-item>
+                            <ion-label position="stacked">URL (任意)</ion-label>
+                            <ion-input type="url" id="url" name="url" placeholder="https://example.com"></ion-input>
+                        </ion-item>
 
-    <!-- 編集モーダル -->
-    <div id="editModal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeEditModal()">&times;</span>
-            <h2>予約投稿を編集</h2>
-            <form id="edit-form">
-                <input type="hidden" id="edit-post-id" name="post_id">
-                <div>
-                    <label for="edit-scheduled-at">投稿日時:</label><br>
-                    <input type="datetime-local" id="edit-scheduled-at" name="scheduled_at" required>
-                </div>
-                <div>
-                    <label for="edit-content">投稿内容:</label><br>
-                    <textarea id="edit-content" name="content" rows="5" cols="50" required></textarea>
-                </div>
-                <div>
-                    <label>対象SNS:</label><br>
-                    <div id="edit-target-sns"></div>
-                </div>
-                <button type="submit">更新</button>
-                <button type="button" onclick="closeEditModal()">キャンセル</button>
-            </form>
-        </div>
-    </div>
+                        <!-- 投稿先SNS -->
+                        <ion-item>
+                            <ion-label>投稿先SNS</ion-label>
+                        </ion-item>
+                        <ion-list>
+                            {% for account in sns_accounts %}
+                            <ion-item>
+                                <ion-checkbox 
+                                    id="sns_{{ account.name }}" 
+                                    name="sns_targets" 
+                                    value="{{ account.name }}"
+                                    data-limit="{% if account.type == 'x' %}280{% elif account.type == 'bluesky' %}300{% elif account.type == 'mastodon' %}500{% elif account.type == 'misskey' %}3000{% else %}9999{% endif %}">
+                                </ion-checkbox>
+                                <ion-label>{{ account.name }} ({{ account.type }})</ion-label>
+                            </ion-item>
+                            {% endfor %}
+                        </ion-list>
+
+                        <!-- 画像アップロード -->
+                        <ion-item>
+                            <ion-label>画像アップロード</ion-label>
+                        </ion-item>
+                        <div class="drop-zone" id="drop-zone">
+                            <ion-icon name="image-outline" style="font-size: 32px; margin-bottom: 8px; display: block;"></ion-icon>
+                            <p>ここにファイルをドラッグ＆ドロップするか、タップしてファイルを選択</p>
+                        </div>
+                        <input type="file" id="file-input" multiple accept="image/*" style="display: none;">
+                        <div class="preview-area" id="preview-area"></div>
+
+                        <!-- ボタン -->
+                        <div style="display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap;">
+                            <ion-button type="submit" expand="block">
+                                <ion-icon slot="start" name="send"></ion-icon>
+                                すぐに投稿
+                            </ion-button>
+                        </div>
+
+                        <ion-divider style="margin: 20px 0;"></ion-divider>
+
+                        <!-- 予約投稿 -->
+                        <ion-item>
+                            <ion-label position="stacked">予約日時</ion-label>
+                            <ion-datetime-button datetime="schedule_time"></ion-datetime-button>
+                            <ion-modal keepContentsMounted="true">
+                                <ion-datetime id="schedule_time" name="schedule_time"></ion-datetime>
+                            </ion-modal>
+                        </ion-item>
+                        <ion-button id="schedule-btn" type="button" expand="block" fill="outline">
+                            <ion-icon slot="start" name="calendar"></ion-icon>
+                            予約投稿
+                        </ion-button>
+                    </form>
+                </ion-card-content>
+            </ion-card>
+
+            <!-- ステータスメッセージ -->
+            <div id="status-messages" style="margin: 16px 0;"></div>
+
+            <!-- 予約投稿一覧セクション -->
+            <ion-card>
+                <ion-card-header>
+                    <ion-card-title>予約投稿一覧</ion-card-title>
+                </ion-card-header>
+                <ion-card-content>
+                    <!-- ソート -->
+                    <ion-item>
+                        <ion-label>並び替え</ion-label>
+                        <ion-select id="sort-by" name="sort-by" value="date_desc">
+                            <ion-select-option value="date_asc">投稿日時 (昇順)</ion-select-option>
+                            <ion-select-option value="date_desc">投稿日時 (降順)</ion-select-option>
+                            <ion-select-option value="status_failed">ステータス (失敗優先)</ion-select-option>
+                            <ion-select-option value="status_completed">ステータス (完了優先)</ion-select-option>
+                        </ion-select>
+                    </ion-item>
+
+                    <!-- 一括削除コントロール -->
+                    <div class="batch-delete-controls" id="batch-delete-controls" style="display: none;">
+                        <span id="selected-count">選択中: 0件</span>
+                        <ion-button id="batch-delete-btn" type="button" color="danger" size="small">
+                            <ion-icon slot="start" name="trash"></ion-icon>
+                            削除
+                        </ion-button>
+                        <ion-button id="select-all-btn" type="button" size="small" fill="outline">
+                            すべて選択
+                        </ion-button>
+                        <ion-button id="deselect-all-btn" type="button" size="small" fill="outline">
+                            すべて解除
+                        </ion-button>
+                    </div>
+
+                    <!-- テーブル -->
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style="width: 40px;">
+                                        <input type="checkbox" id="select-all-checkbox">
+                                    </th>
+                                    <th>ID</th>
+                                    <th>投稿日時</th>
+                                    <th>内容</th>
+                                    <th>対象SNS</th>
+                                    <th>ステータス</th>
+                                    <th>エラーメッセージ</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for post in scheduled_posts %}
+                                <tr class="{% if post.status == '失敗' and post.scheduled_at < now %}warning{% endif %}">
+                                    <td><input type="checkbox" class="post-checkbox" value="{{ post.id }}"></td>
+                                    <td>{{ post.id }}</td>
+                                    <td>{{ post.scheduled_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                    <td>{{ post.content[:50] }}...</td>
+                                    <td>{{ post.target_sns | join(', ') }}</td>
+                                    <td>{{ post.status }}</td>
+                                    <td>{{ post.error_message if post.error_message else '-' }}</td>
+                                    <td>
+                                        <ion-button size="small" onclick="editPost('{{ post.id }}')">
+                                            <ion-icon slot="icon-only" name="pencil"></ion-icon>
+                                        </ion-button>
+                                        <ion-button size="small" color="danger" onclick="deletePost('{{ post.id }}')">
+                                            <ion-icon slot="icon-only" name="trash"></ion-icon>
+                                        </ion-button>
+                                        {% if post.status == '失敗' %}
+                                        <ion-button size="small" color="warning" onclick="reExecutePost('{{ post.id }}')">
+                                            <ion-icon slot="icon-only" name="refresh"></ion-icon>
+                                        </ion-button>
+                                        {% endif %}
+                                        {% if post.status == '予約済み' %}
+                                        <ion-button size="small" color="success" onclick="sendNowPost('{{ post.id }}')">
+                                            <ion-icon slot="icon-only" name="play"></ion-icon>
+                                        </ion-button>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="8" style="text-align: center; padding: 24px;">
+                                        予約投稿はありません。
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </ion-card-content>
+            </ion-card>
+        </ion-content>
+
+        <!-- 編集モーダル -->
+        <ion-modal id="editModal">
+            <ion-header>
+                <ion-toolbar>
+                    <ion-buttons slot="start">
+                        <ion-button onclick="closeEditModal()">キャンセル</ion-button>
+                    </ion-buttons>
+                    <ion-title>予約投稿を編集</ion-title>
+                    <ion-buttons slot="end">
+                        <ion-button strong="true" onclick="submitEditForm()">保存</ion-button>
+                    </ion-buttons>
+                </ion-toolbar>
+            </ion-header>
+            <ion-content>
+                <form id="edit-form">
+                    <input type="hidden" id="edit-post-id" name="post_id">
+                    
+                    <ion-item>
+                        <ion-label position="stacked">投稿日時</ion-label>
+                        <ion-datetime-button datetime="edit-scheduled-at"></ion-datetime-button>
+                        <ion-modal keepContentsMounted="true">
+                            <ion-datetime id="edit-scheduled-at" name="scheduled_at"></ion-datetime>
+                        </ion-modal>
+                    </ion-item>
+
+                    <ion-item>
+                        <ion-label position="stacked">投稿内容</ion-label>
+                        <ion-textarea id="edit-content" name="content" rows="5" placeholder="投稿内容を入力..."></ion-textarea>
+                    </ion-item>
+
+                    <ion-item>
+                        <ion-label>対象SNS</ion-label>
+                    </ion-item>
+                    <ion-list id="edit-target-sns"></ion-list>
+                </form>
+            </ion-content>
+        </ion-modal>
+    </ion-app>
 
     <script>
-        const textArea = document.getElementById('text');
-        const charCounter = document.getElementById('char-counter');
-        const charLimitDisplay = document.getElementById('char-limit');
-        const snsCheckboxes = document.querySelectorAll('input[name="sns_targets"]');
-        const dropZone = document.getElementById('drop-zone');
-        const fileInput = document.getElementById('file-input');
-        const previewArea = document.getElementById('preview-area');
-        const postForm = document.getElementById('post-form');
-        const statusMessages = document.getElementById('status-messages');
-
-        let uploadedFiles = [];
-
-        // --- 一括削除機能 ---
+        // ---- 一括削除機能 ----
         const batchDeleteControls = document.getElementById('batch-delete-controls');
         const selectAllCheckbox = document.getElementById('select-all-checkbox');
-        const postCheckboxes = document.querySelectorAll('input.post-checkbox');
         const batchDeleteBtn = document.getElementById('batch-delete-btn');
         const selectAllBtn = document.getElementById('select-all-btn');
         const deselectAllBtn = document.getElementById('deselect-all-btn');
         const selectedCount = document.getElementById('selected-count');
 
-        // チェックボックス状態管理
         function updateBatchDeleteUI() {
+            const postCheckboxes = document.querySelectorAll('input.post-checkbox');
             const checkedCount = document.querySelectorAll('input.post-checkbox:checked').length;
             selectedCount.textContent = `選択中: ${checkedCount}件`;
             
-            // 削除機能を表示/非表示切り替え
             if (checkedCount > 0) {
                 batchDeleteControls.style.display = 'flex';
             } else {
                 batchDeleteControls.style.display = 'none';
             }
             
-            // 「すべて選択」チェックボックスの状態を更新
-            const allCount = document.querySelectorAll('input.post-checkbox').length;
+            const allCount = postCheckboxes.length;
             selectAllCheckbox.checked = (checkedCount === allCount && allCount > 0);
             selectAllCheckbox.indeterminate = (checkedCount > 0 && checkedCount < allCount);
         }
 
-        // 個別チェックボックスのイベントリスナー
-        postCheckboxes.forEach(checkbox => {
-            checkbox.addEventListener('change', updateBatchDeleteUI);
+        document.addEventListener('change', (e) => {
+            if (e.target.classList.contains('post-checkbox') || e.target.id === 'select-all-checkbox') {
+                if (e.target.id === 'select-all-checkbox') {
+                    document.querySelectorAll('input.post-checkbox').forEach(checkbox => {
+                        checkbox.checked = e.target.checked;
+                    });
+                }
+                updateBatchDeleteUI();
+            }
         });
 
-        // 「すべて選択」チェックボックスのイベントリスナー
-        selectAllCheckbox.addEventListener('change', function() {
-            document.querySelectorAll('input.post-checkbox').forEach(checkbox => {
-                checkbox.checked = this.checked;
-            });
-            updateBatchDeleteUI();
-        });
-
-        // 「すべて選択」ボタン
-        selectAllBtn.addEventListener('click', function() {
+        selectAllBtn.addEventListener('click', () => {
             document.querySelectorAll('input.post-checkbox').forEach(checkbox => {
                 checkbox.checked = true;
             });
             updateBatchDeleteUI();
         });
 
-        // 「すべて解除」ボタン
-        deselectAllBtn.addEventListener('click', function() {
+        deselectAllBtn.addEventListener('click', () => {
             document.querySelectorAll('input.post-checkbox').forEach(checkbox => {
                 checkbox.checked = false;
             });
             updateBatchDeleteUI();
         });
 
-        // 一括削除ボタンのイベントリスナー
-        batchDeleteBtn.addEventListener('click', function() {
+        batchDeleteBtn.addEventListener('click', () => {
             const selectedIds = Array.from(document.querySelectorAll('input.post-checkbox:checked'))
                 .map(checkbox => checkbox.value);
             
@@ -285,7 +420,6 @@
                 return;
             }
             
-            // 一括削除APIを呼び出し
             const formData = new FormData();
             selectedIds.forEach(id => {
                 formData.append('post_ids', id);
@@ -296,9 +430,7 @@
                 body: formData
             })
             .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 return response.json();
             })
             .then(data => {
@@ -310,10 +442,12 @@
             });
         });
 
-        // 初期UI更新
-        updateBatchDeleteUI();
+        // ---- 文字数カウンター ----
+        const textArea = document.getElementById('text');
+        const charCounter = document.getElementById('char-counter');
+        const charLimitDisplay = document.getElementById('char-limit');
+        const snsCheckboxes = document.querySelectorAll('input[name="sns_targets"]');
 
-        // --- 文字数カウンター --- 
         function updateCounter() {
             const currentLength = textArea.value.length;
             charCounter.textContent = currentLength;
@@ -324,22 +458,16 @@
                 if (checkbox.checked) {
                     atLeastOneChecked = true;
                     const limit = parseInt(checkbox.dataset.limit, 10);
-                    if (limit < minLimit) {
-                        minLimit = limit;
-                    }
+                    minLimit = Math.min(minLimit, limit);
                 }
             });
 
             if (atLeastOneChecked) {
                 charLimitDisplay.textContent = minLimit;
-                if (currentLength > minLimit) {
-                    charCounter.classList.add('warning');
-                } else {
-                    charCounter.classList.remove('warning');
-                }
+                charCounter.classList.toggle('warning-text', currentLength > minLimit);
             } else {
                 charLimitDisplay.textContent = '-';
-                charCounter.classList.remove('warning');
+                charCounter.classList.remove('warning-text');
             }
         }
 
@@ -348,7 +476,12 @@
             checkbox.addEventListener('change', updateCounter);
         });
 
-        // --- ファイルアップロード --- 
+        // ---- ファイルアップロード ----
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const previewArea = document.getElementById('preview-area');
+        let uploadedFiles = [];
+
         dropZone.addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
 
@@ -370,8 +503,8 @@
         function handleFiles(files) {
             for (const file of files) {
                 if (!file.type.startsWith('image/')) continue;
-                
                 uploadedFiles.push(file);
+                
                 const container = document.createElement('div');
                 container.classList.add('preview-image-container');
 
@@ -379,14 +512,15 @@
                 img.classList.add('preview-image');
                 img.src = URL.createObjectURL(file);
                 
-                const removeBtn = document.createElement('button');
+                const removeBtn = document.createElement('ion-button');
                 removeBtn.textContent = '×';
                 removeBtn.classList.add('remove-btn');
-                removeBtn.onclick = () => {
+                removeBtn.color = 'danger';
+                removeBtn.type = 'button';
+                removeBtn.onclick = (e) => {
+                    e.preventDefault();
                     const index = uploadedFiles.indexOf(file);
-                    if (index > -1) {
-                        uploadedFiles.splice(index, 1);
-                    }
+                    if (index > -1) uploadedFiles.splice(index, 1);
                     container.remove();
                 };
 
@@ -396,7 +530,10 @@
             }
         }
         
-        // --- フォーム送信 --- 
+        // ---- フォーム送信 ----
+        const postForm = document.getElementById('post-form');
+        const statusMessages = document.getElementById('status-messages');
+
         postForm.addEventListener('submit', (e) => {
             e.preventDefault();
             submitPost('/api/post');
@@ -412,18 +549,18 @@
         });
 
         function submitPost(endpoint, isScheduled = false) {
-            statusMessages.innerHTML = '送信中...';
+            statusMessages.innerHTML = '<ion-text color="medium"><p>送信中...</p></ion-text>';
 
             const formData = new FormData();
             
             if (isScheduled) {
-                formData.append('content', document.getElementById('text').value);
+                formData.append('content', textArea.value);
                 formData.append('scheduled_at', document.getElementById('schedule_time').value);
                 document.querySelectorAll('input[name="sns_targets"]:checked').forEach(checkbox => {
                     formData.append('target_sns', checkbox.value);
                 });
             } else {
-                formData.append('text', document.getElementById('text').value);
+                formData.append('text', textArea.value);
                 formData.append('url', document.getElementById('url').value);
                 document.querySelectorAll('input[name="sns_targets"]:checked').forEach(checkbox => {
                     formData.append('sns_targets', checkbox.value);
@@ -434,20 +571,15 @@
                 formData.append('media_files', file);
             });
 
-            fetch(endpoint, {
-                method: 'POST',
-                body: formData
-            })
+            fetch(endpoint, { method: 'POST', body: formData })
             .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 return response.json();
             })
             .then(data => {
-                statusMessages.innerHTML = ''; // 古いメッセージをクリア
+                statusMessages.innerHTML = '';
                 if (data.error) {
-                    statusMessages.innerHTML = `<p class="warning">エラー: ${data.error}</p>`;
+                    statusMessages.innerHTML = `<ion-text color="danger"><p>❌ エラー: ${data.error}</p></ion-text>`;
                     return;
                 }
 
@@ -456,41 +588,34 @@
                     location.reload();
                 } else {
                     for (const [sns, result] of Object.entries(data)) {
+                        const text = document.createElement('ion-text');
+                        text.color = result.success ? 'success' : 'danger';
                         const p = document.createElement('p');
-                        if (result.success) {
-                            p.textContent = `✅ ${sns}: 投稿に成功しました。`;
-                        } else {
-                            p.classList.add('warning');
-                            p.textContent = `❌ ${sns}: 投稿に失敗しました - ${result.message}`;
-                        }
-                        statusMessages.appendChild(p);
+                        p.textContent = result.success 
+                            ? `✅ ${sns}: 投稿に成功しました。`
+                            : `❌ ${sns}: 投稿に失敗しました - ${result.message}`;
+                        text.appendChild(p);
+                        statusMessages.appendChild(text);
                     }
                 }
             })
             .catch(error => {
-                statusMessages.innerHTML = `<p class="warning">送信中にエラーが発生しました: ${error}</p>`;
+                statusMessages.innerHTML = `<ion-text color="danger"><p>❌ 送信中にエラーが発生しました: ${error}</p></ion-text>`;
             });
         }
 
-        // 初期表示
         updateCounter();
 
-        // --- 予約投稿操作 --- 
+        // ---- 予約投稿操作 ----
         function editPost(postId) {
-            // APIから投稿データを取得
             fetch(`/api/scheduled-posts/${postId}`)
                 .then(response => {
-                    if (response.ok) {
-                        return response.json();
-                    } else {
-                        throw new Error('投稿データの取得に失敗しました');
-                    }
+                    if (!response.ok) throw new Error('投稿データの取得に失敗しました');
+                    return response.json();
                 })
                 .then(post => {
-                    // モーダルに投稿データを設定
                     document.getElementById('edit-post-id').value = post.id;
                     
-                    // ISO形式の日時をdatetime-local形式に変換
                     const scheduledAt = new Date(post.scheduled_at);
                     const year = scheduledAt.getFullYear();
                     const month = String(scheduledAt.getMonth() + 1).padStart(2, '0');
@@ -501,180 +626,120 @@
                     
                     document.getElementById('edit-content').value = post.content;
                     
-                    // 対象SNSのチェックボックスを生成
                     const snsContainer = document.getElementById('edit-target-sns');
                     snsContainer.innerHTML = '';
                     const allSnsAccounts = {{ sns_accounts | tojson }};
                     allSnsAccounts.forEach(account => {
-                        const checkbox = document.createElement('input');
-                        checkbox.type = 'checkbox';
+                        const item = document.createElement('ion-item');
+                        const checkbox = document.createElement('ion-checkbox');
                         checkbox.id = `edit-sns-${account.name}`;
                         checkbox.name = 'target_sns';
                         checkbox.value = account.name;
                         checkbox.checked = post.target_sns.includes(account.name);
                         
-                        const label = document.createElement('label');
-                        label.htmlFor = `edit-sns-${account.name}`;
+                        const label = document.createElement('ion-label');
                         label.textContent = ` ${account.name} (${account.type})`;
+                        label.htmlFor = `edit-sns-${account.name}`;
                         
-                        snsContainer.appendChild(checkbox);
-                        snsContainer.appendChild(label);
-                        snsContainer.appendChild(document.createElement('br'));
+                        item.appendChild(checkbox);
+                        item.appendChild(label);
+                        snsContainer.appendChild(item);
                     });
                     
-                    // モーダルを表示
-                    document.getElementById('editModal').style.display = 'block';
+                    document.getElementById('editModal').present();
                 })
-                .catch(error => {
-                    alert(`投稿データの取得中にエラーが発生しました: ${error}`);
-                });
+                .catch(error => alert(`投稿データの取得中にエラーが発生しました: ${error}`));
         }
 
         function closeEditModal() {
-            document.getElementById('editModal').style.display = 'none';
+            const modal = document.getElementById('editModal');
+            if (modal && modal.dismiss) {
+                modal.dismiss();
+            }
         }
 
-        // 編集フォームの送信
-        document.getElementById('edit-form').addEventListener('submit', (e) => {
-            e.preventDefault();
-            
+        function submitEditForm() {
             const postId = document.getElementById('edit-post-id').value;
             const formData = new FormData();
-            
-            const scheduledAt = document.getElementById('edit-scheduled-at').value;
-            formData.append('scheduled_at', scheduledAt);
+            formData.append('scheduled_at', document.getElementById('edit-scheduled-at').value);
             formData.append('content', document.getElementById('edit-content').value);
             
-            const checkedSns = document.querySelectorAll('#edit-target-sns input[type="checkbox"]:checked');
-            checkedSns.forEach(checkbox => {
+            document.querySelectorAll('#edit-target-sns ion-checkbox:checked').forEach(checkbox => {
                 formData.append('target_sns', checkbox.value);
             });
             
-            fetch(`/api/scheduled-posts/${postId}`, {
-                method: 'PUT',
-                body: formData
-            })
+            fetch(`/api/scheduled-posts/${postId}`, { method: 'PUT', body: formData })
             .then(response => {
-                if (response.ok) {
-                    return response.json();
-                } else {
-                    return response.json().then(err => {
-                        throw new Error(err.detail || '更新に失敗しました');
-                    });
-                }
+                if (response.ok) return response.json();
+                return response.json().then(err => { throw new Error(err.detail || '更新に失敗しました'); });
             })
             .then(data => {
                 alert('予約投稿を更新しました。');
                 closeEditModal();
                 location.reload();
             })
-            .catch(error => {
-                alert(`更新中にエラーが発生しました: ${error}`);
-            });
-        });
-
-        // モーダル外クリックで閉じる
-        window.onclick = function(event) {
-            const modal = document.getElementById('editModal');
-            if (event.target == modal) {
-                closeEditModal();
-            }
+            .catch(error => alert(`更新中にエラーが発生しました: ${error}`));
         }
 
         function deletePost(postId) {
-            if (!confirm('本当にこの予約投稿を削除しますか？')) {
-                return;
-            }
-            fetch(`/api/scheduled-posts/${postId}`, {
-                method: 'DELETE'
-            })
+            if (!confirm('本当にこの予約投稿を削除しますか？')) return;
+            
+            fetch(`/api/scheduled-posts/${postId}`, { method: 'DELETE' })
             .then(response => {
                 if (response.status === 204) {
                     alert('予約投稿を削除しました。');
                     location.reload();
                 } else {
-                    return response.json().then(err => {
-                        alert(`削除に失敗しました: ${err.detail}`);
-                    });
+                    return response.json().then(err => { alert(`削除に失敗しました: ${err.detail}`); });
                 }
             })
-            .catch(error => {
-                alert(`削除中にエラーが発生しました: ${error}`);
-            });
+            .catch(error => alert(`削除中にエラーが発生しました: ${error}`));
         }
 
         function reExecutePost(postId) {
-            if (!confirm('この失敗した予約投稿を再実行しますか？')) {
-                return;
-            }
-            fetch(`/api/scheduled-posts/${postId}/re-execute`, {
-                method: 'POST'
-            })
+            if (!confirm('この失敗した予約投稿を再実行しますか？')) return;
+            
+            fetch(`/api/scheduled-posts/${postId}/re-execute`, { method: 'POST' })
             .then(response => {
-                if (response.ok) {
-                    return response.json();
-                } else {
-                    return response.json().then(err => {
-                        alert(`再実行に失敗しました: ${err.detail}`);
-                    });
-                }
+                if (!response.ok) return response.json().then(err => { throw new Error(err.detail); });
+                return response.json();
             })
             .then(data => {
-                if (data) {
-                    alert('予約投稿を再実行キューに追加しました。');
-                    location.reload();
-                }
+                alert('予約投稿を再実行キューに追加しました。');
+                location.reload();
             })
-            .catch(error => {
-                alert(`再実行中にエラーが発生しました: ${error}`);
-            });
+            .catch(error => alert(`再実行中にエラーが発生しました: ${error}`));
         }
 
         function sendNowPost(postId) {
-            if (!confirm('この予約投稿をすぐに送信しますか？')) {
-                return;
-            }
-            fetch(`/api/scheduled-posts/${postId}/send-now`, {
-                method: 'POST'
-            })
+            if (!confirm('この予約投稿をすぐに送信しますか？')) return;
+            
+            fetch(`/api/scheduled-posts/${postId}/send-now`, { method: 'POST' })
             .then(response => {
-                if (response.ok) {
-                    return response.json();
-                } else {
-                    return response.json().then(err => {
-                        alert(`即時送信に失敗しました: ${err.detail}`);
-                    });
-                }
+                if (!response.ok) return response.json().then(err => { throw new Error(err.detail); });
+                return response.json();
             })
             .then(data => {
-                if (data) {
-                    alert('予約投稿を即時送信しました。');
-                    location.reload();
-                }
+                alert('予約投稿を即時送信しました。');
+                location.reload();
             })
-            .catch(error => {
-                alert(`即時送信中にエラーが発生しました: ${error}`);
-            });
+            .catch(error => alert(`即時送信中にエラーが発生しました: ${error}`));
         }
 
-        // --- 予約投稿リストの動的更新 ---
+        // ---- 予約投稿リストの動的更新 ----
         const sortSelect = document.getElementById('sort-by');
         const postsTableBody = document.querySelector('table tbody');
 
         async function fetchAndRenderPosts(sortBy) {
-            const url = `/api/posts?sort_by=${sortBy}`;
             try {
-                const response = await fetch(url);
-                if (!response.ok) {
-                    throw new Error(`API request failed with status ${response.status}`);
-                }
+                const response = await fetch(`/api/posts?sort_by=${sortBy}`);
+                if (!response.ok) throw new Error(`API request failed with status ${response.status}`);
                 const posts = await response.json();
                 
-                // テーブルをクリア
                 postsTableBody.innerHTML = '';
 
                 if (posts.length === 0) {
-                    postsTableBody.innerHTML = '<tr><td colspan="7">予約投稿はありません。</td></tr>';
+                    postsTableBody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 24px;">予約投稿はありません。</td></tr>';
                     return;
                 }
 
@@ -683,21 +748,23 @@
                     const scheduledAt = new Date(post.scheduled_at);
                     const isFailed = post.status === '失敗' && scheduledAt < now;
                     const row = document.createElement('tr');
-                    if (isFailed) {
-                        row.classList.add('warning');
-                    }
+                    if (isFailed) row.classList.add('warning');
 
                     const scheduledAtFormatted = `${scheduledAt.getFullYear()}-${String(scheduledAt.getMonth() + 1).padStart(2, '0')}-${String(scheduledAt.getDate()).padStart(2, '0')} ${String(scheduledAt.getHours()).padStart(2, '0')}:${String(scheduledAt.getMinutes()).padStart(2, '0')}`;
 
                     let buttonsHtml = `
-                        <button onclick="editPost('${post.id}')">編集</button>
-                        <button onclick="deletePost('${post.id}')">削除</button>
+                        <ion-button size="small" onclick="editPost('${post.id}')">
+                            <ion-icon slot="icon-only" name="pencil"></ion-icon>
+                        </ion-button>
+                        <ion-button size="small" color="danger" onclick="deletePost('${post.id}')">
+                            <ion-icon slot="icon-only" name="trash"></ion-icon>
+                        </ion-button>
                     `;
                     if (post.status === '失敗') {
-                        buttonsHtml += `<button onclick="reExecutePost('${post.id}')">再実行</button>`;
+                        buttonsHtml += `<ion-button size="small" color="warning" onclick="reExecutePost('${post.id}')"><ion-icon slot="icon-only" name="refresh"></ion-icon></ion-button>`;
                     }
                     if (post.status === '予約済み') {
-                        buttonsHtml += `<button onclick="sendNowPost('${post.id}')">即時送信</button>`;
+                        buttonsHtml += `<ion-button size="small" color="success" onclick="sendNowPost('${post.id}')"><ion-icon slot="icon-only" name="play"></ion-icon></ion-button>`;
                     }
 
                     row.innerHTML = `
@@ -713,7 +780,6 @@
                     postsTableBody.appendChild(row);
                 });
                 
-                // チェックボックス機能を再初期化
                 document.querySelectorAll('input.post-checkbox').forEach(checkbox => {
                     checkbox.addEventListener('change', updateBatchDeleteUI);
                 });
@@ -721,24 +787,24 @@
 
             } catch (error) {
                 console.error('Failed to fetch and render posts:', error);
-                // Optionally, display an error message in the UI
             }
         }
 
-        // ソート機能のイベントリスナー
         sortSelect.addEventListener('change', (e) => {
             const newSortBy = e.target.value;
             const url = new URL(window.location);
             url.searchParams.set('sort_by', newSortBy);
-            window.history.pushState({}, '', url); // URLを更新
+            window.history.pushState({}, '', url);
             fetchAndRenderPosts(newSortBy);
         });
 
-        // 定期的な自動更新
         setInterval(() => {
             const currentSortBy = sortSelect.value;
             fetchAndRenderPosts(currentSortBy);
-        }, 300000); // 5分 = 300,000ミリ秒
+        }, 300000);
+
+        // 初期化
+        updateBatchDeleteUI();
     </script>
 </body>
 </html>
