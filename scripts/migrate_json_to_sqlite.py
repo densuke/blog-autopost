@@ -14,8 +14,12 @@
 
 import json
 import argparse
+import sys
 from pathlib import Path
 from datetime import datetime
+
+# プロジェクトルートをPythonパスに追加
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.web.models import init_db, get_session, ScheduledPostDB
 from src.web.timezone_utils import ensure_local_timezone, now_local
