@@ -381,7 +381,7 @@
             }
         }
 
-        /* ==================== 右カラム（予約投稿一覧）==================== */
+        /* ==================== 右カラム（投稿履歴・予約一覧）==================== */
         /* モバイル・タブレット: 全幅 */
         .scheduled-posts-section {
             width: 100%;
@@ -412,7 +412,7 @@
             }
         }
 
-        /* 予約投稿一覧セクション（テーブルラッパー）*/
+        /* 投稿履歴・予約一覧セクション（テーブルラッパー）*/
         #scheduled-posts-section {
             order: 2;
             width: 100%;
@@ -600,10 +600,10 @@
             <!-- ステータスメッセージ -->
             <div id="status-messages" style="margin: 16px 0;"></div>
 
-            <!-- 予約投稿一覧セクション（右カラム） -->
+            <!-- 投稿履歴・予約一覧セクション（右カラム） -->
             <ion-card id="scheduled-posts-section">
                 <ion-card-header>
-                    <ion-card-title>予約投稿一覧</ion-card-title>
+                    <ion-card-title>投稿履歴・予約一覧</ion-card-title>
                 </ion-card-header>
                 <ion-card-content>
                     <!-- ソート -->
@@ -1176,11 +1176,25 @@
 
                 // フォームをクリア
                 clearPostForm();
+
+                // テーブルを自動更新（リアルタイム反映）
+                setTimeout(() => {
+                    console.log('🔄 テーブルを自動更新します');
+                    const currentSortBy = sortSelect.value;
+                    fetchAndRenderPosts(currentSortBy);
+                }, 500);
             })
             .catch(error => {
                 console.error('❌ 投稿履歴の保存に失敗しました:', error);
                 // エラーでもフォームはクリアする
                 clearPostForm();
+
+                // エラー時もテーブルを更新
+                setTimeout(() => {
+                    console.log('🔄 テーブルを更新（エラー後）');
+                    const currentSortBy = sortSelect.value;
+                    fetchAndRenderPosts(currentSortBy);
+                }, 500);
             });
         }
 
@@ -1428,13 +1442,25 @@
                         buttonsHtml += `<ion-button size="small" color="success" onclick="sendNowPost('${post.id}')"><ion-icon slot="icon-only" name="play"></ion-icon></ion-button>`;
                     }
 
+                    // ステータス表示を改善（投稿完了と予約の区別）
+                    let statusDisplay = post.status;
+                    if (post.status === '投稿完了') {
+                        statusDisplay = '✅ 投稿完了';
+                    } else if (post.status === '予約済み') {
+                        statusDisplay = '📅 予約済み';
+                    } else if (post.status === '失敗') {
+                        statusDisplay = '❌ 失敗';
+                    } else if (post.status === '実行済み') {
+                        statusDisplay = '✔️ 実行済み';
+                    }
+
                     row.innerHTML = `
                         <td><input type="checkbox" class="post-checkbox" value="${post.id}"></td>
                         <td>${post.id}</td>
                         <td>${scheduledAtFormatted}</td>
                         <td>${post.content.substring(0, 50)}...</td>
                         <td>${post.target_sns.join(', ')}</td>
-                        <td>${post.status}</td>
+                        <td>${statusDisplay}</td>
                         <td>${post.error_message || '-'}</td>
                         <td>${buttonsHtml}</td>
                     `;
