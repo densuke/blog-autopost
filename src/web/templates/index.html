@@ -32,12 +32,39 @@
             --ion-safe-area-right: env(safe-area-inset-right);
         }
         
+        /* ==================== レスポンシブデザイン設定 ==================== */
+        /* モバイルファースト: < 768px */
         ion-content {
-            --padding-top: 20px;
-            --padding-bottom: 20px;
-            --padding-start: 16px;
-            --padding-end: 16px;
+            display: flex;
+            flex-direction: column;
+            --padding-top: 16px;
+            --padding-bottom: 16px;
+            --padding-start: 12px;
+            --padding-end: 12px;
             min-height: 100vh;
+        }
+        
+        /* タブレット: 768px ≤ 幅 < 1024px */
+        @media (min-width: 768px) {
+            ion-content {
+                --padding-top: 20px;
+                --padding-bottom: 20px;
+                --padding-start: 16px;
+                --padding-end: 16px;
+            }
+        }
+        
+        /* デスクトップ: ≥ 1024px */
+        @media (min-width: 1024px) {
+            ion-content {
+                display: grid;
+                grid-template-columns: 1fr 1.2fr;
+                gap: 20px;
+                --padding-top: 24px;
+                --padding-bottom: 24px;
+                --padding-start: 20px;
+                --padding-end: 20px;
+            }
         }
         
         .warning-text {
@@ -128,6 +155,24 @@
             --padding-top: 8px;
             --padding-bottom: 8px;
         }
+
+        /* ==================== 入力フィールドのレスポンシブ対応 ==================== */
+        /* モバイル・タブレット: 全幅 */
+        ion-item, ion-input, ion-textarea {
+            width: 100%;
+        }
+
+        /* デスクトップ: 複数列対応（将来拡張用） */
+        @media (min-width: 1024px) {
+            .form-row {
+                display: flex;
+                gap: 12px;
+            }
+
+            .form-row ion-item {
+                flex: 1;
+            }
+        }
         
         ion-checkbox {
             margin-right: 12px;
@@ -141,9 +186,29 @@
             align-items: center;
         }
         
+        /* ==================== テーブルのレスポンシブ対応 ==================== */
+        /* モバイル: 横スクロール対応 */
         .table-wrapper {
             overflow-x: auto;
             margin-top: 16px;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        @media (max-width: 767px) {
+            .table-wrapper table {
+                min-width: 800px;
+            }
+        }
+
+        /* デスクトップ: 通常表示 */
+        @media (min-width: 1024px) {
+            .table-wrapper {
+                overflow-x: visible;
+            }
+
+            .table-wrapper table {
+                width: 100%;
+            }
         }
         
         ion-table {
@@ -299,6 +364,65 @@
         ion-toast.toast-leaving {
             animation: toastFadeOut 0.3s ease-in;
         }
+
+        /* ==================== 左カラム（新規投稿フォーム）==================== */
+        /* モバイル・タブレット: 全幅 */
+        #post-form {
+            width: 100%;
+            order: 1;
+        }
+
+        /* デスクトップ: 左側配置 */
+        @media (min-width: 1024px) {
+            #post-form {
+                overflow-y: auto;
+                max-height: calc(100vh - 140px);
+                padding-right: 20px;
+            }
+        }
+
+        /* ==================== 右カラム（予約投稿一覧）==================== */
+        /* モバイル・タブレット: 全幅 */
+        .scheduled-posts-section {
+            width: 100%;
+            order: 2;
+            margin-top: 20px;
+        }
+
+        /* デスクトップ: 右側配置・固定 */
+        @media (min-width: 1024px) {
+            .scheduled-posts-section {
+                margin-top: 0;
+                border-left: 1px solid var(--ion-color-light);
+                padding-left: 20px;
+                overflow-y: auto;
+                max-height: calc(100vh - 140px);
+            }
+        }
+
+        /* 新規投稿セクション（フォームラッパー）*/
+        #post-form-section {
+            order: 1;
+            width: 100%;
+        }
+
+        @media (min-width: 1024px) {
+            #post-form-section {
+                grid-column: 1;
+            }
+        }
+
+        /* 予約投稿一覧セクション（テーブルラッパー）*/
+        #scheduled-posts-section {
+            order: 2;
+            width: 100%;
+        }
+
+        @media (min-width: 1024px) {
+            #scheduled-posts-section {
+                grid-column: 2;
+            }
+        }
     </style>
 </head>
 <body>
@@ -310,8 +434,8 @@
         </ion-header>
 
         <ion-content class="ion-padding">
-            <!-- 新規投稿セクション -->
-            <ion-card>
+            <!-- 新規投稿セクション（左カラム） -->
+            <ion-card id="post-form-section">
                 <ion-card-header>
                     <ion-card-title>新規投稿</ion-card-title>
                 </ion-card-header>
@@ -400,8 +524,8 @@
             <!-- ステータスメッセージ -->
             <div id="status-messages" style="margin: 16px 0;"></div>
 
-            <!-- 予約投稿一覧セクション -->
-            <ion-card>
+            <!-- 予約投稿一覧セクション（右カラム） -->
+            <ion-card id="scheduled-posts-section">
                 <ion-card-header>
                     <ion-card-title>予約投稿一覧</ion-card-title>
                 </ion-card-header>
