@@ -57,6 +57,9 @@ class SchedulerService:
         self.post_executor = post_executor
         self.completed_post_retention_hours = completed_post_retention_hours if completed_post_retention_hours > 0 else 12.0
         
+        # データディレクトリを確保
+        os.makedirs(data_dir, exist_ok=True)
+        
         jobstores = {
             'default': SQLAlchemyJobStore(url=f'sqlite:///{data_dir}/jobs.sqlite')
         }
