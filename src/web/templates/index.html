@@ -57,9 +57,6 @@
         /* デスクトップ: ≥ 1024px */
         @media (min-width: 1024px) {
             ion-content {
-                display: grid;
-                grid-template-columns: 1fr 1.2fr;
-                gap: 20px;
                 --padding-top: 24px;
                 --padding-bottom: 24px;
                 --padding-start: 20px;
@@ -145,7 +142,170 @@
             margin-top: 4px;
             margin-bottom: 4px;
         }
-        
+
+        ion-item ion-label[position="stacked"] {
+            margin-bottom: 10px;
+        }
+
+        ion-item ion-datetime-button {
+            margin-top: 4px;
+            display: inline-flex;
+        }
+
+        .schedule-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-top: 12px;
+        }
+
+        .schedule-controls ion-item.schedule-item {
+            margin: 0;
+        }
+
+        .schedule-picker-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .schedule-picker-group ion-datetime-button,
+        .schedule-picker-group ion-input {
+            width: 100%;
+        }
+
+        .schedule-picker-group ion-input {
+            --padding-top: 10px;
+            --padding-bottom: 10px;
+        }
+
+        .schedule-actions ion-button {
+            align-self: stretch;
+        }
+
+        .schedule-controls-helper {
+            font-size: 12px;
+            color: var(--ion-color-medium);
+            margin-top: 4px;
+            display: block;
+            line-height: 1.5;
+        }
+
+        .schedule-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 4px;
+            justify-content: flex-start;
+        }
+
+        .schedule-actions ion-button {
+            --border-radius: 14px;
+            min-width: 120px;
+            flex: 1 1 150px;
+        }
+
+        .schedule-actions ion-button.schedule-reset {
+            min-width: 110px;
+            flex: 0 0 auto;
+            align-self: flex-start;
+        }
+
+        .schedule-actions ion-button.schedule-submit {
+            min-width: 160px;
+            flex: 1 1 180px;
+        }
+
+        .schedule-picker-group ion-datetime-button::part(native) {
+            border-radius: 14px;
+            border: 1px solid rgba(var(--ion-color-primary-rgb), 0.25);
+            background: rgba(var(--ion-color-primary-rgb), 0.08);
+            padding: 12px 18px;
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            transition: background 0.2s ease, border-color 0.2s ease;
+        }
+
+        .schedule-picker-group ion-datetime-button::part(text) {
+            display: inline-flex;
+            gap: 12px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            color: var(--ion-color-primary);
+        }
+
+        .schedule-picker-group ion-datetime-button::part(native):hover {
+            background: rgba(var(--ion-color-primary-rgb), 0.12);
+            border-color: rgba(var(--ion-color-primary-rgb), 0.35);
+        }
+
+        @media (min-width: 768px) {
+            .schedule-picker-group {
+                flex-direction: row;
+                align-items: center;
+            }
+
+        .schedule-picker-group ion-input {
+            max-width: 220px;
+        }
+
+        .edit-modal-form {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            height: 100%;
+        }
+
+        .edit-modal-form ion-item {
+            margin: 0;
+        }
+
+        #edit-target-sns {
+            max-height: 240px;
+            overflow-y: auto;
+            padding-right: 6px;
+            border-radius: 12px;
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            background: rgba(255, 255, 255, 0.6);
+        }
+
+        #edit-target-sns::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        #edit-target-sns::-webkit-scrollbar-thumb {
+            background: rgba(15, 23, 42, 0.2);
+            border-radius: 999px;
+        }
+
+        #edit-target-sns .edit-sns-item {
+            --padding-start: 4px;
+            --inner-padding-end: 8px;
+        }
+
+        #editModal ion-content {
+            --padding-start: 16px;
+            --padding-end: 16px;
+        }
+        }
+
+        @media (min-width: 1024px) {
+            .schedule-controls {
+                flex-direction: row;
+                align-items: flex-end;
+                gap: 16px;
+            }
+
+            .schedule-controls ion-item.schedule-item {
+                flex: 1 1 auto;
+            }
+
+            .schedule-actions {
+                align-items: flex-end;
+            }
+        }
+
         ion-textarea {
             --padding-top: 8px;
             --padding-bottom: 8px;
@@ -238,7 +398,19 @@
             --height: auto;
             --max-height: 80vh;
         }
-        
+        #datetime-modal::part(content) {
+            border-radius: 22px;
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(26px);
+            -webkit-backdrop-filter: blur(26px);
+            box-shadow: 0 28px 60px rgba(15, 23, 42, 0.32);
+            padding: 12px 12px 20px;
+        }
+
+        #datetime-modal::part(backdrop) {
+            background: rgba(15, 23, 42, 0.45);
+        }
+
         ion-datetime {
             --background: var(--ion-background-color);
         }
@@ -253,6 +425,57 @@
             font-weight: 700;
             font-size: 120%;
             color: var(--ion-color-primary);
+        }
+
+        #datetime-modal ion-datetime {
+            --background: transparent;
+            --wheel-font-size: 18px;
+            --wheel-width: 110px;
+            --wheel-highlight-border-radius: 16px;
+            --wheel-highlight-height: 54px;
+            --wheel-highlight-background: rgba(var(--ion-color-primary-rgb), 0.18);
+            --wheel-fade-background: linear-gradient(
+                to bottom,
+                rgba(255, 255, 255, 0) 0%,
+                rgba(255, 255, 255, 0.92) 45%,
+                rgba(255, 255, 255, 0.92) 55%,
+                rgba(255, 255, 255, 0) 100%
+            );
+            border-radius: 18px;
+            padding: 24px 12px 8px;
+        }
+
+        #datetime-modal ion-datetime::part(wheel-item) {
+            color: rgba(15, 23, 42, 0.35);
+            font-weight: 500;
+            transition: color 0.2s ease, transform 0.2s ease;
+        }
+
+        #datetime-modal ion-datetime::part(wheel-item active) {
+            color: var(--ion-color-primary);
+            font-weight: 700;
+            font-size: 22px;
+            transform: scale(1.05);
+        }
+
+        #datetime-modal ion-datetime::part(columns) {
+            gap: 16px;
+        }
+
+        #datetime-modal ion-datetime::part(buttons) {
+            border-top: 1px solid rgba(15, 23, 42, 0.08);
+            margin-top: 12px;
+            padding: 12px 8px 4px;
+        }
+
+        #datetime-modal ion-datetime::part(picker-button) {
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            color: var(--ion-color-primary);
+        }
+
+        #datetime-modal ion-datetime::part(picker-button cancel) {
+            color: rgba(15, 23, 42, 0.5);
         }
         
         /* 一括削除ボタンのスタイル強化 */
@@ -328,6 +551,8 @@
             --max-width: 500px;
             font-size: 16px;
             font-weight: 500;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
         }
 
         ion-toast::part(message) {
@@ -365,62 +590,68 @@
             animation: toastFadeOut 0.3s ease-in;
         }
 
-        /* ==================== 左カラム（新規投稿フォーム）==================== */
-        /* モバイル・タブレット: 全幅 */
-        #post-form {
+        /* ==================== レイアウトコンテナ ==================== */
+        .layout-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
             width: 100%;
-            order: 1;
+            flex: 1;
+            min-height: 0;
         }
 
-        /* デスクトップ: 左側配置 */
+        .layout-column {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            width: 100%;
+        }
+
+        .column-scroll {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            padding-bottom: 20px;
+        }
+
+        .status-area {
+            margin-top: 12px;
+        }
+
         @media (min-width: 1024px) {
-            #post-form {
-                overflow-y: auto;
-                max-height: calc(100vh - 140px);
-                padding-right: 20px;
+            .layout-container {
+                flex-direction: row;
+                align-items: flex-start;
+                gap: 24px;
             }
-        }
 
-        /* ==================== 右カラム（投稿履歴・予約一覧）==================== */
-        /* モバイル・タブレット: 全幅 */
-        .scheduled-posts-section {
-            width: 100%;
-            order: 2;
-            margin-top: 20px;
-        }
+            .layout-column {
+                flex: 1 1 0;
+                min-height: 0;
+            }
 
-        /* デスクトップ: 右側配置・固定 */
-        @media (min-width: 1024px) {
-            .scheduled-posts-section {
-                margin-top: 0;
+            .layout-column--history {
+                flex: 1.1 1 0;
+            }
+
+            .column-scroll {
+                min-height: 0;
+            }
+
+            .layout-column--form .column-scroll {
+                padding-right: 12px;
+                overflow-y: visible;
+            }
+
+            .layout-column--history .column-scroll {
+                padding-left: 12px;
                 border-left: 1px solid var(--ion-color-light);
-                padding-left: 20px;
-                overflow-y: auto;
                 max-height: calc(100vh - 140px);
+                overflow-y: auto;
             }
-        }
 
-        /* 新規投稿セクション（フォームラッパー）*/
-        #post-form-section {
-            order: 1;
-            width: 100%;
-        }
-
-        @media (min-width: 1024px) {
-            #post-form-section {
-                grid-column: 1;
-            }
-        }
-
-        /* 投稿履歴・予約一覧セクション（テーブルラッパー）*/
-        #scheduled-posts-section {
-            order: 2;
-            width: 100%;
-        }
-
-        @media (min-width: 1024px) {
-            #scheduled-posts-section {
-                grid-column: 2;
+            .status-area {
+                margin-top: 16px;
             }
         }
 
@@ -510,8 +741,10 @@
         </ion-header>
 
         <ion-content class="ion-padding">
-            <!-- 新規投稿セクション（左カラム） -->
-            <ion-card id="post-form-section">
+            <div class="layout-container">
+                <div class="layout-column layout-column--form">
+                    <div class="column-scroll">
+                        <ion-card id="post-form-card">
                 <ion-card-header>
                     <ion-card-title>新規投稿</ion-card-title>
                 </ion-card-header>
@@ -573,35 +806,57 @@
                         <ion-divider style="margin: 20px 0;"></ion-divider>
 
                         <!-- 予約投稿 -->
-                        <ion-item>
-                            <ion-label position="stacked">予約日時 (JST: UTC+9)</ion-label>
-                            <ion-datetime-button datetime="schedule_time"></ion-datetime-button>
-                            <ion-modal id="datetime-modal" keepContentsMounted="true">
-                                <ion-datetime 
-                                    id="schedule_time" 
-                                    name="schedule_time"
-                                    presentation="date-time"
-                                    show-default-buttons="true"
-                                    prefer-wheel="false">
-                                </ion-datetime>
-                            </ion-modal>
-                            <div slot="helper" style="font-size: 12px; color: var(--ion-color-medium); margin-top: 4px;">
-                                日本時間で入力してください
+                        <div class="schedule-controls">
+                            <ion-item class="schedule-item" lines="none">
+                                <ion-label position="stacked">予約日時 (JST: UTC+9)</ion-label>
+                                <div class="schedule-picker-group">
+                                    <ion-datetime-button datetime="schedule_time"></ion-datetime-button>
+                                    <ion-modal id="datetime-modal" keepContentsMounted="true">
+                                        <ion-datetime 
+                                            id="schedule_time" 
+                                            name="schedule_time"
+                                            presentation="date-time"
+                                            show-default-buttons="true"
+                                            prefer-wheel="true">
+                                        </ion-datetime>
+                                    </ion-modal>
+                                    <ion-input
+                                        id="schedule-manual-input"
+                                        type="datetime-local"
+                                        inputmode="numeric"
+                                        step="60"
+                                        autocomplete="off"
+                                        fill="outline"
+                                        placeholder="YYYY-MM-DDTHH:mm">
+                                    </ion-input>
+                                </div>
+                                <ion-note slot="helper" class="schedule-controls-helper">
+                                    日本時間で入力してください。直接入力やカーソルキーで細かく調整できます。
+                                </ion-note>
+                            </ion-item>
+                            <div class="schedule-actions">
+                                <ion-button id="schedule-reset-btn" type="button" fill="clear" color="medium" class="schedule-reset">
+                                    <ion-icon slot="start" name="refresh"></ion-icon>
+                                    リセット
+                                </ion-button>
+                                <ion-button id="schedule-btn" type="button" fill="outline" class="schedule-submit">
+                                    <ion-icon slot="start" name="calendar"></ion-icon>
+                                    予約投稿
+                                </ion-button>
                             </div>
-                        </ion-item>
-                        <ion-button id="schedule-btn" type="button" expand="block" fill="outline">
-                            <ion-icon slot="start" name="calendar"></ion-icon>
-                            予約投稿
-                        </ion-button>
+                        </div>
                     </form>
                 </ion-card-content>
             </ion-card>
+                    </div>
 
-            <!-- ステータスメッセージ -->
-            <div id="status-messages" style="margin: 16px 0;"></div>
-
+                    <!-- ステータスメッセージ -->
+                    <div id="status-messages" class="status-area"></div>
+                </div>
+                <div class="layout-column layout-column--history">
+                    <div class="column-scroll">
             <!-- 投稿履歴・予約一覧セクション（右カラム） -->
-            <ion-card id="scheduled-posts-section">
+            <ion-card id="scheduled-posts-card">
                 <ion-card-header>
                     <ion-card-title>投稿履歴・予約一覧</ion-card-title>
                 </ion-card-header>
@@ -690,6 +945,9 @@
                     </div>
                 </ion-card-content>
             </ion-card>
+                    </div>
+                </div>
+            </div>
         </ion-content>
 
         <!-- 編集モーダル -->
@@ -706,29 +964,55 @@
                 </ion-toolbar>
             </ion-header>
             <ion-content>
-                <form id="edit-form">
+                <form id="edit-form" class="edit-modal-form">
                     <input type="hidden" id="edit-post-id" name="post_id">
                     
-                    <ion-item>
-                        <ion-label position="stacked">投稿日時 (JST: UTC+9)</ion-label>
-                        <ion-datetime-button datetime="edit-scheduled-at"></ion-datetime-button>
-                        <ion-modal keepContentsMounted="true">
-                            <ion-datetime id="edit-scheduled-at" name="scheduled_at"></ion-datetime>
-                        </ion-modal>
-                        <div slot="helper" style="font-size: 12px; color: var(--ion-color-medium); margin-top: 4px;">
-                            日本時間で入力してください
+                    <div class="schedule-controls">
+                        <ion-item class="schedule-item" lines="none">
+                            <ion-label position="stacked">投稿日時 (JST: UTC+9)</ion-label>
+                            <div class="schedule-picker-group">
+                                <ion-datetime-button datetime="edit-scheduled-at"></ion-datetime-button>
+                                <ion-modal keepContentsMounted="true">
+                                    <ion-datetime id="edit-scheduled-at" name="scheduled_at" presentation="date-time" show-default-buttons="true" prefer-wheel="true"></ion-datetime>
+                                </ion-modal>
+                                <ion-input
+                                    id="edit-schedule-manual-input"
+                                    type="datetime-local"
+                                    inputmode="numeric"
+                                    step="60"
+                                    autocomplete="off"
+                                    fill="outline"
+                                    placeholder="YYYY-MM-DDTHH:mm">
+                                </ion-input>
+                            </div>
+                            <ion-note slot="helper" class="schedule-controls-helper">
+                                日本時間で入力してください。直接入力やカーソルキーで細かく調整できます。
+                            </ion-note>
+                        </ion-item>
+                        <div class="schedule-actions">
+                            <ion-button id="edit-schedule-reset-btn" type="button" fill="clear" color="medium" class="schedule-reset">
+                                <ion-icon slot="start" name="refresh"></ion-icon>
+                                リセット
+                            </ion-button>
                         </div>
-                    </ion-item>
+                    </div>
 
                     <ion-item>
                         <ion-label position="stacked">投稿内容</ion-label>
                         <ion-textarea id="edit-content" name="content" rows="5" placeholder="投稿内容を入力..."></ion-textarea>
                     </ion-item>
 
-                    <ion-item>
+                    <ion-item lines="none">
                         <ion-label>対象SNS</ion-label>
                     </ion-item>
-                    <ion-list id="edit-target-sns"></ion-list>
+                    <ion-list id="edit-target-sns">
+                        {% for account in sns_accounts %}
+                        <ion-item lines="none" class="edit-sns-item">
+                            <ion-checkbox slot="start" id="edit-sns-{{ account.name }}" name="target_sns" value="{{ account.name }}"></ion-checkbox>
+                            <ion-label for="edit-sns-{{ account.name }}">{{ account.name }} ({{ account.type }})</ion-label>
+                        </ion-item>
+                        {% endfor %}
+                    </ion-list>
                 </form>
             </ion-content>
         </ion-modal>
@@ -835,6 +1119,96 @@
             
             return `${year}-${month}-${day}T${hours}:${minutes}`;
         }
+
+        /**
+         * 手動入力フィールド向けの正規化
+         */
+        function normalizeManualDatetimeValue(value) {
+            if (!value) return '';
+            const stringValue = `${value}`.trim();
+            if (!stringValue) return '';
+            return stringValue.replace(' ', 'T').slice(0, 16);
+        }
+
+        /**
+         * 手動入力値が正しいフォーマットか判定
+         */
+        function isValidManualDatetimeValue(value) {
+            return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value);
+        }
+
+        /**
+         * 手動入力欄を指定の日時文字列で更新
+         */
+        function updateManualScheduleInput(manualInputId, sourceValue) {
+            const manualInput = document.getElementById(manualInputId);
+            if (!manualInput) return;
+
+            const normalized = normalizeManualDatetimeValue(sourceValue || manualInput.value || '');
+            if (!normalized) {
+                manualInput.value = '';
+                manualInput.setAttribute('value', '');
+                return;
+            }
+
+            if (!isValidManualDatetimeValue(normalized)) {
+                manualInput.value = normalized;
+                manualInput.setAttribute('value', normalized);
+                return;
+            }
+
+            const parsed = parseJSTDatetime(normalized);
+            const formatted = formatJSTDatetime(parsed);
+            manualInput.value = formatted;
+            manualInput.setAttribute('value', formatted);
+        }
+
+        /**
+         * 手動入力された値からion-datetimeへ反映
+         */
+        function setScheduleDatetimeFromManual(manualInputId, datetimeId, value) {
+            const normalized = normalizeManualDatetimeValue(value);
+            if (!isValidManualDatetimeValue(normalized)) {
+                return;
+            }
+            const scheduleTimeElement = document.getElementById(datetimeId);
+            if (!scheduleTimeElement) return;
+            scheduleTimeElement.value = normalized;
+            updateManualScheduleInput(manualInputId, normalized);
+        }
+
+        /**
+         * 指定されたdatetime/入力欄に日時を設定
+         */
+        function setScheduleValue(datetimeId, manualInputId, isoString) {
+            const scheduleTimeElement = document.getElementById(datetimeId);
+            if (scheduleTimeElement) {
+                scheduleTimeElement.value = isoString;
+            }
+            updateManualScheduleInput(manualInputId, isoString);
+        }
+
+        /**
+         * デフォルトの予約日時（現在+5分）を取得
+         */
+        function computeDefaultScheduleISO() {
+            const nowJST = getNowInJST();
+            nowJST.setMinutes(nowJST.getMinutes() + 5);
+            return formatJSTDatetime(nowJST);
+        }
+
+        /**
+         * 新規投稿フォームの予約日時を初期値に戻す
+         */
+        function resetScheduleToDefault(showMessage = true) {
+            const defaultValue = computeDefaultScheduleISO();
+            setScheduleValue('schedule_time', 'schedule-manual-input', defaultValue);
+            if (showMessage) {
+                showToast('予約日時を初期値に戻しました', 'success', 2000);
+            }
+        }
+
+        let editScheduleOriginalValue = null;
 
         // Ionic が読み込まれるまで待機
         if (window.customElements) {
@@ -1079,23 +1453,69 @@
             submitPost('/api/post');
         });
 
-        // 初期値をJST現在時刻+5分に設定
-        function initializeScheduleTime() {
-            const nowJST = getNowInJST();
-            nowJST.setMinutes(nowJST.getMinutes() + 5);
-            const defaultValue = formatJSTDatetime(nowJST);
-            
-            const scheduleTimeElement = document.getElementById('schedule_time');
-            if (scheduleTimeElement) {
-                scheduleTimeElement.value = defaultValue;
-                console.log('📅 初期化: 予約日時を', defaultValue, '(JST)に設定しました');
-            }
-        }
-        
         // Ionic コンポーネント初期化後に実行
         customElements.whenDefined('ion-datetime').then(() => {
-            initializeScheduleTime();
+            resetScheduleToDefault(false);
+            const scheduleTimeElement = document.getElementById('schedule_time');
+            if (scheduleTimeElement) {
+                updateManualScheduleInput('schedule-manual-input', scheduleTimeElement.value);
+                scheduleTimeElement.addEventListener('ionChange', (event) => {
+                    const newValue = event.detail && event.detail.value ? event.detail.value : scheduleTimeElement.value;
+                    updateManualScheduleInput('schedule-manual-input', newValue);
+                });
+            }
+
+            const editScheduledAtElement = document.getElementById('edit-scheduled-at');
+            if (editScheduledAtElement) {
+                editScheduledAtElement.addEventListener('ionChange', (event) => {
+                    const newValue = event.detail && event.detail.value ? event.detail.value : editScheduledAtElement.value;
+                    updateManualScheduleInput('edit-schedule-manual-input', newValue);
+                });
+            }
         });
+
+        const scheduleManualInput = document.getElementById('schedule-manual-input');
+        if (scheduleManualInput) {
+            const handleManualSchedule = (event) => {
+                const manualValue = event.detail && event.detail.value !== undefined
+                    ? event.detail.value
+                    : event.target.value;
+                setScheduleDatetimeFromManual('schedule-manual-input', 'schedule_time', manualValue);
+            };
+            scheduleManualInput.addEventListener('ionInput', handleManualSchedule);
+            scheduleManualInput.addEventListener('ionChange', handleManualSchedule);
+            scheduleManualInput.addEventListener('change', handleManualSchedule);
+        }
+
+        const scheduleResetBtn = document.getElementById('schedule-reset-btn');
+        if (scheduleResetBtn) {
+            scheduleResetBtn.addEventListener('click', () => resetScheduleToDefault());
+        }
+
+        const editScheduleManualInput = document.getElementById('edit-schedule-manual-input');
+        if (editScheduleManualInput) {
+            const handleEditManualSchedule = (event) => {
+                const manualValue = event.detail && event.detail.value !== undefined
+                    ? event.detail.value
+                    : event.target.value;
+                setScheduleDatetimeFromManual('edit-schedule-manual-input', 'edit-scheduled-at', manualValue);
+            };
+            editScheduleManualInput.addEventListener('ionInput', handleEditManualSchedule);
+            editScheduleManualInput.addEventListener('ionChange', handleEditManualSchedule);
+            editScheduleManualInput.addEventListener('change', handleEditManualSchedule);
+        }
+
+        const editScheduleResetBtn = document.getElementById('edit-schedule-reset-btn');
+        if (editScheduleResetBtn) {
+            editScheduleResetBtn.addEventListener('click', () => {
+                if (editScheduleOriginalValue) {
+                    setScheduleValue('edit-scheduled-at', 'edit-schedule-manual-input', editScheduleOriginalValue);
+                    showToast('予約日時を元の値に戻しました', 'success', 2000);
+                } else {
+                    showToast('元の予約日時が見つかりません。', 'warning', 2000);
+                }
+            });
+        }
         
         document.getElementById('schedule-btn').addEventListener('click', () => {
             const scheduleTime = document.getElementById('schedule_time').value;
@@ -1128,6 +1548,9 @@
 
             // 文字カウンター更新
             updateCounter();
+
+            // 予約日時をデフォルトに戻す
+            resetScheduleToDefault(false);
 
             console.log('🧹 フォームをクリアしました');
             showToast('フォームをリセットしました', 'success', 2000);
@@ -1277,6 +1700,7 @@
 
         // ---- 予約投稿操作 ----
         function editPost(postId) {
+            editScheduleOriginalValue = null;
             fetch(`/api/scheduled-posts/${postId}`)
                 .then(response => {
                     if (!response.ok) throw new Error('投稿データの取得に失敗しました');
@@ -1284,35 +1708,41 @@
                 })
                 .then(post => {
                     document.getElementById('edit-post-id').value = post.id;
-                    
-                    // サーバーから返されたISO文字列をJSTで解釈
+
                     const scheduledAtDate = new Date(post.scheduled_at);
                     const formattedValue = formatJSTDatetime(scheduledAtDate);
-                    document.getElementById('edit-scheduled-at').value = formattedValue;
+                    setScheduleValue('edit-scheduled-at', 'edit-schedule-manual-input', formattedValue);
+                    editScheduleOriginalValue = formattedValue;
                     console.log('📅 編集フォーム: 予約日時を', formattedValue, '(JST)で復元しました');
-                    
+
                     document.getElementById('edit-content').value = post.content;
-                    
+
                     const snsContainer = document.getElementById('edit-target-sns');
-                    snsContainer.innerHTML = '';
-                    const allSnsAccounts = {{ sns_accounts | tojson }};
-                    allSnsAccounts.forEach(account => {
-                        const item = document.createElement('ion-item');
-                        const checkbox = document.createElement('ion-checkbox');
-                        checkbox.id = `edit-sns-${account.name}`;
-                        checkbox.name = 'target_sns';
-                        checkbox.value = account.name;
-                        checkbox.checked = post.target_sns.includes(account.name);
-                        
-                        const label = document.createElement('ion-label');
-                        label.textContent = ` ${account.name} (${account.type})`;
-                        label.htmlFor = `edit-sns-${account.name}`;
-                        
-                        item.appendChild(checkbox);
-                        item.appendChild(label);
-                        snsContainer.appendChild(item);
+                    const checkboxes = Array.from(snsContainer.querySelectorAll('ion-checkbox'));
+                    console.log('🔁 編集モーダルSNSロード', { total: checkboxes.length, selected: post.target_sns });
+
+                    checkboxes.forEach(checkbox => {
+                        const shouldCheck = post.target_sns.includes(String(checkbox.value));
+                        checkbox.checked = shouldCheck;
+                        if (shouldCheck) {
+                            checkbox.setAttribute('checked', 'true');
+                        } else {
+                            checkbox.removeAttribute('checked');
+                        }
+                        const onReady = checkbox.componentOnReady?.();
+                        if (onReady && typeof onReady.then === 'function') {
+                            onReady.then(el => {
+                                el.checked = shouldCheck;
+                                if (shouldCheck) {
+                                    el.setAttribute('checked', 'true');
+                                } else {
+                                    el.removeAttribute('checked');
+                                }
+                            }).catch(() => {});
+                        }
                     });
-                    
+                    console.log('✅ 編集モーダルSNS描画', { rendered: checkboxes.length });
+
                     document.getElementById('editModal').present();
                 })
                 .catch(error => showToast(`投稿データの取得中にエラーが発生しました: ${error}`, 'danger'));
@@ -1337,8 +1767,10 @@
             console.log('📅 予約投稿編集: 入力', editScheduledAtInput, '(JST) →', isoString, '(ISO)に変換しました');
             formData.append('content', document.getElementById('edit-content').value);
             
-            document.querySelectorAll('#edit-target-sns ion-checkbox:checked').forEach(checkbox => {
-                formData.append('target_sns', checkbox.value);
+            Array.from(document.querySelectorAll('#edit-target-sns ion-checkbox')).forEach(checkbox => {
+                if (checkbox.checked) {
+                    formData.append('target_sns', checkbox.value);
+                }
             });
             
             fetch(`/api/scheduled-posts/${postId}`, { method: 'PUT', body: formData })
