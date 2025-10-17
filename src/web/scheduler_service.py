@@ -1,5 +1,5 @@
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+from apscheduler.jobstores.memory import MemoryJobStore
 from datetime import timedelta
 import os
 import logging
@@ -60,8 +60,9 @@ class SchedulerService:
         # データディレクトリを確保
         os.makedirs(data_dir, exist_ok=True)
         
+        # メモリストアを使用（シリアライズ不可能な関数対応）
         jobstores = {
-            'default': SQLAlchemyJobStore(url=f'sqlite:///{data_dir}/jobs.sqlite')
+            'default': MemoryJobStore()
         }
         self.scheduler = BackgroundScheduler(jobstores=jobstores)
 
@@ -71,6 +72,15 @@ class SchedulerService:
         """
         if not self.scheduler.running:
             self.scheduler.start()
+            # ジョブストアの代わりに、メモリストアを使用するか、
+            # ジョブを追加する前に既存のジョブをクリア
+            try:
+                existing_job = self.scheduler.get_job('monitor_scheduled_posts')
+                if existing_job:
+                    self.scheduler.remove_job('monitor_scheduled_posts')
+            except:
+                pass
+            
             self.scheduler.add_job(
                 _monitor_scheduled_posts_job, 
                 'interval', 
