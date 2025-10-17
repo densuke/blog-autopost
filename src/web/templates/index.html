@@ -1568,7 +1568,9 @@
             endX: 0,
             endY: 0,
             originalImage: null,
-            history: [] // Undo用の履歴
+            history: [], // Undo用の履歴
+            currentFile: null, // 現在編集中のファイル参照
+            currentFileIndex: -1 // uploadedFiles配列内のインデックス
         };
 
         /**
@@ -1770,6 +1772,7 @@
          */
         async function applyImageCrop() {
             const canvas = document.getElementById('editCanvas');
+            const modal = document.getElementById('imageEditModal');
 
             // 選択範囲を確認
             const minX = Math.min(cropState.startX, cropState.endX);
@@ -1783,6 +1786,8 @@
                 showToast('範囲を選択してください', 'warning', 2000);
                 return;
             }
+
+            console.log('✂️ クロップを適用開始:', { minX, minY, selWidth, selHeight });
 
             // 履歴に追加（Undo用）
             const beforeImage = new Image();
@@ -1801,26 +1806,83 @@
                 0, 0, selWidth, selHeight
             );
 
-            // クロップ後の画像をキャンバスに描画
-            cropState.originalImage = new Image();
-            cropState.originalImage.onload = () => {
-                canvas.width = croppedCanvas.width;
-                canvas.height = croppedCanvas.height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(cropState.originalImage, 0, 0);
+            // クロップ後の画像をDataURLに変換
+            const croppedDataUrl = croppedCanvas.toDataURL('image/png');
 
-                cropState.startX = 0;
-                cropState.startY = 0;
-                cropState.endX = 0;
-                cropState.endY = 0;
-                document.getElementById('cropCoords').textContent = 'クリック＆ドラッグで範囲を選択';
+            // DataURLをBlobに変換
+            fetch(croppedDataUrl)
+                .then(res => res.blob())
+                .then(blob => {
+                    console.log('💾 クロップ画像をBlob化:', blob.size, 'bytes');
 
-                // Undoボタンの状態を更新
-                updateUndoButtonState();
+                    // 元のファイルから新しいFileオブジェクトを作成
+                    const croppedFile = new File([blob], 'cropped-' + Date.now() + '.png', { type: 'image/png' });
 
-                showToast('クロップが適用されました', 'success', 2000);
-            };
-            cropState.originalImage.src = croppedCanvas.toDataURL();
+                    // uploadedFiles配列内の該当画像を置き換え
+                    if (cropState.currentFileIndex >= 0 && cropState.currentFileIndex < uploadedFiles.length) {
+                        uploadedFiles[cropState.currentFileIndex] = croppedFile;
+                        console.log('📦 uploadedFilesを更新:', cropState.currentFileIndex, croppedFile.name);
+                    } else if (uploadedFiles.length > 0) {
+                        // フォールバック: インデックスが不正な場合は最後を置き換え
+                        const lastIndex = uploadedFiles.length - 1;
+                        uploadedFiles[lastIndex] = croppedFile;
+                        console.log('📦 uploadedFilesを更新（フォールバック）:', lastIndex, croppedFile.name);
+                    }
+
+                    // キャンバスにクロップ後の画像を描画
+                    const img = new Image();
+                    img.onload = () => {
+                        canvas.width = croppedCanvas.width;
+                        canvas.height = croppedCanvas.height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+
+                        cropState.originalImage = img;
+                        cropState.startX = 0;
+                        cropState.startY = 0;
+                        cropState.endX = 0;
+                        cropState.endY = 0;
+                        document.getElementById('cropCoords').textContent = 'クリック＆ドラッグで範囲を選択';
+
+                        // Undoボタンの状態を更新
+                        updateUndoButtonState();
+
+                        showToast('✅ クロップが適用されました', 'success', 2000);
+                        console.log('✅ クロップ完了、プレビューを更新してモーダルを閉じます');
+
+                        // プレビューを更新
+                        updatePreviewForCroppedImage(cropState.currentFileIndex, croppedDataUrl);
+
+                        // モーダルを自動で閉じる
+                        setTimeout(() => {
+                            modal.dismiss();
+                        }, 500);
+                    };
+                    img.src = croppedDataUrl;
+                })
+                .catch(err => {
+                    console.error('❌ Blob変換エラー:', err);
+                    showToast('クロップ処理でエラーが発生しました', 'danger', 3000);
+                });
+        }
+
+        /**
+         * クロップ後のプレビューを更新
+         */
+        function updatePreviewForCroppedImage(fileIndex, croppedDataUrl) {
+            const previewArea = document.getElementById('preview-area');
+            if (!previewArea) return;
+
+            // 既存のプレビューを削除
+            const containers = previewArea.querySelectorAll('.preview-image-container');
+            if (fileIndex >= 0 && fileIndex < containers.length) {
+                const container = containers[fileIndex];
+                const img = container.querySelector('img');
+                if (img) {
+                    img.src = croppedDataUrl;
+                    console.log('🖼️ プレビュー画像を更新:', fileIndex);
+                }
+            }
         }
 
         /**
@@ -1832,6 +1894,11 @@
             const modal = document.getElementById('imageEditModal');
             const canvas = document.getElementById('editCanvas');
             const ctx = canvas.getContext('2d');
+
+            // 現在編集中のファイルを追跡
+            cropState.currentFile = file;
+            cropState.currentFileIndex = uploadedFiles.indexOf(file);
+            console.log('📍 ファイル情報を保存:', { name: file.name, index: cropState.currentFileIndex });
 
             // 画像を読み込み
             const img = new Image();
