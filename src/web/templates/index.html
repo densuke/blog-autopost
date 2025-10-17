@@ -1829,9 +1829,13 @@
                         console.log('📦 uploadedFilesを更新（フォールバック）:', lastIndex, croppedFile.name);
                     }
 
+                    console.log('📸 クロップ画像をキャンバスに表示します');
+
                     // キャンバスにクロップ後の画像を描画
                     const img = new Image();
                     img.onload = () => {
+                        console.log('📸 クロップ後の画像を読み込みました');
+
                         canvas.width = croppedCanvas.width;
                         canvas.height = croppedCanvas.height;
                         const ctx = canvas.getContext('2d');
@@ -1847,16 +1851,22 @@
                         // Undoボタンの状態を更新
                         updateUndoButtonState();
 
-                        showToast('✅ クロップが適用されました', 'success', 2000);
                         console.log('✅ クロップ完了、プレビューを更新してモーダルを閉じます');
+                        console.log('📍 ファイルインデックス:', cropState.currentFileIndex);
 
-                        // プレビューを更新
+                        // プレビューを更新（重要：ここで更新する）
                         updatePreviewForCroppedImage(cropState.currentFileIndex, croppedDataUrl);
+
+                        showToast('✅ クロップが適用されました', 'success', 2000);
 
                         // モーダルを自動で閉じる
                         setTimeout(() => {
+                            console.log('🚪 モーダルを閉じます');
                             modal.dismiss();
                         }, 500);
+                    };
+                    img.onerror = () => {
+                        console.error('❌ クロップ画像の読み込みエラー');
                     };
                     img.src = croppedDataUrl;
                 })
@@ -1873,15 +1883,26 @@
             const previewArea = document.getElementById('preview-area');
             if (!previewArea) return;
 
-            // 既存のプレビューを削除
+            // 既存のプレビューコンテナを取得
             const containers = previewArea.querySelectorAll('.preview-image-container');
             if (fileIndex >= 0 && fileIndex < containers.length) {
                 const container = containers[fileIndex];
                 const img = container.querySelector('img');
                 if (img) {
+                    // 新しいDataURLを設定
                     img.src = croppedDataUrl;
-                    console.log('🖼️ プレビュー画像を更新:', fileIndex);
+                    console.log('🖼️ プレビュー画像のsrcを更新:', fileIndex);
+
+                    // 画像読み込み完了を待機
+                    img.onload = () => {
+                        console.log('✅ プレビュー画像が読み込まれました');
+                    };
+                    img.onerror = () => {
+                        console.error('❌ プレビュー画像の読み込みエラー');
+                    };
                 }
+            } else {
+                console.warn('⚠️ プレビューコンテナが見つかりません:', { fileIndex, totalContainers: containers.length });
             }
         }
 
