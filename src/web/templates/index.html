@@ -697,16 +697,23 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 12px 0;
+        }
+
+        .sns-note {
+            margin: 0;
+            padding: 0;
+            min-width: auto;
+            flex-shrink: 0;
         }
 
         .sns-status-indicator {
             display: flex;
             align-items: center;
+            justify-content: center;
             gap: 6px;
-            font-size: 16px;
+            font-size: 18px;
             min-width: 40px;
-            justify-content: flex-end;
+            min-height: 40px;
             white-space: nowrap;
         }
 
@@ -900,7 +907,7 @@
                         </ion-item>
                                                 <ion-list>
                             {% for account in sns_accounts %}
-                            <ion-item button="true" class="sns-item">
+                                                        <ion-item button="true" class="sns-item">
                                 <ion-checkbox 
                                     slot="start"
                                     id="sns_{{ account.name }}" 
@@ -908,8 +915,10 @@
                                     value="{{ account.name }}"
                                     data-limit="{% if account.type == 'x' %}280{% elif account.type == 'bluesky' %}300{% elif account.type == 'mastodon' %}500{% elif account.type == 'misskey' %}3000{% else %}9999{% endif %}">
                                 </ion-checkbox>
-                                <ion-label>{{ account.name }} ({{ account.type }})</ion-label>
-                                <div slot="end" class="sns-status-indicator" id="status_{{ account.name }}"></div>
+                                <ion-label class="ion-text-wrap">{{ account.name }} ({{ account.type }})</ion-label>
+                                <ion-note slot="end" class="sns-note">
+                                    <div class="sns-status-indicator" id="status_{{ account.name }}"></div>
+                                </ion-note>
                             </ion-item>
                             {% endfor %}
                         </ion-list>
