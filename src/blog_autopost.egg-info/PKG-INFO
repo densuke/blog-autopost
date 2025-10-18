@@ -20,6 +20,7 @@ Requires-Dist: jinja2
 Requires-Dist: apscheduler
 Requires-Dist: itsdangerous
 Requires-Dist: sqlalchemy
+Requires-Dist: starlette-csrf>=3.0.0
 
 # Blog AutoPost CLI
 

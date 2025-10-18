@@ -25,6 +25,7 @@ src/web/scheduled_post_model.py
 src/web/scheduled_post_store.py
 src/web/scheduled_post_store_sqlite.py
 src/web/scheduler_service.py
+src/web/ticket_manager.py
 src/web/timezone_utils.py
 tests/test_announcement.py
 tests/test_article_manager.py
@@ -33,6 +34,7 @@ tests/test_auth_service.py
 tests/test_bluesky_plugin.py
 tests/test_bluesky_plugin_advanced.py
 tests/test_core_posting_logic.py
+tests/test_dao.py
 tests/test_direct_post.py
 tests/test_image_resizer.py
 tests/test_main.py
@@ -46,11 +48,13 @@ tests/test_multiple_accounts.py
 tests/test_plugins.py
 tests/test_post_executor.py
 tests/test_posting_service.py
+tests/test_posting_service_advanced.py
 tests/test_scheduled_post_api.py
 tests/test_scheduled_post_model.py
 tests/test_scheduled_post_store.py
 tests/test_scheduler_service.py
 tests/test_threads_plugin.py
+tests/test_ticket_manager.py
 tests/test_tumblr_plugin.py
 tests/test_url_shortener.py
 tests/test_web_app.py

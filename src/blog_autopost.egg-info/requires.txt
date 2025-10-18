@@ -14,3 +14,4 @@ jinja2
 apscheduler
 itsdangerous
 sqlalchemy
+starlette-csrf>=3.0.0
