@@ -1928,6 +1928,7 @@
                 let completedCount = 0;
                 let successCount = 0;
                 let pollingIntervals = {}; // 各SNSのポーリングinterval ID
+                let pollCounts = {}; // 各SNSのポーリング回数（アニメーション用）
                 let snsResults = {}; // 各SNSの結果を保存
 
                 // Step 1: チケット取得
@@ -1954,6 +1955,8 @@
 
                     // Step 2: 各SNSごとにポーリング開始
                     selectedSns.forEach(sns => {
+                        pollCounts[sns] = 0; // ポーリング回数を初期化
+
                         const pollStatus = () => {
                             fetch(`/api/post_status/${ticketId}/${sns}`)
                             .then(response => {
@@ -1967,6 +1970,15 @@
                                 if (!statusData) return;
 
                                 const indicator = document.getElementById(`status_${sns}`);
+
+                                // 状態が "processing" の場合：砂時計をひっくり返すアニメーション
+                                if (statusData.status === 'processing') {
+                                    if (indicator && indicator.classList.contains('loading')) {
+                                        indicator.innerHTML = pollCounts[sns] % 2 === 0 ? '⏳' : '⌛';
+                                    }
+                                    pollCounts[sns]++;
+                                    return;
+                                }
 
                                 // 状態が "processing" でない場合は完了
                                 if (statusData.status !== 'processing') {
