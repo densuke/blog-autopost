@@ -1,18 +1,18 @@
-from typing import Dict, Any, Optional
-from src.web.scheduled_post_model import ScheduledPost
-from src.web.scheduled_post_store import ScheduledPostStore
-from src.web.core_posting_logic import CorePostingLogic
-from src.config_manager import ConfigManager
-from src.web.timezone_utils import now_local
 import logging
+from typing import Optional
+
+from src.config_manager import ConfigManager
+from src.web.core_posting_logic import CorePostingLogic
+from src.web.scheduled_post_store import ScheduledPostStore
+from src.web.timezone_utils import now_local
 
 # ロガーの設定
 logger = logging.getLogger(__name__)
 
 class PostExecutor:
     def __init__(
-        self, 
-        scheduled_post_store: ScheduledPostStore, 
+        self,
+        scheduled_post_store: ScheduledPostStore,
         config_manager: ConfigManager,
         core_posting_logic: Optional[CorePostingLogic] = None
     ):
@@ -62,6 +62,6 @@ class PostExecutor:
             logger.error(f"Post {post_id} failed: {error_details}")
             if debug:
                 print(f"Post {post_id} failed: {error_details}")
-        
+
         self.scheduled_post_store.update_post(post_id, updates)
         return result['success']

@@ -1,30 +1,34 @@
-from fastapi import FastAPI, Request, Depends, Form, HTTPException, status, File, UploadFile
-from fastapi.responses import RedirectResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
-from starlette.middleware.sessions import SessionMiddleware
-from typing import List, Optional
+import logging
+import os
 import shutil
 import tempfile
-import os
-from pathlib import Path
 from datetime import datetime, timedelta
-import logging
+from pathlib import Path
+from typing import List, Optional
+
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 
 from ..config_manager import ConfigManager
-from .auth_service import AuthService
-from ..media_validator import MediaValidator
 from ..image_resizer import ImageResizer
 from ..text_optimizer import TextOptimizer
-from .posting_service import PostingService
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
-
-from .scheduled_post_store import ScheduledPostStore
-from .scheduled_post_store_sqlite import ScheduledPostStoreSQLite
-from .scheduled_post_model import ScheduledPost
+from .auth_service import AuthService
 from .post_executor import PostExecutor
+from .posting_service import PostingService
+from .scheduled_post_model import ScheduledPost
+from .scheduled_post_store_sqlite import ScheduledPostStoreSQLite
 from .scheduler_service import SchedulerService
-
 from .timezone_utils import ensure_local_timezone, now_local
 
 # ログの設定
@@ -73,8 +77,8 @@ def shutdown_event():
 image_resizer = ImageResizer()
 text_optimizer = TextOptimizer(config_manager.config)
 posting_service = PostingService(
-    config_manager=config_manager, 
-    image_resizer=image_resizer, 
+    config_manager=config_manager,
+    image_resizer=image_resizer,
     text_optimizer=text_optimizer
 )
 
@@ -195,14 +199,14 @@ def create_scheduled_post(
         post_media_dir = os.path.join(DATA_DIR, "scheduled_media", str(uuid.uuid4()))
         os.makedirs(post_media_dir, exist_ok=True)
         os.chmod(post_media_dir, 0o700)
-        
+
         for file in media_files:
             safe_filename = os.path.basename(file.filename)
             path = os.path.join(post_media_dir, safe_filename)
-            
+
             with open(path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
-            
+
             os.chmod(path, 0o600)
             media_paths.append(path)
 
@@ -233,7 +237,7 @@ def update_scheduled_post(
     existing_post = scheduled_post_store.get_post_by_id(post_id)
     if not existing_post:
         raise HTTPException(status_code=404, detail="Scheduled post not found")
-    
+
     if existing_post.status in ["実行済み", "失敗"]:
         raise HTTPException(status_code=409, detail="Cannot update an already executed or failed post")
 
@@ -258,7 +262,7 @@ def delete_scheduled_post(post_id: str, user: str = Depends(get_current_user)):
     existing_post = scheduled_post_store.get_post_by_id(post_id)
     if not existing_post:
         raise HTTPException(status_code=404, detail="Scheduled post not found")
-    
+
     if existing_post.status == "実行済み":
         raise HTTPException(status_code=409, detail="Cannot delete an already executed post")
 
@@ -283,13 +287,13 @@ def batch_delete_scheduled_posts(
     """
     if not post_ids:
         raise HTTPException(status_code=400, detail="No post IDs provided")
-    
+
     logger.info(f"User {user} requesting batch delete for {len(post_ids)} posts")
-    
+
     deleted_count = scheduled_post_store.batch_delete_posts(post_ids)
-    
+
     logger.info(f"User {user} batch deleted {deleted_count} posts")
-    
+
     return {"deleted_count": deleted_count}
 
 @app.post("/api/scheduled-posts/{post_id}/re-execute", response_model=ScheduledPost)
@@ -297,7 +301,7 @@ def re_execute_scheduled_post(post_id: str, user: str = Depends(get_current_user
     existing_post = scheduled_post_store.get_post_by_id(post_id)
     if not existing_post:
         raise HTTPException(status_code=404, detail="Scheduled post not found")
-    
+
     if existing_post.status == "実行済み":
         raise HTTPException(status_code=409, detail="Cannot re-execute an already successful post")
 
@@ -309,7 +313,7 @@ def re_execute_scheduled_post(post_id: str, user: str = Depends(get_current_user
     updated_post = scheduled_post_store.update_post(post_id, updates)
     if not updated_post:
         raise HTTPException(status_code=404, detail="Scheduled post not found for re-execution")
-    
+
     return updated_post
 
 @app.post("/api/scheduled-posts/{post_id}/send-now", response_model=ScheduledPost)
@@ -318,23 +322,23 @@ def send_scheduled_post_now(post_id: str, user: str = Depends(get_current_user))
     if not existing_post:
         logger.warning(f"User {user} attempted to send non-existent post {post_id}")
         raise HTTPException(status_code=404, detail="Scheduled post not found")
-    
+
     if existing_post.status == "実行済み":
         logger.warning(f"User {user} attempted to send already executed post {post_id}")
         raise HTTPException(status_code=409, detail="Cannot send an already executed post immediately")
 
     logger.info(f"User {user} requested immediate sending of post {post_id}")
     success = post_executor.execute_post(post_id, debug=True)
-    
+
     updated_post = scheduled_post_store.get_post_by_id(post_id)
     if not updated_post:
         raise HTTPException(status_code=404, detail="Scheduled post not found after immediate sending")
-    
+
     if success:
         logger.info(f"Post {post_id} sent immediately successfully by user {user}")
     else:
         logger.error(f"Post {post_id} failed to send immediately for user {user}")
-    
+
     return updated_post
 
 @app.post("/api/schedule")
@@ -381,7 +385,7 @@ def api_schedule(
             id=job_id,
             misfire_grace_time=600
         )
-        
+
         return JSONResponse(content={"message": "Post scheduled successfully", "job_id": job_id})
 
     except Exception as e:

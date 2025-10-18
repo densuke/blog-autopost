@@ -3,6 +3,7 @@
 
 from ..config_manager import ConfigManager
 
+
 class AuthService:
     def __init__(self, config_manager: ConfigManager):
         self.config_manager = config_manager
@@ -12,7 +13,7 @@ class AuthService:
         credentials = self.config_manager.get_web_auth_credentials()
         if not credentials:
             return False
-        
+
         correct_username = credentials.get('username')
         correct_password = credentials.get('password')
 

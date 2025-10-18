@@ -4,26 +4,24 @@
 既存コードとの互換性を保証しながら SQLite の利点を活用。
 """
 
-from pathlib import Path
-from typing import List, Dict, Optional
 from datetime import datetime
+from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from src.web.models import (
-    get_db_engine,
-    init_db,
-    get_session,
-    ScheduledPostDB,
-)
 from src.web.dao import ScheduledPostDAO
+from src.web.models import (
+    ScheduledPostDB,
+    get_session,
+    init_db,
+)
 from src.web.scheduled_post_model import ScheduledPost
-from src.web.timezone_utils import ensure_local_timezone, now_local
+from src.web.timezone_utils import ensure_local_timezone
 
 
 class ScheduledPostStoreSQLite:
     """SQLite ベースの ScheduledPostStore 互換実装"""
-    
+
     def __init__(self, db_path: str = 'data/scheduled_posts.db'):
         """
         SQLite ベースのデータストアを初期化
@@ -34,13 +32,13 @@ class ScheduledPostStoreSQLite:
         self.db_path = db_path
         self.engine = init_db(db_path)
         self.dao = None
-    
+
     def _get_session(self) -> Session:
         """SQLAlchemy セッション取得ヘルパー"""
         return get_session(self.engine)
-    
+
     # ===== 既存 API との互換性メソッド =====
-    
+
     def get_all_posts(self, sort_by: Optional[str] = 'date_asc') -> List[ScheduledPost]:
         """
         すべての予約投稿を取得（既存互換性メソッド）
@@ -55,26 +53,26 @@ class ScheduledPostStoreSQLite:
         try:
             dao = ScheduledPostDAO(session)
             db_posts = dao.get_all_posts(sort_by=sort_by)
-            
+
             # SQLAlchemy モデルを ScheduledPost データクラスに変換
             posts = [self._db_to_scheduled_post(db_post) for db_post in db_posts]
             return posts
         finally:
             session.close()
-    
+
     def get_post_by_id(self, post_id: str) -> Optional[ScheduledPost]:
         """指定されたIDの予約投稿を取得"""
         session = self._get_session()
         try:
             dao = ScheduledPostDAO(session)
             db_post = dao.get_post_by_id(post_id)
-            
+
             if db_post:
                 return self._db_to_scheduled_post(db_post)
             return None
         finally:
             session.close()
-    
+
     def create_post(self, post: ScheduledPost) -> ScheduledPost:
         """新しい予約投稿を作成"""
         session = self._get_session()
@@ -82,35 +80,35 @@ class ScheduledPostStoreSQLite:
             db_post = self._scheduled_post_to_db(post, session)
             dao = ScheduledPostDAO(session)
             dao.create_post(db_post)
-            
+
             return self._db_to_scheduled_post(db_post)
         finally:
             session.close()
-    
+
     def update_post(self, post_id: str, updates: Dict) -> Optional[ScheduledPost]:
         """既存の予約投稿を更新"""
         session = self._get_session()
         try:
             dao = ScheduledPostDAO(session)
             db_post = dao.update_post(post_id, updates)
-            
+
             if db_post:
                 return self._db_to_scheduled_post(db_post)
             return None
         finally:
             session.close()
-    
+
     def delete_post(self, post_id: str) -> Optional[str]:
         """指定されたIDの予約投稿を削除"""
         session = self._get_session()
         try:
             dao = ScheduledPostDAO(session)
             success = dao.delete_post(post_id)
-            
+
             return post_id if success else None
         finally:
             session.close()
-    
+
     def delete_posts_older_than(
         self,
         cutoff: datetime,
@@ -124,9 +122,9 @@ class ScheduledPostStoreSQLite:
             return deleted_count
         finally:
             session.close()
-    
+
     # ===== 新規 SQLite 専用メソッド =====
-    
+
     def batch_delete_posts(self, post_ids: List[str]) -> int:
         """複数の予約投稿を一括削除（新機能）
         
@@ -143,7 +141,7 @@ class ScheduledPostStoreSQLite:
             return deleted_count
         finally:
             session.close()
-    
+
     def get_paginated_posts(
         self,
         page: int = 1,
@@ -174,14 +172,14 @@ class ScheduledPostStoreSQLite:
                 status_filter=status_filter,
                 sns_filter=sns_filter,
             )
-            
+
             posts = [self._db_to_scheduled_post(db_post) for db_post in db_posts]
             return posts, total_count
         finally:
             session.close()
-    
+
     # ===== 内部ヘルパーメソッド =====
-    
+
     def _db_to_scheduled_post(self, db_post: ScheduledPostDB) -> ScheduledPost:
         """SQLAlchemy モデルを ScheduledPost データクラスに変換"""
         return ScheduledPost(
@@ -195,7 +193,7 @@ class ScheduledPostStoreSQLite:
             created_at=ensure_local_timezone(db_post.created_at),
             updated_at=ensure_local_timezone(db_post.updated_at),
         )
-    
+
     def _scheduled_post_to_db(
         self,
         post: ScheduledPost,

@@ -1,11 +1,13 @@
-from tweepy import Client, API, OAuth1UserHandler
-from typing import List, Optional
+
+from tweepy import API, Client, OAuth1UserHandler
+
 from . import SocialMediaPlugin
+
 
 class X(SocialMediaPlugin):
     def __init__(self, consumer_key, consumer_secret, access_token, access_token_secret):
         self.sns_type = "x"
-        
+
         # v2 Client (投稿用)
         self.client = Client(
             consumer_key=consumer_key,
@@ -13,7 +15,7 @@ class X(SocialMediaPlugin):
             access_token=access_token,
             access_token_secret=access_token_secret
         )
-        
+
         # v1.1 API (メディアアップロード用)
         auth = OAuth1UserHandler(
             consumer_key=consumer_key,
@@ -44,9 +46,9 @@ class X(SocialMediaPlugin):
             # optimized_textのみの場合
             optimized_text = text_or_title
             media_files = link_or_media if link_or_media else None
-        
+
         media_ids = []
-        
+
         if media_files:
             for media_path in media_files:
                 try:
@@ -56,14 +58,14 @@ class X(SocialMediaPlugin):
                 except Exception as e:
                     print(f"メディアアップロードエラー: {media_path} - {e}")
                     # エラーが発生しても他のメディアの処理を続行
-        
+
         # v2 APIでツイートを投稿
         tweet_params = {"text": optimized_text}
         if media_ids:
             tweet_params["media_ids"] = media_ids
-        
+
         response = self.client.create_tweet(**tweet_params)
-        
+
         if media_ids:
             print(f"Xに投稿しました（メディア {len(media_ids)}件添付）: {response.data['id']}")
         else:

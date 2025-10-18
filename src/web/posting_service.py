@@ -1,18 +1,19 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import shutil # shutilモジュールをインポート
-import os # osモジュールをインポート
+import os  # osモジュールをインポート
+import shutil  # shutilモジュールをインポート
 
-from ..config_manager import ConfigManager
 from .. import plugin_loader
-from ..media_validator import validate_media_for_posting
+from ..config_manager import ConfigManager
 from ..image_resizer import ImageResizer
+from ..media_validator import validate_media_for_posting
 from ..text_optimizer import TextOptimizer
 
+
 class PostingService:
-    def __init__(self, config_manager: ConfigManager, 
-                 image_resizer: ImageResizer, 
+    def __init__(self, config_manager: ConfigManager,
+                 image_resizer: ImageResizer,
                  text_optimizer: TextOptimizer):
         self.config_manager = config_manager
         self.image_resizer = image_resizer
@@ -72,7 +73,7 @@ class PostingService:
                     else:
                         # リッチコンテンツ非対応の場合、URLをテキストに含める
                         text_to_optimize = f"{original_text} {url}".strip()
-                
+
                 optimized_text = self.text_optimizer.optimize_text(text_to_optimize, url, plugin.sns_type)
 
                 # 2.4. 投稿実行
@@ -81,7 +82,7 @@ class PostingService:
 
             except Exception as e:
                 results[name] = {'success': False, 'message': str(e)}
-        
+
         return results
 
     def post_now_and_cleanup(self, post_data: dict, debug: bool = False) -> dict:
@@ -90,7 +91,7 @@ class PostingService:
         APSchedulerから呼び出されることを想定しています。
         """
         results = self.post_now(post_data, debug)
-        
+
         job_media_dir = post_data.get('job_media_dir')
         if job_media_dir and os.path.exists(job_media_dir):
             try:

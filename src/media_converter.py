@@ -13,9 +13,8 @@
 import os
 import subprocess
 import tempfile
-import shutil
-from typing import Optional, Dict, Any
 from pathlib import Path
+from typing import Any, Dict, Optional
 
 
 class ConversionError(Exception):
@@ -25,7 +24,7 @@ class ConversionError(Exception):
 
 class MediaConverter:
     """メディアファイルの変換を行うクラス"""
-    
+
     def __init__(self, ffmpeg_path: str = "ffmpeg"):
         """
         MediaConverterを初期化します
@@ -35,7 +34,7 @@ class MediaConverter:
         """
         self.ffmpeg_path = ffmpeg_path
         self._check_ffmpeg_available()
-    
+
     def _check_ffmpeg_available(self):
         """ffmpegが利用可能かチェックします"""
         try:
@@ -54,7 +53,7 @@ class MediaConverter:
             )
         except subprocess.TimeoutExpired:
             raise ConversionError("ffmpegの応答がタイムアウトしました")
-    
+
     def convert_m4a_to_mp4(self, input_path: str, output_dir: Optional[str] = None) -> str:
         """
         m4a音声ファイルを無音黒画面付きMP4動画に変換します
@@ -72,13 +71,13 @@ class MediaConverter:
         """
         if not os.path.exists(input_path):
             raise FileNotFoundError(f"入力ファイルが見つかりません: {input_path}")
-        
+
         # 出力ファイルパスを決定
         input_stem = Path(input_path).stem
         if output_dir is None:
             output_dir = tempfile.gettempdir()
         output_path = os.path.join(output_dir, f"{input_stem}_converted.mp4")
-        
+
         # ffmpegコマンドを構築
         cmd = [
             self.ffmpeg_path,
@@ -91,7 +90,7 @@ class MediaConverter:
             "-y",                                # 上書き確認をスキップ
             output_path
         ]
-        
+
         try:
             # ffmpeg実行
             result = subprocess.run(
@@ -100,23 +99,23 @@ class MediaConverter:
                 text=True,
                 timeout=300  # 5分でタイムアウト
             )
-            
+
             if result.returncode != 0:
                 error_msg = f"ffmpeg変換エラー: {result.stderr}"
                 raise ConversionError(error_msg)
-            
+
             # 出力ファイルの存在確認
             if not os.path.exists(output_path):
                 raise ConversionError("変換は成功しましたが、出力ファイルが見つかりません")
-            
+
             return output_path
-            
+
         except subprocess.TimeoutExpired:
             raise ConversionError("ffmpeg変換がタイムアウトしました（5分以上）")
         except Exception as e:
             raise ConversionError(f"変換中に予期しないエラーが発生しました: {str(e)}")
-    
-    def convert_audio_to_mp4_with_image(self, input_path: str, image_path: str, 
+
+    def convert_audio_to_mp4_with_image(self, input_path: str, image_path: str,
                                        output_dir: Optional[str] = None) -> str:
         """
         音声ファイルと静止画を組み合わせてMP4動画を作成します
@@ -137,13 +136,13 @@ class MediaConverter:
             raise FileNotFoundError(f"音声ファイルが見つかりません: {input_path}")
         if not os.path.exists(image_path):
             raise FileNotFoundError(f"画像ファイルが見つかりません: {image_path}")
-        
+
         # 出力ファイルパスを決定
         input_stem = Path(input_path).stem
         if output_dir is None:
             output_dir = tempfile.gettempdir()
         output_path = os.path.join(output_dir, f"{input_stem}_with_image.mp4")
-        
+
         # ffmpegコマンドを構築
         cmd = [
             self.ffmpeg_path,
@@ -158,7 +157,7 @@ class MediaConverter:
             "-y",                                # 上書き確認をスキップ
             output_path
         ]
-        
+
         try:
             result = subprocess.run(
                 cmd,
@@ -166,21 +165,21 @@ class MediaConverter:
                 text=True,
                 timeout=300
             )
-            
+
             if result.returncode != 0:
                 error_msg = f"ffmpeg変換エラー: {result.stderr}"
                 raise ConversionError(error_msg)
-            
+
             if not os.path.exists(output_path):
                 raise ConversionError("変換は成功しましたが、出力ファイルが見つかりません")
-            
+
             return output_path
-            
+
         except subprocess.TimeoutExpired:
             raise ConversionError("ffmpeg変換がタイムアウトしました（5分以上）")
         except Exception as e:
             raise ConversionError(f"変換中に予期しないエラーが発生しました: {str(e)}")
-    
+
     def get_media_info(self, file_path: str) -> Dict[str, Any]:
         """
         メディアファイルの情報を取得します
@@ -197,13 +196,13 @@ class MediaConverter:
         """
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"ファイルが見つかりません: {file_path}")
-        
+
         cmd = [
             self.ffmpeg_path,
             "-i", file_path,
             "-f", "null", "-"
         ]
-        
+
         try:
             result = subprocess.run(
                 cmd,
@@ -211,10 +210,10 @@ class MediaConverter:
                 text=True,
                 timeout=30
             )
-            
+
             # ffmpegは情報をstderrに出力する
             output = result.stderr
-            
+
             info = {
                 'duration': self._extract_duration(output),
                 'video_codec': self._extract_video_codec(output),
@@ -222,38 +221,38 @@ class MediaConverter:
                 'resolution': self._extract_resolution(output),
                 'file_size': os.path.getsize(file_path)
             }
-            
+
             return info
-            
+
         except subprocess.TimeoutExpired:
             raise ConversionError("メディア情報の取得がタイムアウトしました")
         except Exception as e:
             raise ConversionError(f"メディア情報の取得中にエラーが発生しました: {str(e)}")
-    
+
     def _extract_duration(self, ffmpeg_output: str) -> Optional[str]:
         """ffmpeg出力から動画の長さを抽出します"""
         import re
         duration_match = re.search(r'Duration: (\d{2}:\d{2}:\d{2}\.\d{2})', ffmpeg_output)
         return duration_match.group(1) if duration_match else None
-    
+
     def _extract_video_codec(self, ffmpeg_output: str) -> Optional[str]:
         """ffmpeg出力から動画コーデックを抽出します"""
         import re
         video_match = re.search(r'Video: (\w+)', ffmpeg_output)
         return video_match.group(1) if video_match else None
-    
+
     def _extract_audio_codec(self, ffmpeg_output: str) -> Optional[str]:
         """ffmpeg出力から音声コーデックを抽出します"""
         import re
         audio_match = re.search(r'Audio: (\w+)', ffmpeg_output)
         return audio_match.group(1) if audio_match else None
-    
+
     def _extract_resolution(self, ffmpeg_output: str) -> Optional[str]:
         """ffmpeg出力から解像度を抽出します"""
         import re
         resolution_match = re.search(r'(\d{3,4}x\d{3,4})', ffmpeg_output)
         return resolution_match.group(1) if resolution_match else None
-    
+
     def cleanup_temp_files(self, file_paths: list):
         """一時ファイルをクリーンアップします"""
         for file_path in file_paths:

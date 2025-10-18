@@ -1,4 +1,5 @@
-from typing import List, Optional, Any
+from typing import Any, List, Optional
+
 
 class SocialMediaPlugin:
     def post(self, optimized_text: str, media_files: Optional[List[str]] = None, **kwargs: Any):
@@ -11,7 +12,7 @@ class SocialMediaPlugin:
             **kwargs: SNS固有の追加パラメータ（例：article_data）
         """
         raise NotImplementedError
-    
+
     def supports_rich_content(self) -> bool:
         """
         リッチコンテンツ（リンクカードなど）をサポートするかどうか
@@ -20,7 +21,7 @@ class SocialMediaPlugin:
             bool: サポートする場合はTrue
         """
         return False
-    
+
     def _debug_print(self, message: str, debug: bool = False) -> None:
         """
         デバッグ情報を出力します
