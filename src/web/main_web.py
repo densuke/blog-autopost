@@ -259,6 +259,8 @@ def delete_scheduled_post(post_id: str, user: str = Depends(get_current_user)):
     if not existing_post:
         raise HTTPException(status_code=404, detail="Scheduled post not found")
     
+    if existing_post.status == "実行済み":
+        raise HTTPException(status_code=409, detail="Cannot delete an already executed post")
 
     if not scheduled_post_store.delete_post(post_id):
         raise HTTPException(status_code=404, detail="Scheduled post not found for deletion")

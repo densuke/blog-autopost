@@ -94,6 +94,11 @@ uv run pytest -v
 ### エラーハンドリング
 各SNSプラグインでの投稿エラーは個別にキャッチされ、他のSNSへの投稿継続を保証します。
 
+## Active Specifications
+- `dark-mode-system-integration` - ダークモードの実装と切り替え機能(+システム連動)
+- `test-coverage-improvement` - テストコードを現在に合わせ直す、カバレッジを向上させる
+- `reserved-post-sns-selection-fix` - 予約投稿編集時のSNS選択バグ修正
+
 ## 注意事項
 
 - エントリーポイントの設定に問題があるため`uv run blog-autopost`は使用不可
