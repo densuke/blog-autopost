@@ -28,18 +28,14 @@
 
 ### `src/` - ソースコード
 
-アプリケーションのコアロジックが格納されています。
+CLIワークフローとWeb UIが共有する主要ロジックがまとまっています。
 
-- `__init__.py`: `src`をPythonパッケージとして認識させます。
-- `main.py`: CLIのエントリーポイント。引数を解析し、各機能へ処理を振り分けます。
-- `config_manager.py`: `config.yml`の読み込みと管理を担当します。
-- `article_manager.py`: RSS/Atomフィードの取得、新着記事の判定、処理済み記事の永続化を行います。
-- `plugin_loader.py`: `src/plugins`からSNS投稿プラグインを動的に読み込みます。
-- `media_validator.py`: 投稿前のメディアファイルが各SNSの要件を満たしているか検証します。
-- `media_converter.py`: `ffmpeg`を使用してメディア形式を変換します（例: m4a -> mp4）。
-- `image_resizer.py`: `Pillow`を使用して画像を各SNSの制限に合わせてリサイズします。
-- `text_optimizer.py`: URL短縮や文字数制限に応じたテキストの省略処理を行います。
-- `url_shortener.py`: `is.gd`などのサービスを利用してURLを短縮します。
+- `main.py`: CLIのエントリーポイント。フィード監視、直接投稿、メンテナンス系コマンドを引数に応じて実行します。
+- `article_manager.py`: RSS/Atomフィードの取得、新着記事の検出、処理済み記事の永続化を担当します。
+- `config_manager.py`: `config.yml`の読み込みと設定管理。SNS認証情報の環境変数上書きやWebサーバー／認証設定の提供も行います。
+- `plugin_loader.py`: `src/plugins`にあるSNS向けプラグインを動的に読み込み、CLIとWebの投稿処理で共有します。
+- `image_resizer.py` / `media_converter.py` / `media_validator.py`: SNSごとの制限に合わせたメディアの変換・リサイズ・バリデーションを担います。
+- `text_optimizer.py` / `url_shortener.py`: 文字数制限に応じたテキスト最適化とURL短縮処理を提供します。
 
 ### `src/plugins/` - SNSプラグイン
 
@@ -51,6 +47,24 @@
 - `threads.py`: Threadsへの投稿ロジック。
 - `mastodon.py`: Mastodonへの投稿ロジック。
 - `misskey.py`: Misskeyへの投稿ロジック。
+- `tumblr.py`: Tumblrへの投稿ロジック。
+
+### `src/web/` - Web UIと予約投稿サービス
+
+FastAPIベースのダッシュボードとバックグラウンドスケジューラを実装しています。
+
+- `main_web.py`: FastAPIアプリ本体。ログイン、テンプレート描画、予約投稿API、APSchedulerの起動をまとめています。
+- `runner.py`: `uvicorn`で`src.web.main_web:app`を起動するためのエントリーポイント。
+- `posting_service.py`: Web経由の即時投稿をハンドリングし、メディアのリサイズ／バリデーションを共有キャッシュで最適化します。
+- `core_posting_logic.py`: 既存CLIの投稿処理をクラス化したラッパー。Web UIやスケジューラからSNS投稿を再利用できるようにします。
+- `post_executor.py`: 予約投稿を取り出してSNSへ送信し、結果に応じてステータスやエラーメッセージを更新します。
+- `scheduler_service.py`: APSchedulerのバックグラウンドジョブを構成し、一定間隔で予約投稿を監視・実行します。
+- `scheduled_post_model.py`: 予約投稿のデータクラス。JSON/DBとの相互変換やタイムゾーン正規化を担います。
+- `scheduled_post_store.py`: JSONファイルを利用したストア実装（既存データとの互換用）。
+- `scheduled_post_store_sqlite.py`: SQLAlchemy/SQLiteベースのストア実装。DAO (`dao.py`) とORMモデル (`models.py`) を通じて永続化・フィルタリングを行います。
+- `auth_service.py`: 設定ファイルに定義された認証情報でログインを検証します。
+- `timezone_utils.py`: ローカルタイムゾーンの正規化ユーティリティ。
+- `templates/`: FastAPI用のJinja2テンプレート（`index.html`, `login.html`など）。
 
 ### `tests/` - テストコード
 
@@ -62,13 +76,15 @@
 
 ### `data/` - データファイル
 
-アプリケーションが実行時に生成・参照するデータが保存されます。現在は、処理済みの記事URLを記録するJSONファイルがここに作成されます。
+アプリケーションが実行時に生成・参照するデータが保存されます。処理済み記事を記録するJSON、予約投稿を保存する`scheduled_posts.db`（SQLite）、アップロードメディア用の`scheduled_media/`ディレクトリ、アプリケーションログなどがここに配置されます。
 
 ## 3. コード構成パターン
 
-- **設定駆動開発**: アプリケーションの挙動の多くは`config.yml`によって制御されます。新しい機能を追加する際は、まず設定ファイルでその機能をON/OFFできるように設計することが推奨されます。
+- **設定駆動開発**: アプリケーションの挙動の多くは`config.yml`によって制御されます。CLIだけでなくWebサーバーのホスト/ポートや認証情報もここに集約されています。
 - **プラグインアーキテクチャ**: SNSへの投稿機能は疎結合なプラグインとして実装されています。`SocialMediaPlugin`基底クラスを継承し、`post`メソッドを実装することで、コアロジックに手を加えることなく新しいSNSに対応できます。
-- **責任の分離**: 各モジュールは単一の責任を持つように設計されています（設定管理、記事管理、プラグイン管理など）。
+- **共有投稿パイプライン**: CLIとWeb UIは`core_posting_logic.py`および`posting_service.py`を通じて同じ投稿処理を利用し、単一のプラグイン群で両方のユースケースを賄います。
+- **責任の分離**: 設定管理、記事管理、投稿実行、Web/DBアクセスなどをモジュール単位で分離しています。DAO層（`dao.py`）とモデル（`models.py`）により永続化処理も分離されています。
+- **バックグラウンドスケジューリング**: APSchedulerを使った監視ジョブとSQLiteストレージを組み合わせて予約投稿を管理し、完了済み投稿のクリーンアップも自動化しています。
 
 ## 4. ファイル命名規則
 

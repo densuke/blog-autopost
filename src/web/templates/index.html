@@ -64,9 +64,41 @@
             }
         }
         
-        .warning-text {
+        .char-helper {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--ion-color-medium);
+            margin-top: 6px;
+        }
+
+        .char-helper span {
+            font-variant-numeric: tabular-nums;
+        }
+
+        .char-helper .char-current {
+            color: var(--ion-color-medium);
+            font-weight: 400;
+            transition: color 0.2s ease, font-weight 0.2s ease;
+        }
+
+        .char-helper .char-current.is-warn {
+            font-weight: 600;
+        }
+
+        .char-helper .char-current.is-danger {
+            font-weight: 700;
+        }
+
+        .char-helper .char-limit {
+            color: var(--ion-color-medium);
+            transition: color 0.2s ease;
+        }
+
+        .char-helper .char-limit.is-danger {
             color: var(--ion-color-danger);
-            font-weight: bold;
+            font-weight: 600;
         }
         
         .drop-zone {
@@ -754,10 +786,10 @@
                         <ion-item>
                             <ion-label position="stacked">投稿文</ion-label>
                             <ion-textarea id="text" name="text" rows="5" placeholder="投稿内容を入力..."></ion-textarea>
-                            <div slot="helper" style="font-size: 12px; margin-top: 8px;">
-                                <span id="char-counter">0</span> / <span id="char-limit">-</span>
-                            </div>
                         </ion-item>
+                        <div class="char-helper">
+                            文字数: <span id="char-counter" class="char-current">0</span> / 最小制限: <span id="char-limit" class="char-limit">-</span>
+                        </div>
 
                         <!-- URL -->
                         <ion-item>
@@ -1001,6 +1033,9 @@
                         <ion-label position="stacked">投稿内容</ion-label>
                         <ion-textarea id="edit-content" name="content" rows="5" placeholder="投稿内容を入力..."></ion-textarea>
                     </ion-item>
+                    <div class="char-helper">
+                        文字数: <span id="edit-char-counter" class="char-current">0</span> / 最小制限: <span id="edit-char-limit" class="char-limit">-</span>
+                    </div>
 
                     <ion-item lines="none">
                         <ion-label>対象SNS</ion-label>
@@ -1008,7 +1043,12 @@
                     <ion-list id="edit-target-sns">
                         {% for account in sns_accounts %}
                         <ion-item lines="none" class="edit-sns-item">
-                            <ion-checkbox slot="start" id="edit-sns-{{ account.name }}" name="target_sns" value="{{ account.name }}"></ion-checkbox>
+                            <ion-checkbox 
+                                slot="start" 
+                                id="edit-sns-{{ account.name }}" 
+                                name="target_sns" 
+                                value="{{ account.name }}"
+                                data-limit="{% if account.type == 'x' %}280{% elif account.type == 'bluesky' %}300{% elif account.type == 'mastodon' %}500{% elif account.type == 'misskey' %}3000{% else %}9999{% endif %}"></ion-checkbox>
                             <ion-label for="edit-sns-{{ account.name }}">{{ account.name }} ({{ account.type }})</ion-label>
                         </ion-item>
                         {% endfor %}
@@ -1328,66 +1368,164 @@
         });
 
         // ---- 文字数カウンター ----
+        function calculateSelectionLimit(selector) {
+            let minLimit = Infinity;
+            let hasSelection = false;
+
+            document.querySelectorAll(selector).forEach(checkbox => {
+                if (checkbox.checked) {
+                    hasSelection = true;
+                    const limit = parseInt(checkbox.dataset.limit, 10);
+                    if (!Number.isNaN(limit)) {
+                        minLimit = Math.min(minLimit, limit);
+                    }
+                }
+            });
+
+            return {
+                hasSelection,
+                minLimit: hasSelection ? minLimit : null,
+            };
+        }
+
+        function applyCharVisualState(counterEl, limitEl, hasSelection, ratio) {
+            if (!counterEl || !limitEl) return;
+            counterEl.classList.remove('is-warn', 'is-danger');
+            counterEl.style.removeProperty('color');
+            counterEl.style.fontWeight = '';
+            limitEl.classList.remove('is-danger');
+
+            if (!hasSelection || ratio === null || Number.isNaN(ratio)) {
+                return;
+            }
+
+            const clamped = Math.max(0, Math.min(ratio, 1.1));
+            const gradientRatio = Math.max(0, Math.min((clamped - 0.5) / 0.5, 1));
+            const startColor = [30, 30, 30];       // dark gray
+            const targetColor = [210, 43, 43];     // vivid red
+
+            const mixColorComponent = (start, end) => Math.round(start + (end - start) * gradientRatio);
+            const r = mixColorComponent(startColor[0], targetColor[0]);
+            const g = mixColorComponent(startColor[1], targetColor[1]);
+            const b = mixColorComponent(startColor[2], targetColor[2]);
+            counterEl.style.color = `rgb(${r}, ${g}, ${b})`;
+
+            if (clamped >= 1) {
+                counterEl.classList.add('is-danger');
+                counterEl.style.fontWeight = '700';
+                limitEl.classList.add('is-danger');
+            } else if (clamped >= 0.9) {
+                counterEl.classList.add('is-warn');
+                counterEl.style.fontWeight = '600';
+            } else if (clamped >= 0.75) {
+                counterEl.style.fontWeight = '500';
+            } else {
+                counterEl.style.fontWeight = '400';
+            }
+        }
+
         function updateCounter() {
             const textArea = document.getElementById('text');
             const charCounter = document.getElementById('char-counter');
             const charLimitDisplay = document.getElementById('char-limit');
-            
+
             if (!textArea || !charCounter || !charLimitDisplay) {
                 console.warn('文字数カウンター要素が見つかりません', { textArea, charCounter, charLimitDisplay });
                 return;
             }
-            
-            // ion-textarea の値を取得（value プロパティで取得可能）
+
             const currentLength = (textArea.value || '').length;
             charCounter.textContent = currentLength;
 
-            let minLimit = Infinity;
-            let atLeastOneChecked = false;
-            document.querySelectorAll('ion-checkbox[name="sns_targets"]').forEach(checkbox => {
-                if (checkbox.checked) {
-                    atLeastOneChecked = true;
-                    const limit = parseInt(checkbox.dataset.limit, 10);
-                    minLimit = Math.min(minLimit, limit);
-                }
-            });
+            const { hasSelection, minLimit } = calculateSelectionLimit('ion-checkbox[name="sns_targets"]');
+            const limitValid = hasSelection && minLimit !== null && Number.isFinite(minLimit) && minLimit > 0;
+            let ratio = null;
 
-            if (atLeastOneChecked) {
+            if (limitValid) {
                 charLimitDisplay.textContent = minLimit;
-                charCounter.classList.toggle('warning-text', currentLength > minLimit);
+                ratio = currentLength / minLimit;
             } else {
                 charLimitDisplay.textContent = '-';
-                charCounter.classList.remove('warning-text');
             }
+
+            applyCharVisualState(charCounter, charLimitDisplay, limitValid, ratio);
         }
 
-        // ion-textarea のイベントリスナー登録（DOMContentLoaded後に実行）
+        function updateEditCounter() {
+            const textArea = document.getElementById('edit-content');
+            const charCounter = document.getElementById('edit-char-counter');
+            const charLimitDisplay = document.getElementById('edit-char-limit');
+
+            if (!textArea || !charCounter || !charLimitDisplay) {
+                return;
+            }
+
+            const currentLength = (textArea.value || '').length;
+            charCounter.textContent = currentLength;
+
+            const { hasSelection, minLimit } = calculateSelectionLimit('#edit-target-sns ion-checkbox[name="target_sns"]');
+            const limitValid = hasSelection && minLimit !== null && Number.isFinite(minLimit) && minLimit > 0;
+            let ratio = null;
+
+            if (limitValid) {
+                charLimitDisplay.textContent = minLimit;
+                ratio = currentLength / minLimit;
+            } else {
+                charLimitDisplay.textContent = '-';
+            }
+
+            applyCharVisualState(charCounter, charLimitDisplay, limitValid, ratio);
+        }
+
+        function attachCheckboxListeners(selector, handler) {
+            document.querySelectorAll(selector).forEach(checkbox => {
+                checkbox.addEventListener('ionChange', handler);
+                checkbox.addEventListener('change', handler);
+            });
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             const textArea = document.getElementById('text');
             if (textArea) {
                 textArea.addEventListener('ionInput', updateCounter);
                 textArea.addEventListener('input', updateCounter);
             }
-        });
-        
-        // ion-checkbox のイベントリスナー（ionChange と change の両方）
-        document.querySelectorAll('ion-checkbox[name="sns_targets"]').forEach(checkbox => {
-            checkbox.addEventListener('ionChange', updateCounter);
-            checkbox.addEventListener('change', updateCounter);
-        });
-        
-        // ion-item クリックで checkbox をトグル
-        document.querySelectorAll('ion-list ion-item[button]').forEach(item => {
-            item.addEventListener('click', (e) => {
-                // クリックイベントがチェックボックス自体から来た場合はスキップ
-                if (e.target.tagName === 'ION-CHECKBOX') return;
-                
-                const checkbox = item.querySelector('ion-checkbox');
-                if (checkbox) {
-                    checkbox.checked = !checkbox.checked;
-                    updateCounter();
-                }
+
+            const editTextArea = document.getElementById('edit-content');
+            if (editTextArea) {
+                editTextArea.addEventListener('ionInput', updateEditCounter);
+                editTextArea.addEventListener('input', updateEditCounter);
+            }
+
+            attachCheckboxListeners('ion-checkbox[name="sns_targets"]', updateCounter);
+            attachCheckboxListeners('#edit-target-sns ion-checkbox[name="target_sns"]', updateEditCounter);
+
+            document.querySelectorAll('ion-list ion-item[button]').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    if (e.target.tagName === 'ION-CHECKBOX') return;
+
+                    const checkbox = item.querySelector('ion-checkbox');
+                    if (checkbox) {
+                        checkbox.checked = !checkbox.checked;
+                        updateCounter();
+                    }
+                });
             });
+
+            document.querySelectorAll('#edit-target-sns ion-item.edit-sns-item').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    if (e.target.tagName === 'ION-CHECKBOX') return;
+
+                    const checkbox = item.querySelector('ion-checkbox');
+                    if (checkbox) {
+                        checkbox.checked = !checkbox.checked;
+                        updateEditCounter();
+                    }
+                });
+            });
+
+            updateCounter();
+            updateEditCounter();
         });
 
         // ---- ファイルアップロード ----
@@ -1743,6 +1881,7 @@
                     });
                     console.log('✅ 編集モーダルSNS描画', { rendered: checkboxes.length });
 
+                    updateEditCounter();
                     document.getElementById('editModal').present();
                 })
                 .catch(error => showToast(`投稿データの取得中にエラーが発生しました: ${error}`, 'danger'));
