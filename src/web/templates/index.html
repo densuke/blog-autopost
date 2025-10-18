@@ -1649,6 +1649,7 @@
         let uploadedFiles = [];
         let pollingIntervals = {}; // グローバルポーリング管理
         let pollCounts = {}; // グローバルポーリングカウント
+        let currentTicketId = null; // 現在のチケットID（古いポーリング判定用）
 
         dropZone.addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
@@ -1978,6 +1979,7 @@
                     }
 
                     const ticketId = ticketData.ticket_id;
+                    currentTicketId = ticketId; // 現在のチケットIDを更新
                     console.log(`チケット取得: ${ticketId}`);
 
                     // Step 2: 各SNSごとにポーリング開始
@@ -1995,6 +1997,12 @@
                             })
                             .then(statusData => {
                                 if (!statusData) return;
+
+                                // 古いチケットのポーリングは無視
+                                if (currentTicketId !== ticketId) {
+                                    console.log(`古いポーリング無視 (${sns}): チケット${ticketId} → 現在${currentTicketId}`);
+                                    return;
+                                }
 
                                 const indicator = document.getElementById(`status_${sns}`);
 
