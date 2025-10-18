@@ -1911,6 +1911,8 @@
 
             // 即時投稿の場合：スピナー表示 + ポーリング方式
             if (!isScheduled) {
+                // チケットベースの即時投稿処理
+
                 // 各SNSのステータスインジケータを初期化（送信中状態に）
                 selectedSns.forEach(sns => {
                     const indicator = document.getElementById(`status_${sns}`);
@@ -1925,67 +1927,124 @@
                 const totalSns = selectedSns.length;
                 let completedCount = 0;
                 let successCount = 0;
+                let pollingIntervals = {}; // 各SNSのポーリングinterval ID
+                let snsResults = {}; // 各SNSの結果を保存
 
-                // テスト用: 低速回線シミュレート（500ms遅延）
-                setTimeout(() => {
-                    fetch(endpoint, { method: 'POST', body: formData })
-                    .then(response => {
-                        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                        return response.json();
-                    })
-                    .then(data => {
-                        statusMessages.innerHTML = '';
-                        if (data.error) {
-                            statusMessages.innerHTML = `<ion-text color="danger"><p>❌ エラー: ${data.error}</p></ion-text>`;
-                            selectedSns.forEach(sns => {
-                                const indicator = document.getElementById(`status_${sns}`);
-                                if (indicator) {
-                                    indicator.classList.remove('loading');
-                                    indicator.innerHTML = '❌';
-                                }
-                            });
-                            return;
-                        }
-
-                        // 即時投稿の結果を処理
-                        for (const [sns, result] of Object.entries(data)) {
-                            const indicator = document.getElementById(`status_${sns}`);
-                            if (indicator) {
-                                indicator.classList.remove('loading');
-                                indicator.innerHTML = result.success ? '✅' : '❌';
-                                indicator.style.color = result.success ? 'var(--ion-color-success)' : 'var(--ion-color-danger)';
-                            }
-                            if (result.success) {
-                                successCount++;
-                            }
-                            completedCount++;
-                        }
-
-                        // 簡潔なステータス表示
-                        if (successCount === totalSns) {
-                            statusMessages.innerHTML = '<ion-text color="success"><p>✅ 全て完了</p></ion-text>';
-                        } else if (successCount > 0) {
-                            statusMessages.innerHTML = `<ion-text color="warning"><p>⚠️ ${successCount}/${totalSns}送信完了</p></ion-text>`;
-                        } else {
-                            statusMessages.innerHTML = '<ion-text color="danger"><p>❌ 送信に失敗しました</p></ion-text>';
-                        }
-
-                        // 投稿履歴を記録
-                        if (successCount > 0) {
-                            savePostHistory(data);
-                        }
-                    })
-                    .catch(error => {
-                        statusMessages.innerHTML = `<ion-text color="danger"><p>❌ 送信中にエラーが発生しました: ${error}</p></ion-text>`;
+                // Step 1: チケット取得
+                fetch(endpoint, { method: 'POST', body: formData })
+                .then(response => {
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    return response.json();
+                })
+                .then(ticketData => {
+                    if (ticketData.error) {
+                        statusMessages.innerHTML = `<ion-text color="danger"><p>❌ エラー: ${ticketData.error}</p></ion-text>`;
                         selectedSns.forEach(sns => {
                             const indicator = document.getElementById(`status_${sns}`);
-                            if (indicator && indicator.classList.contains('loading')) {
+                            if (indicator) {
                                 indicator.classList.remove('loading');
                                 indicator.innerHTML = '❌';
                             }
                         });
+                        return;
+                    }
+
+                    const ticketId = ticketData.ticket_id;
+                    console.log(`チケット取得: ${ticketId}`);
+
+                    // Step 2: 各SNSごとにポーリング開始
+                    selectedSns.forEach(sns => {
+                        const pollStatus = () => {
+                            fetch(`/api/post_status/${ticketId}/${sns}`)
+                            .then(response => {
+                                if (!response.ok) {
+                                    console.error(`ポーリングエラー (${sns}): ${response.status}`);
+                                    return null;
+                                }
+                                return response.json();
+                            })
+                            .then(statusData => {
+                                if (!statusData) return;
+
+                                const indicator = document.getElementById(`status_${sns}`);
+
+                                // 状態が "processing" でない場合は完了
+                                if (statusData.status !== 'processing') {
+                                    // ポーリング停止
+                                    clearInterval(pollingIntervals[sns]);
+                                    delete pollingIntervals[sns];
+
+                                    // UI更新
+                                    if (indicator) {
+                                        indicator.classList.remove('loading');
+
+                                        if (statusData.status === 'success') {
+                                            indicator.innerHTML = '✅';
+                                            indicator.style.color = 'var(--ion-color-success)';
+                                            successCount++;
+                                        } else {
+                                            indicator.innerHTML = '❌';
+                                            indicator.style.color = 'var(--ion-color-danger)';
+                                        }
+                                    }
+
+                                    completedCount++;
+                                    snsResults[sns] = { success: statusData.status === 'success', message: statusData.message };
+
+                                    // 全SNS完了チェック
+                                    if (completedCount === totalSns) {
+                                        // 簡潔なステータス表示
+                                        if (successCount === totalSns) {
+                                            statusMessages.innerHTML = '<ion-text color="success"><p>✅ 全て完了</p></ion-text>';
+                                        } else if (successCount > 0) {
+                                            statusMessages.innerHTML = `<ion-text color="warning"><p>⚠️ ${successCount}/${totalSns}送信完了</p></ion-text>`;
+                                        } else {
+                                            statusMessages.innerHTML = '<ion-text color="danger"><p>❌ 送信に失敗しました</p></ion-text>';
+                                        }
+
+                                        // 投稿履歴を記録
+                                        if (successCount > 0) {
+                                            savePostHistory(snsResults);
+                                        }
+                                    }
+                                }
+                            })
+                            .catch(error => {
+                                console.error(`ポーリングエラー (${sns}):`, error);
+                            });
+                        };
+
+                        // 即座に1回実行 + 500msごとにポーリング
+                        pollStatus();
+                        pollingIntervals[sns] = setInterval(pollStatus, 500);
                     });
-                }, 500); // 500ms の遅延
+
+                    // 30秒後にタイムアウト（全ポーリング停止）
+                    setTimeout(() => {
+                        Object.keys(pollingIntervals).forEach(sns => {
+                            clearInterval(pollingIntervals[sns]);
+                            const indicator = document.getElementById(`status_${sns}`);
+                            if (indicator && indicator.classList.contains('loading')) {
+                                indicator.classList.remove('loading');
+                                indicator.innerHTML = '⏰';
+                                indicator.style.color = 'var(--ion-color-warning)';
+                            }
+                        });
+                        if (Object.keys(pollingIntervals).length > 0) {
+                            statusMessages.innerHTML = '<ion-text color="warning"><p>⏰ タイムアウトしました</p></ion-text>';
+                        }
+                    }, 30000);
+                })
+                .catch(error => {
+                    statusMessages.innerHTML = `<ion-text color="danger"><p>❌ 送信中にエラーが発生しました: ${error}</p></ion-text>`;
+                    selectedSns.forEach(sns => {
+                        const indicator = document.getElementById(`status_${sns}`);
+                        if (indicator && indicator.classList.contains('loading')) {
+                            indicator.classList.remove('loading');
+                            indicator.innerHTML = '❌';
+                        }
+                    });
+                });
 
                 return;
             }

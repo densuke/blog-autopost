@@ -2,6 +2,7 @@ import logging
 import os
 import shutil
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
@@ -29,6 +30,7 @@ from .posting_service import PostingService
 from .scheduled_post_model import ScheduledPost
 from .scheduled_post_store_sqlite import ScheduledPostStoreSQLite
 from .scheduler_service import SchedulerService
+from .ticket_manager import TicketManager
 from .timezone_utils import ensure_local_timezone, now_local
 
 # ログの設定
@@ -81,6 +83,10 @@ posting_service = PostingService(
     image_resizer=image_resizer,
     text_optimizer=text_optimizer
 )
+
+# チケット管理システムとスレッドプールのインスタンス化
+ticket_manager = TicketManager(ticket_lifetime_hours=24)
+executor = ThreadPoolExecutor(max_workers=5)
 
 # セッション管理ミドルウェアの追加
 secret_key = config_manager.get_secret_key()
@@ -150,9 +156,15 @@ def api_post(
     media_files: List[UploadFile] = File([]),
     user: str = Depends(get_current_user)
 ):
-    temp_dir = tempfile.mkdtemp()
+    """チケットベースの即時投稿API
+
+    複数SNSへの投稿をバックグラウンドで並列実行し、チケットIDを返す。
+    各SNSの投稿状態は /api/post_status/{ticket_id}/{sns} で取得可能。
+    """
+    # メディアファイル保存（TicketManagerが削除を管理）
     media_paths = []
-    try:
+    if media_files:
+        temp_dir = tempfile.mkdtemp()
         for file in media_files:
             if not file.filename:
                 continue
@@ -161,18 +173,81 @@ def api_post(
                 shutil.copyfileobj(file.file, buffer)
             media_paths.append(path)
 
-        post_data = {
-            'text': text,
-            'url': url,
-            'sns_targets': sns_targets,
-            'media_files': media_paths
-        }
+    # チケット発行
+    ticket_id = ticket_manager.create_ticket(sns_targets, media_paths)
+    logger.info(f"User {user} created ticket {ticket_id} for SNS targets: {sns_targets}")
 
-        result = posting_service.post_now(post_data)
-        return JSONResponse(content=result)
+    # post_dataの準備
+    post_data = {
+        'text': text,
+        'url': url,
+        'sns_targets': sns_targets,
+        'media_files': media_paths
+    }
 
-    finally:
-        shutil.rmtree(temp_dir)
+    # バックグラウンドで各SNSへ投稿
+    def post_to_sns_background(sns_name: str):
+        """個別SNSへの投稿（バックグラウンド実行）"""
+        try:
+            # 単一SNS向けのpost_dataを作成
+            single_sns_data = post_data.copy()
+            single_sns_data['sns_targets'] = [sns_name]
+
+            # 投稿実行
+            result = posting_service.post_now(single_sns_data, debug=False)
+
+            # 結果を取得
+            sns_result = result.get(sns_name, {'success': False, 'message': 'No result returned'})
+
+            if sns_result.get('success'):
+                ticket_manager.update_status(ticket_id, sns_name, 'success', sns_result.get('message'))
+            else:
+                ticket_manager.update_status(ticket_id, sns_name, 'failed', sns_result.get('message'))
+
+        except Exception as e:
+            logger.error(f"Error posting to {sns_name} for ticket {ticket_id}: {str(e)}")
+            ticket_manager.update_status(ticket_id, sns_name, 'error', str(e))
+
+    # スレッドプールで各SNSへ並列投稿
+    for sns_name in sns_targets:
+        executor.submit(post_to_sns_background, sns_name)
+
+    # チケットIDを即座に返す
+    return JSONResponse(content={
+        "ticket_id": ticket_id,
+        "status": "processing",
+        "message": "投稿処理を開始しました"
+    })
+
+@app.get("/api/post_status/{ticket_id}/{sns}")
+def get_post_status(
+    ticket_id: str,
+    sns: str,
+    user: str = Depends(get_current_user)
+):
+    """特定SNSの投稿状態を取得
+
+    Args:
+        ticket_id: チケットID
+        sns: SNS名（x, bluesky, mastodon, misskey）
+
+    Returns:
+        {'status': 'processing' | 'success' | 'failed' | 'error', 'message': str}
+    """
+    status_info = ticket_manager.get_status(ticket_id, sns)
+
+    if status_info is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Ticket {ticket_id} not found or expired for SNS {sns}"
+        )
+
+    return JSONResponse(content={
+        'sns': sns,
+        'status': status_info['status'],
+        'message': status_info.get('message'),
+        'updated_at': status_info['updated_at'].isoformat()
+    })
 
 @app.get("/api/posts", response_model=List[ScheduledPost])
 def get_api_posts(sort_by: Optional[str] = 'date_asc', user: str = Depends(get_current_user)):
