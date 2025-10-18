@@ -82,7 +82,6 @@ class ScheduledPostDB(Base):  # type: ignore
         if scheduled_at_tz is None:
             scheduled_at_tz = scheduled_at
         created_at_tz = ensure_local_timezone(created_at) or created_at
-        updated_at_tz = ensure_local_timezone(updated_at) or updated_at
 
         return cls(
             id=data.get('id', str(uuid.uuid4())),

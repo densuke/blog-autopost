@@ -116,13 +116,13 @@ def test_get_main_page_with_scheduled_posts(mock_scheduled_post_store, logged_in
 
 @patch('src.web.main_web.posting_service')
 def test_post_api_endpoint(mock_posting_service, logged_in_client):
-    mock_posting_service.post_now.return_value = {'x-main': {'success': True}}
-    response = logged_in_client.post("/api/post", data={'text': 't', 'sns_targets': 'x-main'}, files={'media_files': ('f.jpg', b'', 'image/jpeg')})
+    mock_posting_service.post_now.return_value = {'x': {'success': True}}
+    response = logged_in_client.post("/api/post", data={'text': 't', 'sns_targets': 'x'}, files={'media_files': ('f.jpg', b'', 'image/jpeg')})
     assert response.status_code == 200
 
 @patch('src.web.main_web.scheduler_service.scheduler.add_job')
 def test_schedule_api_endpoint(mock_add_job, logged_in_client):
-    response = logged_in_client.post("/api/schedule", data={'text':'t', 'sns_targets':['x-main'], 'schedule_time':'2025-01-01T00:00'})
+    response = logged_in_client.post("/api/schedule", data={'text':'t', 'sns_targets':['x'], 'schedule_time':'2025-01-01T00:00'})
     assert response.status_code == 200
     mock_add_job.assert_called_once()
 

@@ -1782,6 +1782,36 @@
         });
 
         /**
+         * HTML エスケープ関数（XSS対策）
+         * 
+         * @param {string} text エスケープ対象テキスト
+         * @returns {string} HTML エスケープ済みテキスト
+         */
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+
+        /**
+         * statusMessagesにXSS対策済みのエラーメッセージを設定
+         * 
+         * @param {string} message メッセージテキスト
+         * @param {string} color ion-text color（success, danger, warning, medium）
+         */
+        function setStatusMessage(message, color) {
+            const statusMessages = document.getElementById('status-messages');
+            if (statusMessages) {
+                statusMessages.innerHTML = `<ion-text color="${color}"><p>${escapeHtml(message)}</p></ion-text>`;
+            }
+        }
+
+        /**
          * フォームをリセット
          */
         function clearPostForm() {
@@ -1968,7 +1998,7 @@
                 })
                 .then(ticketData => {
                     if (ticketData.error) {
-                        statusMessages.innerHTML = `<ion-text color="danger"><p>❌ エラー: ${ticketData.error}</p></ion-text>`;
+                        setStatusMessage(`❌ エラー: ${ticketData.error}`, 'danger');
                         selectedSns.forEach(sns => {
                             const indicator = document.getElementById(`status_${sns}`);
                             if (indicator) {
@@ -2084,7 +2114,7 @@
                     }, 30000);
                 })
                 .catch(error => {
-                    statusMessages.innerHTML = `<ion-text color="danger"><p>❌ 送信中にエラーが発生しました: ${error}</p></ion-text>`;
+                    setStatusMessage(`❌ 送信中にエラーが発生しました: ${error}`, 'danger');
                     selectedSns.forEach(sns => {
                         const indicator = document.getElementById(`status_${sns}`);
                         if (indicator && indicator.classList.contains('loading')) {

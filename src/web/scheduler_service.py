@@ -79,7 +79,8 @@ class SchedulerService:
                 existing_job = self.scheduler.get_job('monitor_scheduled_posts')
                 if existing_job:
                     self.scheduler.remove_job('monitor_scheduled_posts')
-            except:
+            except Exception:  # noqa: BLE001
+                # ジョブが存在しない場合のエラーをキャッチ
                 pass
 
             self.scheduler.add_job(

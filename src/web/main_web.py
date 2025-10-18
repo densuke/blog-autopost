@@ -84,6 +84,9 @@ posting_service = PostingService(
     text_optimizer=text_optimizer
 )
 
+# 有効なSNS名の定義（バリデーション用）
+VALID_SNS_NAMES = {'x', 'bluesky', 'mastodon', 'misskey', 'threads', 'tumblr'}
+
 # チケット管理システムとスレッドプールのインスタンス化
 ticket_manager = TicketManager(ticket_lifetime_hours=24)
 executor = ThreadPoolExecutor(max_workers=5)
@@ -161,6 +164,21 @@ def api_post(
     複数SNSへの投稿をバックグラウンドで並列実行し、チケットIDを返す。
     各SNSの投稿状態は /api/post_status/{ticket_id}/{sns} で取得可能。
     """
+    # SNS名の検証
+    invalid_sns = [sns for sns in sns_targets if sns not in VALID_SNS_NAMES]
+    if invalid_sns:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"無効なSNS名: {', '.join(invalid_sns)}"}
+        )
+
+    # テキストが空でないかチェック
+    if not text or not text.strip():
+        return JSONResponse(
+            status_code=400,
+            content={"error": "投稿テキストは空にできません"}
+        )
+
     # メディアファイル保存（TicketManagerが削除を管理）
     media_paths = []
     if media_files:
@@ -168,7 +186,9 @@ def api_post(
         for file in media_files:
             if not file.filename:
                 continue
-            path = os.path.join(temp_dir, file.filename)
+            # Path Traversal対策: ファイル名をサニタイズ
+            safe_filename = os.path.basename(file.filename)
+            path = os.path.join(temp_dir, safe_filename)
             with open(path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
             media_paths.append(path)
@@ -229,11 +249,18 @@ def get_post_status(
 
     Args:
         ticket_id: チケットID
-        sns: SNS名（x, bluesky, mastodon, misskey）
+        sns: SNS名（x, bluesky, mastodon, misskey, threads, tumblr）
 
     Returns:
         {'status': 'processing' | 'success' | 'failed' | 'error', 'message': str}
     """
+    # SNS名の検証
+    if sns not in VALID_SNS_NAMES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"無効なSNS名: {sns}"
+        )
+
     status_info = ticket_manager.get_status(ticket_id, sns)
 
     if status_info is None:
@@ -447,7 +474,9 @@ def api_schedule(
         for file in media_files:
             if not file.filename:
                 continue
-            path = os.path.join(job_media_dir, file.filename)
+            # Path Traversal対策: ファイル名をサニタイズ
+            safe_filename = os.path.basename(file.filename)
+            path = os.path.join(job_media_dir, safe_filename)
             with open(path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
             media_paths.append(path)
