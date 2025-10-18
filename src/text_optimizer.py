@@ -39,7 +39,7 @@ class TextOptimizer:
 
         # URL短縮インスタンス
         if self.url_shortening_enabled:
-            self.url_shortener = URLShortener()
+            self.url_shortener: URLShortener | None = URLShortener()
         else:
             self.url_shortener = None
 

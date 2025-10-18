@@ -115,7 +115,9 @@ def read_root(request: Request, sort_by: Optional[str] = 'date_asc', user: str =
 
     scheduled_posts = scheduled_post_store.get_all_posts(sort_by=sort_by)
     for post in scheduled_posts:
-        post.scheduled_at = ensure_local_timezone(post.scheduled_at)
+        scheduled_at_tz = ensure_local_timezone(post.scheduled_at)
+        if scheduled_at_tz is not None:
+            post.scheduled_at = scheduled_at_tz
 
     return templates.TemplateResponse("index.html", {"request": request, "user": user, "sns_accounts": sns_accounts, "scheduled_posts": scheduled_posts, "now": now_local(), "current_sort_by": sort_by})
 
@@ -152,6 +154,8 @@ def api_post(
     media_paths = []
     try:
         for file in media_files:
+            if not file.filename:
+                continue
             path = os.path.join(temp_dir, file.filename)
             with open(path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
@@ -201,6 +205,8 @@ def create_scheduled_post(
         os.chmod(post_media_dir, 0o700)
 
         for file in media_files:
+            if not file.filename:
+                continue
             safe_filename = os.path.basename(file.filename)
             path = os.path.join(post_media_dir, safe_filename)
 
@@ -214,10 +220,12 @@ def create_scheduled_post(
     if not all(sns in supported_sns for sns in target_sns):
         raise HTTPException(status_code=400, detail="Unsupported SNS target specified")
 
-    scheduled_at = ensure_local_timezone(scheduled_at)
-    logger.info(f"User {user} creating scheduled post for {scheduled_at}")
+    scheduled_at_tz = ensure_local_timezone(scheduled_at)
+    if scheduled_at_tz is None:
+        scheduled_at_tz = scheduled_at
+    logger.info(f"User {user} creating scheduled post for {scheduled_at_tz}")
     new_post = ScheduledPost(
-        scheduled_at=scheduled_at,
+        scheduled_at=scheduled_at_tz,
         content=content,
         media_files=media_paths,
         target_sns=target_sns
@@ -241,9 +249,10 @@ def update_scheduled_post(
     if existing_post.status in ["実行済み", "失敗"]:
         raise HTTPException(status_code=409, detail="Cannot update an already executed or failed post")
 
-    updates = {}
+    updates: dict[str, datetime | str | list[str]] = {}
     if scheduled_at:
-        updates["scheduled_at"] = ensure_local_timezone(scheduled_at)
+        scheduled_at_tz = ensure_local_timezone(scheduled_at)
+        updates["scheduled_at"] = scheduled_at_tz if scheduled_at_tz is not None else scheduled_at
     if content:
         updates["content"] = content
     if target_sns is not None:
@@ -361,6 +370,8 @@ def api_schedule(
     media_paths = []
     try:
         for file in media_files:
+            if not file.filename:
+                continue
             path = os.path.join(job_media_dir, file.filename)
             with open(path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)

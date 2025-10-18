@@ -34,7 +34,7 @@ class PostingService:
         # 2. メディアの検証とリサイズ、投稿
         # 2.1. SNSタイプごとのメディアリサイズ処理を効率化
         # SNSタイプと元のメディアファイルのパスをキーとした辞書にリサイズ済みファイルのパスをキャッシュ
-        resized_media_cache = {}
+        resized_media_cache: dict[str, list[str]] = {}
         unique_sns_types = set(plugin.sns_type for plugin in plugins.values())
 
         for sns_type in unique_sns_types:

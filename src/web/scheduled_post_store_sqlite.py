@@ -182,16 +182,21 @@ class ScheduledPostStoreSQLite:
 
     def _db_to_scheduled_post(self, db_post: ScheduledPostDB) -> ScheduledPost:
         """SQLAlchemy モデルを ScheduledPost データクラスに変換"""
+        # Column 型を明示的に str/datetime にキャスト
+        scheduled_at_tz = ensure_local_timezone(db_post.scheduled_at)
+        created_at_tz = ensure_local_timezone(db_post.created_at)
+        updated_at_tz = ensure_local_timezone(db_post.updated_at)
+        
         return ScheduledPost(
-            id=db_post.id,
-            scheduled_at=ensure_local_timezone(db_post.scheduled_at),
-            content=db_post.content,
+            id=str(db_post.id),
+            scheduled_at=scheduled_at_tz or db_post.scheduled_at,
+            content=str(db_post.content),
             media_files=db_post.media_files or [],
             target_sns=db_post.target_sns or [],
-            status=db_post.status,
-            error_message=db_post.error_message,
-            created_at=ensure_local_timezone(db_post.created_at),
-            updated_at=ensure_local_timezone(db_post.updated_at),
+            status=str(db_post.status),
+            error_message=str(db_post.error_message) if db_post.error_message else None,
+            created_at=created_at_tz or db_post.created_at,
+            updated_at=updated_at_tz or db_post.updated_at,
         )
 
     def _scheduled_post_to_db(

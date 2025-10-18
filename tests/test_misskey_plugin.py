@@ -38,15 +38,15 @@ def test_misskey_post_success(mock_post):
     
     misskey = Misskey("https://misskey.io", "test_token")
     
-    # 投稿実行
-    misskey.post("テストタイトル", "https://example.com")
+    # 投稿実行（新しいメソッド署名: optimized_text, media_files）
+    misskey.post("テストタイトル", None)
     
     # APIが正しく呼び出されたかを確認
     mock_post.assert_called_once_with(
         "https://misskey.io/api/notes/create",
         json={
             "i": "test_token",
-            "text": "テストタイトル https://example.com",
+            "text": "テストタイトル",
             "visibility": "public"
         }
     )

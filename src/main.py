@@ -51,9 +51,9 @@ def extract_image_from_url(url: str, debug: bool = False) -> str:
         ]
 
         for selector_type, attrs in image_selectors:
-            element = soup.find(selector_type, attrs)
-            if element and element.get('content'):
-                image_url = element['content'].strip()
+            element = soup.find(selector_type, attrs)  # type: ignore
+            if element and element.get('content'):  # type: ignore
+                image_url = element['content'].strip()  # type: ignore
                 if image_url:
                     # 相対URLを絶対URLに変換
                     absolute_url = urljoin(url, image_url)
