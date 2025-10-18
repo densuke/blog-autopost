@@ -1642,6 +1642,15 @@
                     const checkbox = item.querySelector('ion-checkbox');
                     if (checkbox) {
                         checkbox.checked = !checkbox.checked;
+                        
+                        // ionChangeイベントを手動で発火させる
+                        const event = new Event('ionChange', { bubbles: true });
+                        checkbox.dispatchEvent(event);
+                        
+                        // changeイベントも手動で発火させる
+                        const changeEvent = new Event('change', { bubbles: true });
+                        checkbox.dispatchEvent(changeEvent);
+                        
                         updateCounter();
                     }
                 });
