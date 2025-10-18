@@ -650,6 +650,68 @@
             margin-top: 12px;
         }
 
+        /* ==================== 送信ボタンとステータス表示レイアウト ==================== */
+        .submit-group {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-top: 16px;
+            flex-wrap: wrap;
+            width: 100%;
+        }
+
+        .submit-group ion-button {
+            flex: 1 1 auto;
+            min-width: 150px;
+        }
+
+        .status-area-inline {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            min-height: 44px;
+            flex: 0 1 auto;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .status-area-inline ion-text {
+            flex: 1;
+            display: flex;
+            align-items: center;
+        }
+
+        .status-area-inline p {
+            margin: 0;
+            font-size: 14px;
+            font-weight: 500;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        @media (max-width: 640px) {
+            .submit-group {
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .submit-group ion-button {
+                width: 100%;
+            }
+
+            .status-area-inline {
+                width: 100%;
+                white-space: normal;
+                border-top: 1px solid var(--ion-color-light);
+                border-radius: 4px 4px 0 0;
+                margin-top: 8px;
+                padding-top: 12px;
+            }
+        }
+
         @media (min-width: 1024px) {
             .layout-container {
                 flex-direction: row;
@@ -827,12 +889,13 @@
                         <input type="file" id="file-input" multiple accept="image/*" style="display: none;">
                         <div class="preview-area" id="preview-area"></div>
 
-                        <!-- ボタン -->
-                        <div style="display: flex; gap: 12px; margin-top: 16px; flex-wrap: wrap;">
+                        <!-- ボタンとステータス表示 -->
+                        <div class="submit-group">
                             <ion-button type="submit" expand="block">
                                 <ion-icon slot="start" name="send"></ion-icon>
                                 すぐに投稿
                             </ion-button>
+                            <div id="status-messages" class="status-area-inline"></div>
                         </div>
 
                         <ion-divider style="margin: 20px 0;"></ion-divider>
@@ -881,9 +944,6 @@
                 </ion-card-content>
             </ion-card>
                     </div>
-
-                    <!-- ステータスメッセージ -->
-                    <div id="status-messages" class="status-area"></div>
                 </div>
                 <div class="layout-column layout-column--history">
                     <div class="column-scroll">
