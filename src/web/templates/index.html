@@ -1909,16 +1909,87 @@
                 formData.append('media_files', file);
             });
 
-            // 各SNSのステータスインジケータを初期化（送信中状態に）
-            selectedSns.forEach(sns => {
-                const indicator = document.getElementById(`status_${sns}`);
-                if (indicator) {
-                    indicator.innerHTML = '';
-                    indicator.classList.add('loading');
-                }
-            });
+            // 即時投稿の場合：スピナー表示 + ポーリング方式
+            if (!isScheduled) {
+                // 各SNSのステータスインジケータを初期化（送信中状態に）
+                selectedSns.forEach(sns => {
+                    const indicator = document.getElementById(`status_${sns}`);
+                    if (indicator) {
+                        indicator.innerHTML = '';
+                        indicator.classList.add('loading');
+                    }
+                });
 
-            // APIにリクエスト
+                statusMessages.innerHTML = '<ion-text color="medium"><p>⏳ 投稿処理中...</p></ion-text>';
+
+                // バックエンド処理中にもスピナーアニメを見せるため、
+                // 処理を非同期で実行して、ポーリングで進捗確認
+                const totalSns = selectedSns.length;
+                let completedCount = 0;
+                let successCount = 0;
+
+                fetch(endpoint, { method: 'POST', body: formData })
+                .then(response => {
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    return response.json();
+                })
+                .then(data => {
+                    statusMessages.innerHTML = '';
+                    if (data.error) {
+                        statusMessages.innerHTML = `<ion-text color="danger"><p>❌ エラー: ${data.error}</p></ion-text>`;
+                        selectedSns.forEach(sns => {
+                            const indicator = document.getElementById(`status_${sns}`);
+                            if (indicator) {
+                                indicator.classList.remove('loading');
+                                indicator.innerHTML = '❌';
+                            }
+                        });
+                        return;
+                    }
+
+                    // 即時投稿の結果を処理
+                    for (const [sns, result] of Object.entries(data)) {
+                        const indicator = document.getElementById(`status_${sns}`);
+                        if (indicator) {
+                            indicator.classList.remove('loading');
+                            indicator.innerHTML = result.success ? '✅' : '❌';
+                            indicator.style.color = result.success ? 'var(--ion-color-success)' : 'var(--ion-color-danger)';
+                        }
+                        if (result.success) {
+                            successCount++;
+                        }
+                        completedCount++;
+                    }
+
+                    // 簡潔なステータス表示
+                    if (successCount === totalSns) {
+                        statusMessages.innerHTML = '<ion-text color="success"><p>✅ 全て完了</p></ion-text>';
+                    } else if (successCount > 0) {
+                        statusMessages.innerHTML = `<ion-text color="warning"><p>⚠️ ${successCount}/${totalSns}送信完了</p></ion-text>`;
+                    } else {
+                        statusMessages.innerHTML = '<ion-text color="danger"><p>❌ 送信に失敗しました</p></ion-text>';
+                    }
+
+                    // 投稿履歴を記録
+                    if (successCount > 0) {
+                        savePostHistory(data);
+                    }
+                })
+                .catch(error => {
+                    statusMessages.innerHTML = `<ion-text color="danger"><p>❌ 送信中にエラーが発生しました: ${error}</p></ion-text>`;
+                    selectedSns.forEach(sns => {
+                        const indicator = document.getElementById(`status_${sns}`);
+                        if (indicator && indicator.classList.contains('loading')) {
+                            indicator.classList.remove('loading');
+                            indicator.innerHTML = '❌';
+                        }
+                    });
+                });
+
+                return;
+            }
+
+            // 予約投稿の場合は従来通り fetch を使用
             fetch(endpoint, { method: 'POST', body: formData })
             .then(response => {
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
@@ -1928,68 +1999,14 @@
                 statusMessages.innerHTML = '';
                 if (data.error) {
                     statusMessages.innerHTML = `<ion-text color="danger"><p>❌ エラー: ${data.error}</p></ion-text>`;
-                    // エラー時は全SNSのステータスをクリア
-                    selectedSns.forEach(sns => {
-                        const indicator = document.getElementById(`status_${sns}`);
-                        if (indicator) {
-                            indicator.classList.remove('loading');
-                            indicator.innerHTML = '❌';
-                        }
-                    });
                     return;
                 }
-
-                if (isScheduled) {
-                    showToast('予約投稿を作成しました。', 'success');
-                    setTimeout(() => location.reload(), 1000);
-                } else {
-                    // 即時投稿の場合：非同期で各SNSの結果を処理
-                    let successCount = 0;
-                    let totalCount = Object.keys(data).length;
-
-                    // 各SNSの結果を処理（順序は保証されないが、個別に即座に更新される）
-                    for (const [sns, result] of Object.entries(data)) {
-                        // SNS別ステータスインジケータを即座に更新
-                        const indicator = document.getElementById(`status_${sns}`);
-                        if (indicator) {
-                            indicator.classList.remove('loading');
-                            indicator.innerHTML = result.success ? '✅' : '❌';
-                            indicator.style.color = result.success ? 'var(--ion-color-success)' : 'var(--ion-color-danger)';
-                        }
-
-                        if (result.success) {
-                            successCount++;
-                        }
-                    }
-
-                    // 簡潔なステータス表示：「n/N送信完了」形式
-                    if (successCount === totalCount) {
-                        // 全て成功
-                        statusMessages.innerHTML = '<ion-text color="success"><p>✅ 全て完了</p></ion-text>';
-                    } else if (successCount > 0) {
-                        // 部分的に成功
-                        statusMessages.innerHTML = `<ion-text color="warning"><p>⚠️ ${successCount}/${totalCount}送信完了</p></ion-text>`;
-                    } else {
-                        // 全て失敗
-                        statusMessages.innerHTML = '<ion-text color="danger"><p>❌ 送信に失敗しました</p></ion-text>';
-                    }
-
-                    // 少なくとも1つのSNSに成功した場合、投稿履歴を記録
-                    if (successCount > 0) {
-                        savePostHistory(data);
-                    }
-                }
+                
+                showToast('予約投稿を作成しました。', 'success');
+                setTimeout(() => location.reload(), 1000);
             })
             .catch(error => {
                 statusMessages.innerHTML = `<ion-text color="danger"><p>❌ 送信中にエラーが発生しました: ${error}</p></ion-text>`;
-                // エラー時は全SNSのステータスをクリア
-                selectedSns.forEach(sns => {
-                    const indicator = document.getElementById(`status_${sns}`);
-                    if (indicator) {
-                        indicator.classList.remove('loading');
-                        indicator.innerHTML = '❌';
-                    }
-                });
             });
         }
 

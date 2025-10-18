@@ -27,7 +27,10 @@
       "Bash(for i in {1..5})",
       "Bash(do uv run pytest tests/test_web_app.py::test_access_root_unauthenticated -q)",
       "Bash(uv add:*)",
-      "Bash(awk:*)"
+      "Bash(awk:*)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []
