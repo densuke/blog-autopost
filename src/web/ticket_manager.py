@@ -29,7 +29,7 @@ class TicketManager:
         self.ticket_lifetime_hours = ticket_lifetime_hours
         self._lock = threading.Lock()
 
-    def create_ticket(self, sns_list: List[str], media_files: List[str] = None) -> str:
+    def create_ticket(self, sns_list: List[str], media_files: Optional[List[str]] = None) -> str:
         """新規チケットを発行
 
         Args:
@@ -85,7 +85,7 @@ class TicketManager:
 
             return ticket['sns_statuses'].get(sns)
 
-    def update_status(self, ticket_id: str, sns: str, status: str, message: str = None) -> bool:
+    def update_status(self, ticket_id: str, sns: str, status: str, message: Optional[str] = None) -> bool:
         """SNSの投稿状態を更新
 
         Args:

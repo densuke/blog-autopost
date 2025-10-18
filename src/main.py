@@ -447,20 +447,12 @@ def execute_sns_posting(original_text, media_files, plugins, target_sns, text_op
                 urls = re.findall(url_pattern, original_text)
 
                 # リンクカード対応プラグインのために簡易article_dataを作成
-                article_data = None
                 if urls and hasattr(plugin_instance, 'supports_rich_content') and plugin_instance.supports_rich_content():
                     url = urls[-1]  # 最後のURLを使用
                     title_part = original_text.replace(url, '').strip()
 
                     # URLから画像を取得
                     image_url = extract_image_from_url(url, debug=args.debug)
-
-                    article_data = {
-                        'title': title_part if title_part else 'ブログ記事',
-                        'link': url,
-                        'description': title_part,
-                        'image': image_url if image_url else None
-                    }
 
                 # 最適化が有効な場合はSNS別に最適化されたテキストを使用
                 optimized_text_to_post = original_text
@@ -701,7 +693,6 @@ def main():
             # フィード別に記事を処理
             for feed_name, data in all_new_articles_data.items():
                 articles = data['articles']
-                feed_config = data['feed_config']
 
                 if args.debug:
                     print(f"\n--- フィード: {feed_name} ({len(articles)}件) ---")

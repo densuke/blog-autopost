@@ -22,9 +22,8 @@ class Misskey(SocialMediaPlugin):
         Args:
             optimized_text: 投稿テキスト
             media_files: メディアファイルのパスリスト
-            **kwargs: 追加パラメータ（例：debug、article_data）
+            **kwargs: 追加パラメータ（例：article_data）
         """
-        debug = kwargs.get('debug', False)
         file_ids = []
 
         # メディアファイルのアップロード
