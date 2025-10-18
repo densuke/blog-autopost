@@ -1980,10 +1980,15 @@
                         console.log(`📊 Processing SNS: ${sns}`, result);
                         // SNS別ステータスインジケータを更新
                         const indicator = document.getElementById(`status_${sns}`);
+                        console.log(`🔎 Looking for id="status_${sns}"`, indicator);
                         if (indicator) {
+                            console.log(`✅ Found indicator for ${sns}, updating...`);
                             indicator.classList.remove('loading');
                             indicator.innerHTML = result.success ? '✅' : '❌';
                             indicator.style.color = result.success ? 'var(--ion-color-success)' : 'var(--ion-color-danger)';
+                            console.log(`✅ Updated indicator for ${sns}:`, indicator.innerHTML);
+                        } else {
+                            console.warn(`⚠️ Indicator NOT found for id="status_${sns}"`);
                         }
 
                         // ステータスメッセージ（全体）にも追加
