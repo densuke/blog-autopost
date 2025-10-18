@@ -1798,6 +1798,19 @@
                 previewArea.innerHTML = '';
             }
 
+            // ステータスインジケータをクリア
+            document.querySelectorAll('[id^="status_"]').forEach(indicator => {
+                indicator.innerHTML = '';
+                indicator.classList.remove('loading');
+                indicator.style.color = '';
+            });
+
+            // ステータスメッセージをクリア
+            const statusMessages = document.getElementById('status-messages');
+            if (statusMessages) {
+                statusMessages.innerHTML = '';
+            }
+
             // 文字カウンター更新
             updateCounter();
 
