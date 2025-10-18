@@ -1605,6 +1605,36 @@
             attachCheckboxListeners('ion-checkbox[name="sns_targets"]', updateCounter);
             attachCheckboxListeners('#edit-target-sns ion-checkbox[name="target_sns"]', updateEditCounter);
 
+            // ===== デバッグ用: SNSチェック時にステータス表示 =====
+            document.querySelectorAll('ion-checkbox[name="sns_targets"]').forEach(checkbox => {
+                checkbox.addEventListener('ionChange', (e) => {
+                    const snsName = checkbox.value;
+                    const indicator = document.getElementById(`status_${snsName}`);
+                    if (indicator) {
+                        if (checkbox.checked) {
+                            indicator.innerHTML = '📝 送信予定';
+                            indicator.style.color = 'var(--ion-color-warning)';
+                        } else {
+                            indicator.innerHTML = '';
+                            indicator.style.color = '';
+                        }
+                    }
+                });
+                checkbox.addEventListener('change', (e) => {
+                    const snsName = checkbox.value;
+                    const indicator = document.getElementById(`status_${snsName}`);
+                    if (indicator) {
+                        if (checkbox.checked) {
+                            indicator.innerHTML = '📝 送信予定';
+                            indicator.style.color = 'var(--ion-color-warning)';
+                        } else {
+                            indicator.innerHTML = '';
+                            indicator.style.color = '';
+                        }
+                    }
+                });
+            });
+
             document.querySelectorAll('ion-list ion-item[button]').forEach(item => {
                 item.addEventListener('click', (e) => {
                     if (e.target.tagName === 'ION-CHECKBOX') return;
