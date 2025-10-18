@@ -1952,6 +1952,10 @@
                 return response.json();
             })
             .then(data => {
+                console.log('🔍 API Response (submitPost):', data);
+                console.log('🔍 Response Type:', typeof data);
+                console.log('🔍 Response Keys:', Object.keys(data));
+                
                 statusMessages.innerHTML = '';
                 if (data.error) {
                     statusMessages.innerHTML = `<ion-text color="danger"><p>❌ エラー: ${data.error}</p></ion-text>`;
@@ -1973,6 +1977,7 @@
                     // 即時投稿の場合：各SNSの結果を個別に表示
                     let successCount = 0;
                     for (const [sns, result] of Object.entries(data)) {
+                        console.log(`📊 Processing SNS: ${sns}`, result);
                         // SNS別ステータスインジケータを更新
                         const indicator = document.getElementById(`status_${sns}`);
                         if (indicator) {
