@@ -86,7 +86,35 @@ posting_service = PostingService(
 )
 
 # 有効なSNS名の定義（バリデーション用）
-VALID_SNS_NAMES = {'x', 'bluesky', 'mastodon', 'misskey', 'threads', 'tumblr'}
+def get_valid_sns_names() -> set[str]:
+    """Return all valid SNS identifiers configured for the app.
+
+    The UI submits configured account names (which may differ from generic
+    provider types like ``x`` or ``mastodon``). To keep backward compatibility,
+    include both the account name and the underlying sns ``type`` when
+    available.
+    """
+
+    sns_configs = config_manager.get_all_sns_configs()
+    valid_names: set[str] = set()
+
+    if isinstance(sns_configs, list):
+        for config in sns_configs:
+            sns_type = config.get('type')
+            sns_name = config.get('name') or sns_type
+            if sns_type:
+                valid_names.add(sns_type)
+            if sns_name:
+                valid_names.add(sns_name)
+    elif isinstance(sns_configs, dict):
+        for name, config in sns_configs.items():
+            if name:
+                valid_names.add(name)
+            sns_type = config.get('type')
+            if sns_type:
+                valid_names.add(sns_type)
+
+    return valid_names
 
 # チケット管理システムとスレッドプールのインスタンス化
 ticket_manager = TicketManager(ticket_lifetime_hours=24)
@@ -198,7 +226,8 @@ def api_post(
     各SNSの投稿状態は /api/post_status/{ticket_id}/{sns} で取得可能。
     """
     # SNS名の検証
-    invalid_sns = [sns for sns in sns_targets if sns not in VALID_SNS_NAMES]
+    valid_sns_names = get_valid_sns_names()
+    invalid_sns = [sns for sns in sns_targets if sns not in valid_sns_names]
     if invalid_sns:
         return JSONResponse(
             status_code=400,
@@ -288,7 +317,8 @@ def get_post_status(
         {'status': 'processing' | 'success' | 'failed' | 'error', 'message': str}
     """
     # SNS名の検証
-    if sns not in VALID_SNS_NAMES:
+    valid_sns_names = get_valid_sns_names()
+    if sns not in valid_sns_names:
         raise HTTPException(
             status_code=400,
             detail=f"無効なSNS名: {sns}"
