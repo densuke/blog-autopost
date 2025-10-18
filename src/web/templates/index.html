@@ -1647,6 +1647,8 @@
         const fileInput = document.getElementById('file-input');
         const previewArea = document.getElementById('preview-area');
         let uploadedFiles = [];
+        let pollingIntervals = {}; // グローバルポーリング管理
+        let pollCounts = {}; // グローバルポーリングカウント
 
         dropZone.addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
@@ -1782,6 +1784,13 @@
          * フォームをリセット
          */
         function clearPostForm() {
+            // すべてのポーリングを停止
+            Object.keys(pollingIntervals).forEach(sns => {
+                clearInterval(pollingIntervals[sns]);
+            });
+            pollingIntervals = {};
+            pollCounts = {};
+
             // テキスト入力をクリア
             document.getElementById('text').value = '';
             document.getElementById('url').value = '';
@@ -1926,6 +1935,13 @@
             if (!isScheduled) {
                 // チケットベースの即時投稿処理
 
+                // 古いポーリングをすべてクリア
+                Object.keys(pollingIntervals).forEach(sns => {
+                    clearInterval(pollingIntervals[sns]);
+                });
+                pollingIntervals = {};
+                pollCounts = {};
+
                 // 各SNSのステータスインジケータを初期化（送信中状態に）
                 selectedSns.forEach(sns => {
                     const indicator = document.getElementById(`status_${sns}`);
@@ -1940,8 +1956,6 @@
                 const totalSns = selectedSns.length;
                 let completedCount = 0;
                 let successCount = 0;
-                let pollingIntervals = {}; // 各SNSのポーリングinterval ID
-                let pollCounts = {}; // 各SNSのポーリング回数（アニメーション用）
                 let snsResults = {}; // 各SNSの結果を保存
 
                 // Step 1: チケット取得
