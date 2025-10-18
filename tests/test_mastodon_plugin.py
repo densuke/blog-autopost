@@ -11,15 +11,14 @@ def test_mastodon_post(mock_post):
     mock_post.return_value = mock_response
 
     mastodon_plugin = Mastodon("https://mastodon.example", "test_token")
-    title = "Test Title"
-    link = "http://test.com/link"
-    mastodon_plugin.post(title, link)
+    optimized_text = "Test Title"
+    mastodon_plugin.post(optimized_text, None)
 
     # APIが正しく呼び出されたかを確認
     mock_post.assert_called_once_with(
         "https://mastodon.example/api/v1/statuses",
         headers={"Authorization": "Bearer test_token", "User-Agent": "blog-autopost/1.0", "Content-Type": "application/json"},
-        json={"status": f"{title} {link}"}
+        json={"status": optimized_text}
     )
 
 @patch('requests.post')
@@ -33,5 +32,5 @@ def test_mastodon_post_error(mock_post):
     mock_post.return_value = mock_response
 
     mastodon_plugin = Mastodon("https://mastodon.example", "test_token")
-    mastodon_plugin.post("Test Title", "http://test.com/link")
+    mastodon_plugin.post("Test Title", None)
     mock_post.assert_called_once()

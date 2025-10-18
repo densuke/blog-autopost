@@ -26,7 +26,8 @@
       "Bash(done)",
       "Bash(for i in {1..5})",
       "Bash(do uv run pytest tests/test_web_app.py::test_access_root_unauthenticated -q)",
-      "Bash(uv add:*)"
+      "Bash(uv add:*)",
+      "Bash(awk:*)"
     ],
     "deny": [],
     "ask": []
