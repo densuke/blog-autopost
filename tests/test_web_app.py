@@ -1,18 +1,29 @@
 import pytest
-from bs4 import BeautifulSoup
+from datetime import datetime, timedelta
 from unittest.mock import patch
-from src.web.main_web import app
 
 from bs4 import BeautifulSoup
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import patch
-from datetime import datetime, timedelta
+
+from src.web.main_web import app
 from src.web.scheduled_post_model import ScheduledPost
 
 # テスト用の認証情報
 TEST_USERNAME = "testuser"
 TEST_PASSWORD = "testpass"
+
+def _extract_csrf_token(response):
+    soup = BeautifulSoup(response.content, 'html.parser')
+    token_input = soup.find('input', {'name': 'csrf_token'})
+    return token_input.get('value') if token_input else ""
+
+def _update_csrf_headers(test_client, response):
+    token = _extract_csrf_token(response)
+    if token:
+        test_client.headers.update({'X-CSRFToken': token})
+    return token
+
 
 @pytest.fixture
 def client(tmp_path_factory):
@@ -45,14 +56,18 @@ def client(tmp_path_factory):
                 MockSchedulerService.scheduler.running = False
                 MockSchedulerService.start.return_value = None
                 with TestClient(app) as c:
+                    login_page = c.get("/login")
+                    _update_csrf_headers(c, login_page)
                     yield c
 
 @pytest.fixture
 def logged_in_client(client):
     """ログイン済みのテストクライアントを返すフィクスチャ"""
+    login_page = client.get("/login")
+    csrf_token = _update_csrf_headers(client, login_page)
     client.post(
         "/login",
-        data={"username": TEST_USERNAME, "password": TEST_PASSWORD},
+        data={"username": TEST_USERNAME, "password": TEST_PASSWORD, "csrf_token": csrf_token},
         follow_redirects=False
     )
     yield client
@@ -66,18 +81,22 @@ def test_get_login_page(client):
     assert response.status_code == 200
 
 def test_login_success(client):
+    login_page = client.get("/login")
+    csrf_token = _update_csrf_headers(client, login_page)
     response = client.post(
         "/login",
-        data={"username": TEST_USERNAME, "password": TEST_PASSWORD},
+        data={"username": TEST_USERNAME, "password": TEST_PASSWORD, "csrf_token": csrf_token},
         follow_redirects=False
     )
     assert response.status_code == 303
     assert response.headers["location"] == "/"
 
 def test_login_failure(client):
+    login_page = client.get("/login")
+    csrf_token = _update_csrf_headers(client, login_page)
     response = client.post(
         "/login",
-        data={"username": TEST_USERNAME, "password": "wrongpassword"},
+        data={"username": TEST_USERNAME, "password": "wrongpassword", "csrf_token": csrf_token},
         follow_redirects=False
     )
     assert response.status_code == 401

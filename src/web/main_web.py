@@ -20,12 +20,12 @@ from fastapi import (
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
-from starlette_csrf import CSRFMiddleware
 
 from ..config_manager import ConfigManager
 from ..image_resizer import ImageResizer
 from ..text_optimizer import TextOptimizer
 from .auth_service import AuthService
+from .csrf_protection import CSRFCookieMiddleware, FormCSRFMiddleware
 from .post_executor import PostExecutor
 from .posting_service import PostingService
 from .scheduled_post_model import ScheduledPost
@@ -97,12 +97,23 @@ secret_key = config_manager.get_secret_key()
 if not secret_key:
     raise RuntimeError("セッション管理用のsecret_keyが設定されていません。config.ymlを確認してください。")
 app.add_middleware(SessionMiddleware, secret_key=secret_key)
-
-# CSRF保護ミドルウェアの追加
-# トークンはセッションに自動的に保存される
-app.add_middleware(CSRFMiddleware, secret=secret_key)
+app.add_middleware(CSRFCookieMiddleware, secret=secret_key)
+app.add_middleware(FormCSRFMiddleware, secret=secret_key)
 
 templates = Jinja2Templates(directory="src/web/templates")
+
+def get_csrf_token(request: Request) -> str:
+    """
+    CSRFCookieMiddleware stores the token on request.state.
+    Fallback to cookies or session just in case.
+    """
+    token = getattr(request.state, "csrf_token", None)
+    if token:
+        return token
+    token = request.cookies.get("csrftoken")
+    if token:
+        return token
+    return request.session.get("csrf_token", "")
 
 # 認証チェック用のDependency
 def get_current_user(request: Request):
@@ -133,11 +144,28 @@ def read_root(request: Request, sort_by: Optional[str] = 'date_asc', user: str =
         if scheduled_at_tz is not None:
             post.scheduled_at = scheduled_at_tz
 
-    return templates.TemplateResponse("index.html", {"request": request, "user": user, "sns_accounts": sns_accounts, "scheduled_posts": scheduled_posts, "now": now_local(), "current_sort_by": sort_by})
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "user": user,
+            "sns_accounts": sns_accounts,
+            "scheduled_posts": scheduled_posts,
+            "now": now_local(),
+            "current_sort_by": sort_by,
+            "csrf_token": get_csrf_token(request),
+        },
+    )
 
 @app.get("/login")
 def login_form(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse(
+        "login.html",
+        {
+            "request": request,
+            "csrf_token": get_csrf_token(request),
+        },
+    )
 
 @app.post("/login")
 def login_submit(request: Request, username: str = Form(...), password: str = Form(...)):

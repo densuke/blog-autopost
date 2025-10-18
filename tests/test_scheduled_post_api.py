@@ -1,5 +1,4 @@
 from fastapi.testclient import TestClient
-from fastapi.testclient import TestClient
 from fastapi import status
 from datetime import datetime, timedelta, timezone
 import pytest
@@ -12,6 +11,17 @@ from src.web.scheduled_post_model import ScheduledPost
 
 # TestClientのインスタンスを作成
 client = TestClient(app)
+
+
+def _ensure_csrf_header():
+    response = client.get("/login")
+    token = response.cookies.get("csrftoken")
+    if token:
+        client.headers.update({"X-CSRFToken": token})
+    return token
+
+
+_ensure_csrf_header()
 
 # 認証をモックする
 def override_get_current_user():
