@@ -100,12 +100,14 @@ def test_force_mark_all_as_posted_excludes_new_articles(mock_config_manager, moc
     assert len(new_articles) == 1
     assert new_articles[0]['link'] == "http://example.com/feed1/new_article"
 
-def test_force_mark_all_as_posted_writes_to_file(mock_config_manager, mock_feedparser, tmp_path):
+def test_force_mark_all_as_posted_writes_to_file(mock_config_manager, mock_feedparser, tmp_path, monkeypatch):
     """ force_mark_all_as_postedが正しくJSONファイルに書き込むことをテスト """
     # --- Arrange ---
+    data_file_path = str(tmp_path / "test_articles.json")
+    # モジュールレベルの DATA_FILE をパッチ
+    monkeypatch.setattr('src.article_manager.DATA_FILE', data_file_path)
+    
     am = ArticleManager(mock_config_manager, feed_name='feed1')
-    data_file_path = tmp_path / "test_articles.json"
-    ArticleManager.DATA_FILE = data_file_path
 
     # --- Act ---
     result = am.force_mark_all_as_posted()
