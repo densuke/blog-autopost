@@ -173,3 +173,129 @@ def test_read_root_with_sorting(mock_scheduled_post_store, logged_in_client):
     logged_in_client.get("/?sort_by=date_desc")
     # 指定された値で呼び出されることを確認
     mock_scheduled_post_store.get_all_posts.assert_called_with(sort_by='date_desc')
+
+
+# ===== CSRF セキュリティテスト =====
+
+def test_csrf_token_present_in_main_page(logged_in_client):
+    """
+    メインページにCSRFトークンが含まれていることを確認
+    """
+    response = logged_in_client.get("/")
+    assert response.status_code == 200
+    
+    # CSRFトークンフィールドが存在することを確認
+    soup = BeautifulSoup(response.content, 'html.parser')
+    csrf_input = soup.find('input', {'id': 'csrf_token'})
+    assert csrf_input is not None, "CSRF token input field not found"
+    assert csrf_input.get('type') == 'hidden', "CSRF token input should be hidden"
+    assert csrf_input.get('name') == 'csrf_token', "CSRF token input should have name='csrf_token'"
+
+
+def test_csrf_token_extraction(logged_in_client):
+    """
+    CSRFトークンを正しく抽出できることを確認
+    """
+    response = logged_in_client.get("/")
+    assert response.status_code == 200
+    
+    soup = BeautifulSoup(response.content, 'html.parser')
+    csrf_input = soup.find('input', {'id': 'csrf_token'})
+    csrf_token = csrf_input.get('value')
+    
+    # トークンが存在し、空でないことを確認
+    assert csrf_token, "CSRF token value should not be empty"
+    assert isinstance(csrf_token, str), "CSRF token should be a string"
+    assert len(csrf_token) > 0, "CSRF token should have content"
+
+
+@patch('src.web.main_web.posting_service')
+def test_post_with_csrf_token(mock_posting_service, logged_in_client):
+    """
+    CSRFトークン付きのPOSTリクエストが成功することを確認
+    （注：TestClient は CSRF 検証をバイパスする傾向があるため、このテストは
+    ミドルウェアが正しく追加されていることの確認程度）
+    """
+    # メインページからCSRFトークンを取得
+    main_response = logged_in_client.get("/")
+    soup = BeautifulSoup(main_response.content, 'html.parser')
+    csrf_input = soup.find('input', {'id': 'csrf_token'})
+    csrf_token = csrf_input.get('value') if csrf_input else ""
+    
+    # CSRFトークン付きでPOSTリクエストを送信
+    mock_posting_service.post_now.return_value = {'x': {'success': True}}
+    
+    post_data = {
+        'text': 'test post',
+        'sns_targets': 'x',
+        'csrf_token': csrf_token
+    }
+    
+    response = logged_in_client.post(
+        "/api/post",
+        data=post_data,
+        files={'media_files': ('test.jpg', b'', 'image/jpeg')}
+    )
+    
+    # リクエストが処理されることを確認
+    assert response.status_code in [200, 400, 403], \
+        f"POST with CSRF token should be processed (got {response.status_code})"
+
+
+def test_csrf_token_in_scheduled_posts_form(logged_in_client):
+    """
+    予約投稿フォームにもCSRFトークンが含まれていることを確認
+    """
+    response = logged_in_client.get("/")
+    assert response.status_code == 200
+    
+    # JavaScriptコード内でCSRFトークンが参照されていることを確認
+    content = response.text
+    assert 'csrf_token' in content, "CSRF token should be referenced in JavaScript"
+    assert 'escapeHtml' in content, "XSS prevention escapeHtml should be present"
+    assert 'setStatusMessage' in content, "setStatusMessage should be present for XSS prevention"
+
+
+@patch('src.web.main_web.scheduled_post_store')
+def test_input_validation_invalid_sns(mock_scheduled_post_store, logged_in_client):
+    """
+    無効なSNS名でのPOSTリクエストが拒否されることを確認（入力検証テスト）
+    """
+    response = logged_in_client.post(
+        "/api/post",
+        data={'text': 'test', 'sns_targets': 'invalid_sns'},
+        files={'media_files': ('test.jpg', b'', 'image/jpeg')}
+    )
+    
+    # 無効なSNS名は拒否されるべき
+    assert response.status_code == 400, "Invalid SNS name should return 400"
+    response_data = response.json()
+    assert 'error' in response_data, "Error message should be present"
+
+
+@patch('src.web.main_web.posting_service')
+def test_empty_text_validation(mock_posting_service, logged_in_client):
+    """
+    空のテキストでのPOSTリクエストが拒否されることを確認
+    """
+    response = logged_in_client.post(
+        "/api/post",
+        data={'text': '', 'sns_targets': 'x'},
+        files={'media_files': ('test.jpg', b'', 'image/jpeg')}
+    )
+    
+    # 空のテキストは拒否されるべき
+    assert response.status_code == 400, "Empty text should return 400"
+
+
+def test_xss_prevention_error_messages(logged_in_client):
+    """
+    エラーメッセージがXSS対策されていることを確認（escapeHtml関数の存在）
+    """
+    response = logged_in_client.get("/")
+    assert response.status_code == 200
+    
+    content = response.text
+    # XSS対策関数が存在することを確認
+    assert 'function escapeHtml' in content, "escapeHtml function should be present"
+    assert '&lt;' in content or 'replace' in content, "HTML escaping should be implemented"

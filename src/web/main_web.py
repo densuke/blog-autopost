@@ -20,6 +20,7 @@ from fastapi import (
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
+from starlette_csrf import CSRFMiddleware
 
 from ..config_manager import ConfigManager
 from ..image_resizer import ImageResizer
@@ -96,6 +97,10 @@ secret_key = config_manager.get_secret_key()
 if not secret_key:
     raise RuntimeError("セッション管理用のsecret_keyが設定されていません。config.ymlを確認してください。")
 app.add_middleware(SessionMiddleware, secret_key=secret_key)
+
+# CSRF保護ミドルウェアの追加
+# トークンはセッションに自動的に保存される
+app.add_middleware(CSRFMiddleware, secret=secret_key)
 
 templates = Jinja2Templates(directory="src/web/templates")
 

@@ -21,6 +21,7 @@ dependencies = [
     "apscheduler",
     "itsdangerous",
     "sqlalchemy",
+    "starlette-csrf>=3.0.0",
 ]
 
 [project.scripts]

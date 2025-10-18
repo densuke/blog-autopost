@@ -14,3 +14,5 @@ config.yml
 
 # filesystem
 .DS_Store
+
+*.egg_info/
