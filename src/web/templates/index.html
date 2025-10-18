@@ -870,7 +870,7 @@
 </head>
 <body>
     <!-- CSRF トークン用隠しフィールド -->
-    <input type="hidden" id="csrf_token" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+    <input type="hidden" id="csrf_token" name="csrf_token" value="{{ csrf_token | default('', true) }}">
     
     <ion-app>
         <ion-header>
