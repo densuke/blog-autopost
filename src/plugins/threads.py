@@ -175,17 +175,17 @@ class Threads(SocialMediaPlugin):
                 print(f"[DEBUG] レスポンス: {e.response.text}")
             return None
 
-    def _debug_print(self, message: str, debug: bool):
+    def _debug_print(self, message: str, debug: bool = False) -> None:
         """デバッグメッセージを出力"""
         if debug:
             print(f"[DEBUG] {message}")
 
-    def post(self, text: str, media_files: Optional[List[str]] = None, **kwargs: Any):
+    def post(self, optimized_text: str, media_files: Optional[List[str]] = None, **kwargs: Any) -> Any:
         """
         Threadsに投稿します
         
         Args:
-            text: 投稿テキスト
+            optimized_text: 投稿テキスト
             media_files: 添付するメディアファイルのパスリスト（未実装）
             **kwargs: 追加パラメータ（debug: デバッグモードなど）
         """
@@ -197,10 +197,10 @@ class Threads(SocialMediaPlugin):
                 print("⚠️  警告: Threads プラグインではメディア添付は現在サポートされていません")
                 print("テキストのみで投稿します")
 
-            self._debug_print(f"Threads投稿開始: {text[:50]}...", debug)
+            self._debug_print(f"Threads投稿開始: {optimized_text[:50]}...", debug)
 
             # Step 1: コンテナ作成
-            container_id = self._create_text_container(text, debug)
+            container_id = self._create_text_container(optimized_text, debug)
             if not container_id:
                 raise Exception("コンテナの作成に失敗しました")
 

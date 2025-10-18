@@ -165,7 +165,8 @@ class ScheduledPostDAO:
                 value = ensure_local_timezone(value)
             setattr(post, key, value)
 
-        post.updated_at = ensure_local_timezone(datetime.now())
+        updated_at_tz = ensure_local_timezone(datetime.now())
+        post.updated_at = updated_at_tz if updated_at_tz is not None else datetime.now()
         self.session.commit()
         return post
 
@@ -214,10 +215,12 @@ class ScheduledPostDAO:
         Returns:
             削除された件数
         """
-        cutoff = ensure_local_timezone(cutoff)
+        cutoff_tz = ensure_local_timezone(cutoff)
+        if cutoff_tz is None:
+            cutoff_tz = cutoff
 
         query = self.session.query(ScheduledPostDB).filter(
-            ScheduledPostDB.updated_at <= cutoff
+            ScheduledPostDB.updated_at <= cutoff_tz
         )
 
         if statuses:

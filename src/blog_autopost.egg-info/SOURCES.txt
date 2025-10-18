@@ -31,6 +31,7 @@ tests/test_article_manager.py
 tests/test_article_manager_advanced.py
 tests/test_auth_service.py
 tests/test_bluesky_plugin.py
+tests/test_bluesky_plugin_advanced.py
 tests/test_core_posting_logic.py
 tests/test_direct_post.py
 tests/test_image_resizer.py

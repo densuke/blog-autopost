@@ -21,9 +21,10 @@ from sqlalchemy.orm import sessionmaker
 from src.web.timezone_utils import ensure_local_timezone, now_local
 
 Base = declarative_base()
+BaseType = type(Base)  # Type alias for mypy
 
 
-class ScheduledPostDB(Base):
+class ScheduledPostDB(Base):  # type: ignore
     """予約投稿のSQLAlchemyモデル"""
 
     __tablename__ = 'scheduled_posts'
@@ -76,19 +77,22 @@ class ScheduledPostDB(Base):
         created_at = datetime.fromisoformat(data['created_at']) if data.get('created_at') else now_local()
         updated_at = datetime.fromisoformat(data['updated_at']) if data.get('updated_at') else now_local()
 
-        scheduled_at = ensure_local_timezone(scheduled_at)
-        created_at = ensure_local_timezone(created_at)
-        updated_at = ensure_local_timezone(updated_at)
+        # ensure_local_timezone は Optional[datetime] を返すため、型ガード
+        scheduled_at_tz = ensure_local_timezone(scheduled_at)
+        if scheduled_at_tz is None:
+            scheduled_at_tz = scheduled_at
+        created_at_tz = ensure_local_timezone(created_at) or created_at
+        updated_at_tz = ensure_local_timezone(updated_at) or updated_at
 
         return cls(
             id=data.get('id', str(uuid.uuid4())),
-            scheduled_at=scheduled_at,
+            scheduled_at=scheduled_at_tz,
             content=data['content'],
             media_files=data.get('media_files', []),
             target_sns=data.get('target_sns', []),
             status=data.get('status', '予約済み'),
             error_message=data.get('error_message'),
-            created_at=created_at,
+            created_at=created_at_tz,
             updated_at=updated_at,
         )
 

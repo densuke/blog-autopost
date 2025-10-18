@@ -96,7 +96,7 @@ class Bluesky(SocialMediaPlugin):
         text_bytes = text.encode('utf-8')
         print(f"[DEBUG] 元テキスト: '{text}'")
         print(f"[DEBUG] UTF-8バイト長: {len(text_bytes)}")
-        print(f"[DEBUG] バイト配列: {text_bytes}")
+        print(f"[DEBUG] バイト配列: {text_bytes!r}")
 
         for i, (byte_start, byte_end, tag) in enumerate(hashtags):
             extracted = text_bytes[byte_start:byte_end].decode('utf-8')
@@ -393,14 +393,14 @@ class Bluesky(SocialMediaPlugin):
             soup = BeautifulSoup(html_content, 'html.parser')
 
             # OGPの説明文を優先
-            og_description = soup.find('meta', property='og:description')
-            if og_description and og_description.get('content'):
-                return og_description['content']
+            og_description = soup.find('meta', property='og:description')  # type: ignore
+            if og_description and og_description.get('content'):  # type: ignore
+                return og_description['content']  # type: ignore
 
             # meta description
-            meta_description = soup.find('meta', attrs={'name': 'description'})
-            if meta_description and meta_description.get('content'):
-                return meta_description['content']
+            meta_description = soup.find('meta', attrs={'name': 'description'})  # type: ignore
+            if meta_description and meta_description.get('content'):  # type: ignore
+                return meta_description['content']  # type: ignore
 
             # 本文の最初の段落
             first_p = soup.find('p')
