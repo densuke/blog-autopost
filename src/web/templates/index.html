@@ -1791,13 +1791,6 @@
                 checkbox.checked = false;
             });
 
-            // SNSステータスインジケータをクリア
-            document.querySelectorAll('.sns-status-indicator').forEach(indicator => {
-                indicator.classList.remove('loading');
-                indicator.innerHTML = '';
-                indicator.style.color = '';
-            });
-
             // 画像プレビューをクリア
             uploadedFiles.length = 0;
             const previewArea = document.getElementById('preview-area');
