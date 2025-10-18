@@ -1,7 +1,8 @@
-import yaml
 import os
+from typing import List
 
-from typing import Dict, Optional, List
+import yaml
+
 
 class ConfigManager:
     def __init__(self, config_path):
@@ -96,7 +97,7 @@ class ConfigManager:
             list or dict: SNS設定（配列形式またはオブジェクト形式）
         """
         sns_configs = self.config.get('sns', {})
-        
+
         # 環境変数による認証情報の上書きを適用
         if isinstance(sns_configs, list):
             # 配列形式の場合
@@ -104,9 +105,9 @@ class ConfigManager:
         elif isinstance(sns_configs, dict):
             # オブジェクト形式の場合
             return {name: self._apply_env_overrides(config, name) for name, config in sns_configs.items()}
-        
+
         return sns_configs
-    
+
     def _apply_env_overrides(self, sns_config, fallback_type=None):
         """
         環境変数による認証情報の上書きを適用します
@@ -120,55 +121,55 @@ class ConfigManager:
         """
         config = sns_config.copy()
         sns_type = config.get('type', fallback_type)
-        
+
         if not sns_type:
             return config
-            
+
         # SNS種別ごとの環境変数マッピング
         env_mappings = {
             'x': {
-                'consumer_key': f'X_CONSUMER_KEY',
-                'consumer_secret': f'X_CONSUMER_SECRET',
-                'access_token': f'X_ACCESS_TOKEN',
-                'access_token_secret': f'X_ACCESS_TOKEN_SECRET'
+                'consumer_key': 'X_CONSUMER_KEY',
+                'consumer_secret': 'X_CONSUMER_SECRET',
+                'access_token': 'X_ACCESS_TOKEN',
+                'access_token_secret': 'X_ACCESS_TOKEN_SECRET'
             },
             'bluesky': {
-                'identifier': f'BLUESKY_IDENTIFIER',
-                'password': f'BLUESKY_PASSWORD'
+                'identifier': 'BLUESKY_IDENTIFIER',
+                'password': 'BLUESKY_PASSWORD'
             },
             'mastodon': {
-                'instance_url': f'MASTODON_INSTANCE_URL',
-                'access_token': f'MASTODON_ACCESS_TOKEN'
+                'instance_url': 'MASTODON_INSTANCE_URL',
+                'access_token': 'MASTODON_ACCESS_TOKEN'
             },
             'misskey': {
-                'instance_url': f'MISSKEY_INSTANCE_URL',
-                'access_token': f'MISSKEY_ACCESS_TOKEN'
+                'instance_url': 'MISSKEY_INSTANCE_URL',
+                'access_token': 'MISSKEY_ACCESS_TOKEN'
             },
             'threads': {
-                'app_id': f'THREADS_APP_ID',
-                'app_secret': f'THREADS_APP_SECRET',
-                'access_token': f'THREADS_ACCESS_TOKEN'
+                'app_id': 'THREADS_APP_ID',
+                'app_secret': 'THREADS_APP_SECRET',
+                'access_token': 'THREADS_ACCESS_TOKEN'
             },
             'tumblr': {
-                'client_id': f'TUMBLR_CLIENT_ID',
-                'client_secret': f'TUMBLR_CLIENT_SECRET',
-                'access_token': f'TUMBLR_ACCESS_TOKEN',
-                'blog_name': f'TUMBLR_BLOG_NAME'
+                'client_id': 'TUMBLR_CLIENT_ID',
+                'client_secret': 'TUMBLR_CLIENT_SECRET',
+                'access_token': 'TUMBLR_ACCESS_TOKEN',
+                'blog_name': 'TUMBLR_BLOG_NAME'
             }
         }
-        
+
         # 環境変数からの上書き適用
         if sns_type in env_mappings:
             for config_key, env_key in env_mappings[sns_type].items():
                 env_value = os.getenv(env_key)
                 if env_value:
                     config[config_key] = env_value
-        
+
         return config
 
     def get_announcement_text(self):
         return self.config.get('announcement_text', '')
-    
+
     def get_image_settings(self, feed_name=None):
         """
         画像設定を取得します。

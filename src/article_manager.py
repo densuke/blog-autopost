@@ -1,11 +1,13 @@
-import feedparser
 import json
 import os
+import time
+from datetime import datetime, timezone
+from urllib.parse import urljoin, urlparse
+
+import feedparser
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
-from datetime import datetime, timezone
-import time
+
 from .config_manager import ConfigManager
 from .text_optimizer import TextOptimizer
 
@@ -15,14 +17,14 @@ class ArticleManager:
     def __init__(self, config_manager: ConfigManager, feed_name=None):
         self.config_manager = config_manager
         self.feed_name = feed_name
-        
+
         # 単一フィード用（後方互換性）
         if feed_name:
             feed_config = self.config_manager.get_feed_config_by_name(feed_name)
             self.feed_url = feed_config.get('feed_url') if feed_config else None
         else:
             self.feed_url = self.config_manager.get_feed_url()
-            
+
         self.text_optimizer = TextOptimizer(config_manager.config)
 
     def force_mark_all_as_posted(self) -> dict:
@@ -81,25 +83,25 @@ class ArticleManager:
             if debug:
                 print(f"フィードの解析に失敗しました: {feed.bozo_exception}")
             return []
-        
+
         articles = []
         for entry in feed.entries:
             # 日付をパースして比較可能な形式に変換
             published_time = self._parse_published_date(entry)
-            
+
             article = {
-                'title': entry.title, 
-                'link': entry.link, 
+                'title': entry.title,
+                'link': entry.link,
                 'published': entry.published,  # 元の文字列も保持
                 'published_parsed': published_time,  # パース済み日付
                 '_feed_entry': entry  # フィードエントリーを一時保存
             }
-            
+
             if debug:
                 print(f"記事: {entry.title[:50]}... 日付: {entry.published}")
-            
+
             articles.append(article)
-            
+
         # パース済み日付でソート（新しい順）
         return sorted(articles, key=lambda x: x['published_parsed'], reverse=True)
 
@@ -115,7 +117,7 @@ class ArticleManager:
         for article in articles:
             clean_article = {k: v for k, v in article.items() if k not in ('_feed_entry', 'published_parsed')}
             clean_articles.append(clean_article)
-        
+
         os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
         with open(DATA_FILE, 'w', encoding='utf-8') as f:
             json.dump(clean_articles, f, indent=4, ensure_ascii=False)
@@ -131,11 +133,11 @@ class ArticleManager:
                 saved_links.update(forced_posted_urls)
 
         new_articles = [article for article in latest_articles if article['link'] not in saved_links]
-        
+
         # limit指定がある場合は制限を適用
         if limit:
             new_articles = new_articles[:limit]
-        
+
         # 新着記事のみに画像抽出を実行
         for article in new_articles:
             if debug:
@@ -146,7 +148,7 @@ class ArticleManager:
                 article['feed_name'] = self.feed_name or 'default'
                 # 一時保存用のフィードエントリーを削除
                 del article['_feed_entry']
-        
+
         return new_articles
 
     def create_post_text(self, title: str, link: str, sns_type: str) -> str:
@@ -163,7 +165,7 @@ class ArticleManager:
         """
         announcement = self.config_manager.get_announcement_text()
         return self.text_optimizer.optimize_text(title, link, sns_type, announcement)
-    
+
     def _extract_article_image(self, entry, debug=False):
         """
         記事から画像を抽出します
@@ -176,12 +178,12 @@ class ArticleManager:
             str or None: 画像URL、見つからない場合はNone
         """
         image_settings = self.config_manager.get_image_settings(self.feed_name)
-        
+
         if not image_settings or not image_settings.get('enable_link_cards', False):
             return None
-            
+
         strategies = image_settings.get('image_strategy', ['featured_image', 'og_image', 'default'])
-        
+
         for strategy in strategies:
             try:
                 if strategy == 'featured_image':
@@ -194,22 +196,22 @@ class ArticleManager:
                     image_url = image_settings.get('default_image')
                 else:
                     continue
-                    
+
                 if debug:
                     print(f"[DEBUG] 戦略 '{strategy}' で取得した画像URL: {image_url}")
-                
+
                 if image_url and self._is_valid_image(image_url, image_settings):
                     if debug:
                         print(f"記事 '{entry.title[:30]}...' の画像を取得しました ({strategy}): {image_url}")
                     return image_url
-                    
+
             except Exception as e:
                 if debug:
                     print(f"画像取得エラー ({strategy}): {e}")
                 continue
-                
+
         return None
-    
+
     def _get_featured_image(self, entry):
         """
         RSS/AtomフィードからfeaturedImage（enclosureやmedia:content）を取得
@@ -219,15 +221,15 @@ class ArticleManager:
             for enclosure in entry.enclosures:
                 if enclosure.type and 'image' in enclosure.type:
                     return enclosure.href
-        
+
         # media:contentタグから画像を検索
         if hasattr(entry, 'media_content') and entry.media_content:
             for media in entry.media_content:
                 if media.get('type') and 'image' in media['type']:
                     return media.get('url')
-                    
+
         return None
-    
+
     def _get_first_content_image(self, entry, debug=False):
         """
         記事本文から最初の画像を取得
@@ -241,17 +243,17 @@ class ArticleManager:
             content = entry.summary
             if debug:
                 print(f"[DEBUG] RSSフィードのsummary: {content[:500]}...")
-            
+
         if not content:
             if debug:
-                print(f"[DEBUG] RSSフィードにcontent/summaryが存在しません")
+                print("[DEBUG] RSSフィードにcontent/summaryが存在しません")
             return None
-            
+
         soup = BeautifulSoup(content, 'html.parser')
         img_tags = soup.find_all('img')
         if debug:
             print(f"[DEBUG] RSSコンテンツから検出された画像タグ数: {len(img_tags)}")
-        
+
         for i, img in enumerate(img_tags):
             src = img.get('src')
             if debug:
@@ -262,11 +264,11 @@ class ArticleManager:
                 if debug:
                     print(f"[DEBUG] 変換された絶対URL: {absolute_url}")
                 return absolute_url
-                
+
         if debug:
-            print(f"[DEBUG] RSSコンテンツに有効な画像が見つかりませんでした")
+            print("[DEBUG] RSSコンテンツに有効な画像が見つかりませんでした")
         return None
-    
+
     def _get_og_image(self, article_url, debug=False):
         """
         記事ページからOGP画像を取得
@@ -280,27 +282,27 @@ class ArticleManager:
             response.raise_for_status()
             if debug:
                 print(f"[DEBUG] ページアクセス成功、HTMLサイズ: {len(response.text)} 文字")
-            
+
             soup = BeautifulSoup(response.text, 'html.parser')
-            
+
             # OGP画像を検索
             og_image = soup.find('meta', property='og:image')
             if debug:
                 print(f"[DEBUG] OGP画像タグ: {og_image}")
-            
+
             if og_image and og_image.get('content'):
                 og_image_url = urljoin(article_url, og_image['content'])
                 if debug:
                     print(f"[DEBUG] OGP画像URL: {og_image_url}")
                 return og_image_url
-            
+
             # OGPが見つからない場合、記事内の最初の画像を探してみる
             if debug:
-                print(f"[DEBUG] OGP画像が見つからないため、記事内の画像を検索")
+                print("[DEBUG] OGP画像が見つからないため、記事内の画像を検索")
             img_tags = soup.find_all('img')
             if debug:
                 print(f"[DEBUG] 記事ページ内の画像タグ数: {len(img_tags)}")
-            
+
             for i, img in enumerate(img_tags):
                 src = img.get('src')
                 if src:
@@ -311,13 +313,13 @@ class ArticleManager:
                         print(f"[DEBUG] 変換後の絶対URL: {absolute_url}")
                     # 最初に見つかった画像を返す（これは本来first_content_imageの役割だが、補助として）
                     return absolute_url
-                
+
         except Exception as e:
             if debug:
                 print(f"[DEBUG] OGP画像取得エラー: {e}")
-            
+
         return None
-    
+
     def _is_valid_image(self, image_url, image_settings):
         """
         画像URLが有効かどうかをチェック
@@ -331,22 +333,22 @@ class ArticleManager:
         """
         if not image_url:
             return False
-            
+
         # 除外ドメインチェック
         filters = image_settings.get('image_filters', {})
         exclude_domains = filters.get('exclude_domains', [])
-        
+
         parsed_url = urlparse(image_url)
         domain = parsed_url.netloc.lower()
-        
+
         for exclude_domain in exclude_domains:
             if exclude_domain.lower() in domain:
                 return False
-                
+
         # 画像サイズチェック（オプション）
         min_width = filters.get('min_width', 0)
         min_height = filters.get('min_height', 0)
-        
+
         if min_width > 0 or min_height > 0:
             try:
                 response = requests.head(image_url, timeout=5, headers={
@@ -358,9 +360,9 @@ class ArticleManager:
                         return True
             except Exception:
                 pass
-                
+
         return True
-    
+
     def _parse_published_date(self, entry):
         """
         フィードエントリーから日付を解析します
@@ -378,7 +380,7 @@ class ArticleManager:
                 return datetime.fromtimestamp(time.mktime(entry.published_parsed), tz=timezone.utc)
             except (ValueError, TypeError, OverflowError):
                 pass
-        
+
         # published_parsedが無い場合は文字列をパース
         if hasattr(entry, 'published'):
             try:
@@ -390,18 +392,18 @@ class ArticleManager:
                     return datetime.fromisoformat(entry.published.replace('Z', '+00:00'))
                 except ValueError:
                     pass
-        
+
         # 日付が取得できない場合はUnix epochを返す（古い日付として扱われる）
         return datetime.fromtimestamp(0, tz=timezone.utc)
 
 
 class MultiArticleManager:
     """複数フィードを管理するクラス"""
-    
+
     def __init__(self, config_manager: ConfigManager):
         self.config_manager = config_manager
         self.feed_configs = self.config_manager.get_all_feed_configs()
-        
+
     def get_all_new_articles(self, debug=False, limit=None, feed_filter=None):
         """
         全フィードから新着記事を取得します
@@ -415,31 +417,31 @@ class MultiArticleManager:
             dict: フィード名をキーとした新着記事辞書
         """
         all_new_articles = {}
-        
+
         for feed_config in self.feed_configs:
             feed_name = feed_config.get('name', 'default')
-            
+
             # フィルターが指定されている場合はチェック
             if feed_filter and feed_name not in feed_filter:
                 continue
-                
+
             if debug:
                 print(f"フィード '{feed_name}' を処理中...")
-                
+
             # フィード別のArticleManagerを作成
             article_manager = ArticleManager(self.config_manager, feed_name)
-            
+
             # フィード別のデータファイルを読み込み
             saved_articles = self.load_saved_articles_for_feed(feed_name)
-            
+
             # 最新記事を取得
             latest_articles = article_manager.get_latest_articles(debug)
-            
+
             # 新着記事を特定
             new_articles = article_manager.get_new_articles(
                 latest_articles, saved_articles, debug, limit
             )
-            
+
             if new_articles:
                 all_new_articles[feed_name] = {
                     'articles': new_articles,
@@ -450,9 +452,9 @@ class MultiArticleManager:
                     print(f"フィード '{feed_name}': {len(new_articles)}件の新着記事")
             elif debug:
                 print(f"フィード '{feed_name}': 新着記事なし")
-                
+
         return all_new_articles
-    
+
     def load_saved_articles_for_feed(self, feed_name):
         """
         フィード別の保存済み記事を読み込みます
@@ -464,22 +466,22 @@ class MultiArticleManager:
             list: 保存済み記事のリスト
         """
         feed_data_file = f"data/articles_{feed_name}.json"
-        
+
         # フィード別ファイルが存在する場合
         if os.path.exists(feed_data_file):
             with open(feed_data_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        
+
         # 従来の共通ファイルから該当フィードの記事を取得（移行用）
         if os.path.exists(DATA_FILE):
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 all_articles = json.load(f)
                 # feed_nameが一致する記事のみを返す
-                return [article for article in all_articles 
+                return [article for article in all_articles
                        if article.get('feed_name') == feed_name]
-        
+
         return []
-    
+
     def save_articles_for_feed(self, feed_name, articles):
         """
         フィード別に記事を保存します
@@ -491,16 +493,16 @@ class MultiArticleManager:
         # 保存前に_feed_entryとpublished_parsedを削除（JSONシリアライズエラー回避）
         clean_articles = []
         for article in articles:
-            clean_article = {k: v for k, v in article.items() 
+            clean_article = {k: v for k, v in article.items()
                            if k not in ('_feed_entry', 'published_parsed')}
             clean_articles.append(clean_article)
-        
+
         feed_data_file = f"data/articles_{feed_name}.json"
         os.makedirs(os.path.dirname(feed_data_file), exist_ok=True)
-        
+
         with open(feed_data_file, 'w', encoding='utf-8') as f:
             json.dump(clean_articles, f, indent=4, ensure_ascii=False)
-    
+
     def save_all_articles(self, all_new_articles_data):
         """
         全フィードの記事を保存します

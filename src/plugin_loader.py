@@ -18,7 +18,7 @@ def load_plugins(config_manager, sns_names=None, force_sensitive=None, dry_run=F
     """
     plugins = {}
     sns_configs = config_manager.get_all_sns_configs()
-    
+
     # フィルタリング対象の名前セットを作成
     target_names = set(sns_names) if sns_names else None
 
@@ -31,25 +31,25 @@ def load_plugins(config_manager, sns_names=None, force_sensitive=None, dry_run=F
             # フィルタリング
             if target_names and plugin_name not in target_names:
                 continue
-            
+
             if not plugin_type:
                 print(f"SNS設定でtypeが指定されていません: {sns_config}")
                 continue
-                
+
             try:
                 # プラグインモジュールを読み込み
                 module = importlib.import_module(f"{PLUGINS_DIR}.{plugin_type}")
                 # クラス名をプラグイン名から推測 (例: x -> X)
                 class_name = plugin_type.capitalize()
                 plugin_class = getattr(module, class_name)
-                
+
                 # name以外の設定をプラグインコンストラクタに渡す
                 plugin_init_config = {k: v for k, v in sns_config.items() if k not in ('type', 'name')}
-                
+
                 # Misskeyプラグインの場合、force_sensitiveが指定されていれば上書き
                 if plugin_type == 'misskey' and force_sensitive is not None:
                     plugin_init_config['is_sensitive'] = force_sensitive
-                
+
                 # 特別な初期化が必要なプラグインの処理
                 if plugin_type == 'bluesky':
                     plugin_instance = plugin_class(config=config_manager.config, dry_run=dry_run, **plugin_init_config)
@@ -65,19 +65,19 @@ def load_plugins(config_manager, sns_names=None, force_sensitive=None, dry_run=F
                     )
                 else:
                     plugin_instance = plugin_class(**plugin_init_config)
-                
+
                 # プラグインインスタンスにname属性を設定
                 plugin_instance.name = plugin_name
                 plugin_instance.sns_type = plugin_type
-                
+
                 plugins[plugin_name] = plugin_instance
-                
+
             except Exception as e:
                 import traceback
                 print(f"プラグイン {plugin_type}（名前: {plugin_name}）の読み込み中にエラーが発生しました: {e}")
                 print("詳細なエラー情報:")
                 traceback.print_exc()
-                
+
     elif isinstance(sns_configs, dict):
         # オブジェクト形式の設定処理（後方互換性）
         for plugin_name, plugin_config in sns_configs.items():
@@ -90,25 +90,25 @@ def load_plugins(config_manager, sns_names=None, force_sensitive=None, dry_run=F
                 # クラス名をプラグイン名から推測 (例: x -> X)
                 class_name = plugin_name.capitalize()
                 plugin_class = getattr(module, class_name)
-                
+
                 # Misskeyプラグインの場合、force_sensitiveが指定されていれば上書き
                 if plugin_name == 'misskey' and force_sensitive is not None:
                     plugin_config = plugin_config.copy()  # 元の設定を変更しないようにコピー
                     plugin_config['is_sensitive'] = force_sensitive
-                
+
                 # Blueskyプラグインの場合、設定情報も渡す
                 if plugin_name == 'bluesky':
                     plugin_instance = plugin_class(config=config_manager.config, dry_run=dry_run, **plugin_config)
                 else:
                     plugin_instance = plugin_class(**plugin_config)
-                
+
                 # プラグインインスタンスにname属性を設定
                 plugin_instance.name = plugin_name
                 plugin_instance.sns_type = plugin_name
-                
+
                 plugins[plugin_name] = plugin_instance
-                
+
             except Exception as e:
                 print(f"プラグイン {plugin_name} の読み込み中にエラーが発生しました: {e}")
-    
+
     return plugins

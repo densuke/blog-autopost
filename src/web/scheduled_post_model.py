@@ -1,7 +1,7 @@
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional
-import uuid
 
 from src.web.timezone_utils import ensure_local_timezone, now_local
 

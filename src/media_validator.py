@@ -10,11 +10,11 @@
 - 投稿前のバリデーション結果レポート
 """
 
-import os
 import mimetypes
-from typing import List, Optional, Dict, Any
+import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 
 class ValidationError(Exception):
@@ -30,7 +30,7 @@ class MediaFile:
     extension: str
     size: int
     mime_type: Optional[str] = None
-    
+
     def __init__(self, file_path: str):
         """
         メディアファイルを初期化します
@@ -44,25 +44,25 @@ class MediaFile:
         """
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"ファイルが見つかりません: {file_path}")
-        
+
         self.path = file_path
         self.size = os.path.getsize(file_path)
         self.extension = Path(file_path).suffix.lower()
         self.mime_type, _ = mimetypes.guess_type(file_path)
-        
+
         # ファイル種別を判定
         self.file_type = self._determine_file_type()
-        
+
         # 対応形式チェック
         if not self._is_supported_format():
             raise ValidationError(f"未対応のファイル形式です: {self.extension}")
-    
+
     def _determine_file_type(self) -> str:
         """ファイル種別を判定します"""
         image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
         video_extensions = {'.mp4', '.mov', '.webm', '.avi'}
         audio_extensions = {'.mp3', '.m4a', '.aac', '.wav', '.ogg', '.flac'}
-        
+
         if self.extension in image_extensions:
             return 'image'
         elif self.extension in video_extensions:
@@ -71,7 +71,7 @@ class MediaFile:
             return 'audio'
         else:
             return 'unknown'
-    
+
     def _is_supported_format(self) -> bool:
         """対応形式かどうかをチェックします"""
         supported_extensions = {
@@ -82,29 +82,29 @@ class MediaFile:
         return self.extension in supported_extensions
 
 
-@dataclass 
+@dataclass
 class ValidationResult:
     """検証結果を格納するクラス"""
     is_valid: bool
     errors: List[str]
     warnings: List[str]
     converted_files: Dict[str, str]  # 変換されたファイルのマッピング
-    
+
     def __init__(self):
         self.is_valid = True
         self.errors = []
         self.warnings = []
         self.converted_files = {}
-    
+
     def add_error(self, message: str):
         """エラーを追加します"""
         self.errors.append(message)
         self.is_valid = False
-    
+
     def add_warning(self, message: str):
         """警告を追加します"""
         self.warnings.append(message)
-    
+
     def add_conversion(self, original_path: str, converted_path: str):
         """変換ファイル情報を追加します"""
         self.converted_files[original_path] = converted_path
@@ -112,7 +112,7 @@ class ValidationResult:
 
 class MediaValidator:
     """メディアファイルの検証を行うクラス"""
-    
+
     # SNS別の制限設定
     SNS_LIMITS = {
         'x': {
@@ -148,7 +148,7 @@ class MediaValidator:
             'max_file_size_mb': 10
         }
     }
-    
+
     def validate_files(self, file_paths: List[str]) -> List[MediaFile]:
         """
         ファイルパスリストからMediaFileリストを作成・検証します
@@ -163,16 +163,16 @@ class MediaValidator:
             ValidationError: ファイル検証エラー
         """
         media_files = []
-        
+
         for file_path in file_paths:
             try:
                 media_file = MediaFile(file_path)
                 media_files.append(media_file)
             except (FileNotFoundError, ValidationError) as e:
                 raise ValidationError(f"ファイル '{file_path}': {str(e)}")
-        
+
         return media_files
-    
+
     def validate_for_sns(self, media_files: List[MediaFile], sns_type: str) -> ValidationResult:
         """
         指定されたSNSに対してメディアファイルを検証します
@@ -185,48 +185,48 @@ class MediaValidator:
             ValidationResult: 検証結果
         """
         result = ValidationResult()
-        
+
         if sns_type not in self.SNS_LIMITS:
             result.add_error(f"未対応のSNS種別です: {sns_type}")
             return result
-        
+
         limits = self.SNS_LIMITS[sns_type]
-        
+
         # ファイル種別別にカウント
         images = [f for f in media_files if f.file_type == 'image']
         videos = [f for f in media_files if f.file_type == 'video']
         audios = [f for f in media_files if f.file_type == 'audio']
-        
+
         # 基本制限チェック
         self._check_file_count_limits(result, images, videos, audios, limits, sns_type)
-        
+
         # 混在制限チェック
         self._check_mixed_media_limits(result, images, videos, audios, limits, sns_type)
-        
+
         # ファイルサイズ制限チェック
         self._check_file_size_limits(result, media_files, limits, sns_type)
-        
+
         # SNS固有の制限チェック
         self._check_sns_specific_limits(result, images, videos, audios, sns_type)
-        
+
         return result
-    
-    def _check_file_count_limits(self, result: ValidationResult, images: List[MediaFile], 
-                                videos: List[MediaFile], audios: List[MediaFile], 
+
+    def _check_file_count_limits(self, result: ValidationResult, images: List[MediaFile],
+                                videos: List[MediaFile], audios: List[MediaFile],
                                 limits: Dict[str, Any], sns_type: str):
         """ファイル数制限をチェックします"""
-        
+
         # 画像数チェック
         if len(images) > limits['max_images']:
             result.add_error(f"{sns_type.upper()} では画像は最大{limits['max_images']}枚までです（現在: {len(images)}枚）")
-        
+
         # 動画数チェック
         if len(videos) > limits['max_videos']:
             if limits['max_videos'] == 0:
                 result.add_error(f"{sns_type.upper()} では動画に対応していません")
             else:
                 result.add_error(f"{sns_type.upper()} では動画は最大{limits['max_videos']}本までです（現在: {len(videos)}本）")
-        
+
         # 音声数チェック
         if len(audios) > limits['max_audio']:
             if limits['max_audio'] == 0 and sns_type == 'x':
@@ -237,18 +237,18 @@ class MediaValidator:
                 result.add_error(f"{sns_type.upper()} では音声ファイルに対応していません")
             else:
                 result.add_error(f"{sns_type.upper()} では音声は最大{limits['max_audio']}個までです（現在: {len(audios)}個）")
-        
+
         # 合計数チェック（MastodonとMisskey）
         if 'max_total' in limits:
             total_files = len(images) + len(videos) + len(audios)
             if total_files > limits['max_total']:
                 result.add_error(f"{sns_type.upper()} では最大{limits['max_total']}個までのファイルを添付できます（現在: {total_files}個）")
-    
-    def _check_mixed_media_limits(self, result: ValidationResult, images: List[MediaFile], 
-                                 videos: List[MediaFile], audios: List[MediaFile], 
+
+    def _check_mixed_media_limits(self, result: ValidationResult, images: List[MediaFile],
+                                 videos: List[MediaFile], audios: List[MediaFile],
                                  limits: Dict[str, Any], sns_type: str):
         """混在メディア制限をチェックします"""
-        
+
         if not limits['allow_mixed']:
             file_types = []
             if images:
@@ -259,20 +259,20 @@ class MediaValidator:
                 file_types.append('音声')
             elif audios and sns_type != 'x':  # X以外では音声変換なし
                 file_types.append('音声')
-            
+
             if len(file_types) > 1:
                 result.add_error(f"{sns_type.upper()} では{' と '.join(file_types)}を同時に投稿できません")
-    
-    def _check_file_size_limits(self, result: ValidationResult, media_files: List[MediaFile], 
+
+    def _check_file_size_limits(self, result: ValidationResult, media_files: List[MediaFile],
                                limits: Dict[str, Any], sns_type: str):
         """ファイルサイズ制限をチェックします"""
-        
+
         max_size_mb = limits.get('max_file_size_mb', 10)
         max_video_size_mb = limits.get('max_video_size_mb', max_size_mb)
-        
+
         for media_file in media_files:
             size_mb = media_file.size / (1024 * 1024)
-            
+
             if media_file.file_type == 'video':
                 if size_mb > max_video_size_mb:
                     result.add_error(f"動画ファイル '{media_file.path}' のサイズが制限を超えています "
@@ -281,20 +281,20 @@ class MediaValidator:
                 if size_mb > max_size_mb:
                     result.add_error(f"ファイル '{media_file.path}' のサイズが制限を超えています "
                                    f"({size_mb:.1f}MB > {max_size_mb}MB)")
-    
-    def _check_sns_specific_limits(self, result: ValidationResult, images: List[MediaFile], 
+
+    def _check_sns_specific_limits(self, result: ValidationResult, images: List[MediaFile],
                                   videos: List[MediaFile], audios: List[MediaFile], sns_type: str):
         """SNS固有の制限をチェックします"""
-        
+
         if sns_type == 'x':
             # Xでは画像と動画の同時投稿不可
             if images and videos:
                 result.add_error("X では画像と動画を同時に投稿できません")
-            
+
             # 動画は1本まで
             if len(videos) > 1:
                 result.add_error("X では動画は1本までです")
-        
+
         elif sns_type == 'bluesky':
             # Blueskyは画像のみ
             if videos:
@@ -318,13 +318,13 @@ def validate_media_for_posting(file_paths: List[str], target_sns: List[str]) -> 
         ValidationError: ファイル検証エラー
     """
     validator = MediaValidator()
-    
+
     # MediaFileリストを作成
     media_files = validator.validate_files(file_paths)
-    
+
     # SNS別に検証
     results = {}
     for sns_type in target_sns:
         results[sns_type] = validator.validate_for_sns(media_files, sns_type)
-    
+
     return results

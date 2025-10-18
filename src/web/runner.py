@@ -1,4 +1,5 @@
 import uvicorn
+
 from ..config_manager import ConfigManager
 
 if __name__ == "__main__":
@@ -10,8 +11,8 @@ if __name__ == "__main__":
 
     # Uvicornを起動
     uvicorn.run(
-        "src.web.main_web:app", 
-        host=host, 
-        port=port, 
+        "src.web.main_web:app",
+        host=host,
+        port=port,
         reload=True
     )
