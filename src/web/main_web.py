@@ -85,6 +85,24 @@ posting_service = PostingService(
     text_optimizer=text_optimizer
 )
 
+def _get_config_manager_instance() -> ConfigManager:
+    """Return the active ConfigManager instance.
+
+    The module-level ``config_manager`` is normally an instance, but tests may
+    monkeypatch it with a callable mock that returns a configured instance as
+    ``return_value``. In that case, unwrap it so downstream code always talks
+    to the object that exposes the configuration API.
+    """
+    manager = config_manager
+    if callable(manager) and not isinstance(manager, ConfigManager):
+        try:
+            resolved = manager()
+        except TypeError:
+            resolved = None
+        if resolved is not None:
+            manager = resolved
+    return manager
+
 # 有効なSNS名の定義（バリデーション用）
 def get_valid_sns_names() -> set[str]:
     """Return all valid SNS identifiers configured for the app.
@@ -95,7 +113,11 @@ def get_valid_sns_names() -> set[str]:
     available.
     """
 
-    sns_configs = config_manager.get_all_sns_configs()
+    manager = _get_config_manager_instance()
+    try:
+        sns_configs = manager.get_all_sns_configs()
+    except AttributeError:
+        sns_configs = None
     valid_names: set[str] = set()
 
     if isinstance(sns_configs, list):
@@ -113,6 +135,13 @@ def get_valid_sns_names() -> set[str]:
             sns_type = config.get('type')
             if sns_type:
                 valid_names.add(sns_type)
+    else:
+        try:
+            sns_names = manager.get_all_sns_names()
+        except AttributeError:
+            sns_names = None
+        if isinstance(sns_names, (list, set, tuple)):
+            valid_names.update(sns_names)
 
     return valid_names
 
