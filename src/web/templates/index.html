@@ -692,7 +692,42 @@
             white-space: nowrap;
         }
 
-        @media (max-width: 640px) {
+        /* ==================== SNS投稿ステータスインジケータ ==================== */
+        .sns-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 0;
+        }
+
+        .sns-status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 16px;
+            min-width: 40px;
+            justify-content: flex-end;
+            white-space: nowrap;
+        }
+
+        .sns-status-indicator.loading::after {
+            content: '';
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--ion-color-medium);
+            border-top: 2px solid var(--ion-color-primary);
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        @media \(max-width: 640px\) {
             .submit-group {
                 flex-direction: column;
                 gap: 8px;
@@ -863,9 +898,9 @@
                         <ion-item>
                             <ion-label>投稿先SNS</ion-label>
                         </ion-item>
-                        <ion-list>
+                                                <ion-list>
                             {% for account in sns_accounts %}
-                            <ion-item button="true">
+                            <ion-item button="true" class="sns-item">
                                 <ion-checkbox 
                                     slot="start"
                                     id="sns_{{ account.name }}" 
@@ -874,6 +909,7 @@
                                     data-limit="{% if account.type == 'x' %}280{% elif account.type == 'bluesky' %}300{% elif account.type == 'mastodon' %}500{% elif account.type == 'misskey' %}3000{% else %}9999{% endif %}">
                                 </ion-checkbox>
                                 <ion-label>{{ account.name }} ({{ account.type }})</ion-label>
+                                <div slot="end" class="sns-status-indicator" id="status_{{ account.name }}"></div>
                             </ion-item>
                             {% endfor %}
                         </ion-list>
@@ -1737,6 +1773,13 @@
                 checkbox.checked = false;
             });
 
+            // SNSステータスインジケータをクリア
+            document.querySelectorAll('.sns-status-indicator').forEach(indicator => {
+                indicator.classList.remove('loading');
+                indicator.innerHTML = '';
+                indicator.style.color = '';
+            });
+
             // 画像プレビューをクリア
             uploadedFiles.length = 0;
             const previewArea = document.getElementById('preview-area');
@@ -1824,6 +1867,7 @@
 
             const formData = new FormData();
             const textArea = document.getElementById('text');
+            const selectedSns = [];
             
             if (isScheduled) {
                 formData.append('content', textArea.value);
@@ -1836,6 +1880,7 @@
                 document.querySelectorAll('ion-checkbox[name="sns_targets"]').forEach(checkbox => {
                     if (checkbox.checked) {
                         formData.append('target_sns', checkbox.value);
+                        selectedSns.push(checkbox.value);
                     }
                 });
             } else {
@@ -1844,12 +1889,22 @@
                 document.querySelectorAll('ion-checkbox[name="sns_targets"]').forEach(checkbox => {
                     if (checkbox.checked) {
                         formData.append('sns_targets', checkbox.value);
+                        selectedSns.push(checkbox.value);
                     }
                 });
             }
 
             uploadedFiles.forEach(file => {
                 formData.append('media_files', file);
+            });
+
+            // 各SNSのステータスインジケータを初期化（送信中状態に）
+            selectedSns.forEach(sns => {
+                const indicator = document.getElementById(`status_${sns}`);
+                if (indicator) {
+                    indicator.innerHTML = '';
+                    indicator.classList.add('loading');
+                }
             });
 
             fetch(endpoint, { method: 'POST', body: formData })
@@ -1861,6 +1916,14 @@
                 statusMessages.innerHTML = '';
                 if (data.error) {
                     statusMessages.innerHTML = `<ion-text color="danger"><p>❌ エラー: ${data.error}</p></ion-text>`;
+                    // エラー時は全SNSのステータスをクリア
+                    selectedSns.forEach(sns => {
+                        const indicator = document.getElementById(`status_${sns}`);
+                        if (indicator) {
+                            indicator.classList.remove('loading');
+                            indicator.innerHTML = '❌';
+                        }
+                    });
                     return;
                 }
 
@@ -1868,9 +1931,18 @@
                     showToast('予約投稿を作成しました。', 'success');
                     setTimeout(() => location.reload(), 1000);
                 } else {
-                    // 即時投稿の場合：投稿成功後にデータベースに記録
+                    // 即時投稿の場合：各SNSの結果を個別に表示
                     let successCount = 0;
                     for (const [sns, result] of Object.entries(data)) {
+                        // SNS別ステータスインジケータを更新
+                        const indicator = document.getElementById(`status_${sns}`);
+                        if (indicator) {
+                            indicator.classList.remove('loading');
+                            indicator.innerHTML = result.success ? '✅' : '❌';
+                            indicator.style.color = result.success ? 'var(--ion-color-success)' : 'var(--ion-color-danger)';
+                        }
+
+                        // ステータスメッセージ（全体）にも追加
                         const text = document.createElement('ion-text');
                         text.color = result.success ? 'success' : 'danger';
                         const p = document.createElement('p');
@@ -1893,6 +1965,14 @@
             })
             .catch(error => {
                 statusMessages.innerHTML = `<ion-text color="danger"><p>❌ 送信中にエラーが発生しました: ${error}</p></ion-text>`;
+                // エラー時は全SNSのステータスをクリア
+                selectedSns.forEach(sns => {
+                    const indicator = document.getElementById(`status_${sns}`);
+                    if (indicator) {
+                        indicator.classList.remove('loading');
+                        indicator.innerHTML = '❌';
+                    }
+                });
             });
         }
 
