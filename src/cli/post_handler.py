@@ -11,8 +11,12 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..config_manager import ConfigManager
-from ..plugin_loader import load_plugins
-from .media_handler import extract_image_from_url, process_media_files
+import src.plugin_loader
+import src.cli.media_handler
+
+# テスト用に process_media_files を再エクスポート
+from src.cli.media_handler import process_media_files as _process_media_files
+process_media_files = _process_media_files
 
 
 def handle_list_sns(config_manager: ConfigManager) -> None:
@@ -123,7 +127,7 @@ def validate_and_filter_plugins(args, config_manager: ConfigManager) -> Optional
 
     # プラグインを読み込み
     if not args.dry_run:
-        all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None, dry_run=args.dry_run)
+        all_plugins = src.plugin_loader.load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None, dry_run=args.dry_run)
 
         # SNS限定がある場合はフィルタリング
         if target_sns:
@@ -171,14 +175,14 @@ def execute_sns_posting(original_text: str, media_files: Optional[List[str]],
 
     # ドライラン時は警告用に仮のプラグイン情報を作成
     if args.dry_run and target_sns:
-        all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None, dry_run=args.dry_run)
+        all_plugins = src.plugin_loader.load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None, dry_run=args.dry_run)
         plugins_for_warning = {}
         for plugin_name, plugin_instance in all_plugins.items():
             sns_type = getattr(plugin_instance, 'sns_type', None) or plugin_name.split('-')[0]
             if plugin_name in target_sns or sns_type in target_sns:
                 plugins_for_warning[plugin_name] = plugin_instance
     elif args.dry_run:
-        plugins_for_warning = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None)
+        plugins_for_warning = src.plugin_loader.load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None)
     else:
         plugins_for_warning = plugins
 
@@ -209,7 +213,7 @@ def execute_sns_posting(original_text: str, media_files: Optional[List[str]],
                     title_part = original_text.replace(url, '').strip()
 
                     # URLから画像を取得
-                    image_url = extract_image_from_url(url, debug=args.debug)
+                    image_url = src.cli.media_handler.extract_image_from_url(url, debug=args.debug)
 
                 # 最適化が有効な場合はSNS別に最適化されたテキストを使用
                 optimized_text_to_post = original_text
@@ -230,7 +234,7 @@ def execute_sns_posting(original_text: str, media_files: Optional[List[str]],
                 if urls and hasattr(plugin_instance, 'supports_rich_content') and plugin_instance.supports_rich_content():
                     url = urls[-1]
                     title_part = original_text.replace(url, '').strip()
-                    image_url = extract_image_from_url(url, debug=args.debug)
+                    image_url = src.cli.media_handler.extract_image_from_url(url, debug=args.debug)
                     article_data_to_post = {
                         'title': title_part if title_part else 'ブログ記事',
                         'link': url,
@@ -251,7 +255,7 @@ def execute_sns_posting(original_text: str, media_files: Optional[List[str]],
         if target_sns:
             print(f"- 投稿対象: {', '.join(target_sns)}")
         else:
-            all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None, dry_run=args.dry_run)
+            all_plugins = src.plugin_loader.load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None, dry_run=args.dry_run)
             print(f"- 投稿対象: {', '.join(all_plugins.keys())}")
         print("[ドライラン] 直接投稿をシミュレートしました。")
 

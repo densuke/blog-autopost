@@ -9,9 +9,9 @@ RSS/Atomフィードの一覧表示・監視・処理を担当
 
 from typing import Any, Dict, List
 
-from ..article_manager import ArticleManager, MultiArticleManager
+import src.article_manager
+import src.plugin_loader
 from ..config_manager import ConfigManager
-from ..plugin_loader import load_plugins
 
 
 def handle_list_feeds(config_manager: ConfigManager) -> None:
@@ -63,7 +63,7 @@ def handle_touch_rss_posted(args, config_manager: ConfigManager) -> None:
         return
 
     print("RSSフィードのアイテムをすべて投稿済みとしてマークします。")
-    article_manager = ArticleManager(config_manager)
+    article_manager = src.article_manager.ArticleManager(config_manager)
     result = article_manager.force_mark_all_as_posted()
     if result.get('status') == 'success':
         print(f"処理が完了しました。処理された記事数: {result.get('processed_count', 0)}")
@@ -82,12 +82,14 @@ def process_rss_feeds(args, config_manager: ConfigManager) -> None:
     # 複数フィード対応の確認
     feed_configs = config_manager.get_all_feed_configs()
 
-    if len(feed_configs) > 1 or (len(feed_configs) == 1 and feed_configs[0].get('name') != 'default'):
+    # 単一フィード処理（従来通り）の条件:
+    # - フィードが1つだけで、名前が'default'の場合
+    # - または、フィードが空の場合（下位互換性）
+    if len(feed_configs) == 0 or (len(feed_configs) == 1 and feed_configs[0].get('name') == 'default'):
+        _process_single_feed(args, config_manager)
+    else:
         # 複数フィード処理
         _process_multi_feeds(args, config_manager, feed_configs)
-    else:
-        # 単一フィード処理（従来通り）
-        _process_single_feed(args, config_manager)
 
 
 def _process_multi_feeds(args, config_manager: ConfigManager, feed_configs: List[Dict[str, Any]]) -> None:
@@ -99,7 +101,7 @@ def _process_multi_feeds(args, config_manager: ConfigManager, feed_configs: List
         config_manager: 設定管理インスタンス
         feed_configs: フィード設定リスト
     """
-    multi_article_manager = MultiArticleManager(config_manager)
+    multi_article_manager = src.article_manager.MultiArticleManager(config_manager)
 
     # フィード限定オプションの処理
     feed_filter = None
@@ -121,7 +123,7 @@ def _process_multi_feeds(args, config_manager: ConfigManager, feed_configs: List
 
         # プラグインを読み込み
         if not args.dry_run:
-            all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None, dry_run=args.dry_run)
+            all_plugins = src.plugin_loader.load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None, dry_run=args.dry_run)
 
             # SNS限定がある場合はフィルタリング
             if args.sns:
@@ -152,7 +154,7 @@ def _process_multi_feeds(args, config_manager: ConfigManager, feed_configs: List
                 print(f"\n--- フィード: {feed_name} ({len(articles)}件) ---")
 
             # フィード別のArticleManagerを作成（投稿テキスト生成用）
-            feed_article_manager = ArticleManager(config_manager, feed_name)
+            feed_article_manager = src.article_manager.ArticleManager(config_manager, feed_name)
 
             for article in articles:
                 if not args.dry_run:
@@ -193,14 +195,14 @@ def _process_single_feed(args, config_manager: ConfigManager) -> None:
         args: コマンドライン引数
         config_manager: 設定管理インスタンス
     """
-    article_manager = ArticleManager(config_manager)
+    article_manager = src.article_manager.ArticleManager(config_manager)
 
-    if args.debug:
+    if hasattr(args, 'debug') and args.debug:
         print(f"フィードURL: {article_manager.feed_url}")
 
-    latest_articles = article_manager.get_latest_articles(args.debug)
+    latest_articles = article_manager.get_latest_articles(hasattr(args, 'debug') and args.debug)
     saved_articles = article_manager.load_saved_articles()
-    new_articles = article_manager.get_new_articles(latest_articles, saved_articles, args.debug, args.limit)
+    new_articles = article_manager.get_new_articles(latest_articles, saved_articles, hasattr(args, 'debug') and args.debug, args.limit if hasattr(args, 'limit') else None)
 
     if new_articles:
         if args.limit:
@@ -210,7 +212,7 @@ def _process_single_feed(args, config_manager: ConfigManager) -> None:
 
         # プラグインを読み込み
         if not args.dry_run:
-            all_plugins = load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None, dry_run=args.dry_run)
+            all_plugins = src.plugin_loader.load_plugins(config_manager, force_sensitive=args.sensitive if hasattr(args, 'sensitive') else None, dry_run=args.dry_run)
 
             # SNS限定がある場合はフィルタリング
             if args.sns:
