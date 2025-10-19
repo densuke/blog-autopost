@@ -5,7 +5,8 @@ import pytest
 import json
 from unittest.mock import patch
 
-from src.web.main_web import app, get_current_user, scheduler_service, config_manager
+from src.web.main_web import app
+from src.web.dependencies import get_current_user, get_scheduler_service, get_config_manager
 from src.web.scheduled_post_model import ScheduledPost
 
 # TestClientのインスタンスを作成
@@ -29,6 +30,8 @@ def override_get_current_user():
 app.dependency_overrides[get_current_user] = override_get_current_user
 
 # config_managerのget_all_sns_namesをモック
+config_manager = get_config_manager()
+scheduler_service = get_scheduler_service()
 original_get_all_sns_names = config_manager.get_all_sns_names
 
 def mock_get_all_sns_names():
@@ -53,9 +56,9 @@ def setup_test_database(monkeypatch):
     
     # scheduled_post_store を再初期化（テスト用DB を使用）
     from src.web.scheduled_post_store_sqlite import ScheduledPostStoreSQLite
-    from src.web import main_web
-    
-    main_web.scheduled_post_store = ScheduledPostStoreSQLite(test_db_path)
+    from src.web import dependencies
+
+    dependencies._scheduled_post_store = ScheduledPostStoreSQLite(test_db_path)
     
     yield
     
@@ -81,7 +84,8 @@ def pre_existing_post(sample_post_data, setup_test_database):
     """
     事前に存在する予約投稿を作成し、ストアに保存します。
     """
-    from src.web.main_web import scheduled_post_store
+    from src.web.dependencies import get_scheduled_post_store
+    scheduled_post_store = get_scheduled_post_store()
     
     post = ScheduledPost(
         scheduled_at=datetime.fromisoformat(sample_post_data["scheduled_at"]),
@@ -234,7 +238,8 @@ def test_update_scheduled_post_conflict_executed(pre_existing_post, setup_test_d
     実行済みの予約投稿を更新しようとした場合に409を返すことを確認します。
     """
     # DB にステータスを更新
-    from src.web.main_web import scheduled_post_store
+    from src.web.dependencies import get_scheduled_post_store
+    scheduled_post_store = get_scheduled_post_store()
     scheduled_post_store.update_post(pre_existing_post.id, {"status": "実行済み"})
     
     response = client.put(
@@ -288,7 +293,8 @@ def test_delete_scheduled_post_conflict_executed(pre_existing_post, setup_test_d
     実行済みの予約投稿を削除しようとした場合に409を返すことを確認します。
     """
     # DB にステータスを更新
-    from src.web.main_web import scheduled_post_store
+    from src.web.dependencies import get_scheduled_post_store
+    scheduled_post_store = get_scheduled_post_store()
     scheduled_post_store.update_post(pre_existing_post.id, {"status": "実行済み"})
     
     response = client.delete(f"/api/scheduled-posts/{pre_existing_post.id}")
@@ -301,7 +307,8 @@ def test_re_execute_scheduled_post(pre_existing_post, setup_test_database):
     失敗した予約投稿を再実行できることを確認します。
     """
     # DB にステータスを更新
-    from src.web.main_web import scheduled_post_store
+    from src.web.dependencies import get_scheduled_post_store
+    scheduled_post_store = get_scheduled_post_store()
     scheduled_post_store.update_post(pre_existing_post.id, {"status": "失敗"})
     response = client.post(f"/api/scheduled-posts/{pre_existing_post.id}/re-execute")
     assert response.status_code == status.HTTP_200_OK
@@ -323,7 +330,8 @@ def test_re_execute_scheduled_post_conflict_successful(pre_existing_post, setup_
     成功済みの予約投稿を再実行しようとした場合に409を返すことを確認します。
     """
     # DB にステータスを更新
-    from src.web.main_web import scheduled_post_store
+    from src.web.dependencies import get_scheduled_post_store
+    scheduled_post_store = get_scheduled_post_store()
     scheduled_post_store.update_post(pre_existing_post.id, {"status": "実行済み"})
     
     response = client.post(f"/api/scheduled-posts/{pre_existing_post.id}/re-execute")
@@ -354,7 +362,8 @@ def test_send_scheduled_post_now_conflict_executed(pre_existing_post, setup_test
     実行済みの予約投稿を即時送信しようとした場合に409を返すことを確認します。
     """
     # DB にステータスを更新
-    from src.web.main_web import scheduled_post_store
+    from src.web.dependencies import get_scheduled_post_store
+    scheduled_post_store = get_scheduled_post_store()
     scheduled_post_store.update_post(pre_existing_post.id, {"status": "実行済み"})
     
     response = client.post(f"/api/scheduled-posts/{pre_existing_post.id}/send-now")
@@ -416,7 +425,8 @@ def test_get_api_posts_with_data_and_sorting(setup_test_database):
         ScheduledPost(id="post_recent", scheduled_at=datetime(2025, 10, 4, 10, 0, tzinfo=timezone.utc), content="Recent", status="予約済み"),
     ]
     # 投稿を個別に作成
-    from src.web.main_web import scheduled_post_store
+    from src.web.dependencies import get_scheduled_post_store
+    scheduled_post_store = get_scheduled_post_store()
     for post in posts_to_create:
         scheduled_post_store.create_post(post)
 
@@ -450,7 +460,8 @@ def test_root_endpoint_with_sorting(setup_test_database):
         ScheduledPost(id="post_failed", scheduled_at=datetime(2025, 10, 2, 10, 0, tzinfo=timezone.utc), content="Failed", status="失敗"),
     ]
     # 投稿を個別に作成
-    from src.web.main_web import scheduled_post_store
+    from src.web.dependencies import get_scheduled_post_store
+    scheduled_post_store = get_scheduled_post_store()
     for post in posts_to_create:
         scheduled_post_store.create_post(post)
 
@@ -480,7 +491,8 @@ def test_cleanup_deleted_post_from_ui(setup_test_database):
         ScheduledPost(id="post2", content="Post 2", scheduled_at=datetime.now(timezone.utc)),
     ]
     # 投稿を個別に作成
-    from src.web.main_web import scheduled_post_store
+    from src.web.dependencies import get_scheduled_post_store
+    scheduled_post_store = get_scheduled_post_store()
     for post in posts_to_create:
         scheduled_post_store.create_post(post)
 
