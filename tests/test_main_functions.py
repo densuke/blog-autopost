@@ -6,7 +6,6 @@ from urllib.parse import urljoin
 
 from src.main import (
     extract_image_from_url,
-    _decode_html_content,
     handle_list_sns,
     handle_list_feeds,
     process_media_files,
@@ -150,59 +149,6 @@ def test_extract_image_from_url_debug_mode(mock_get, capsys):
     assert '[DEBUG]' in captured.out
     assert result == 'https://example.com/image.jpg'
 
-
-# ===== _decode_html_content テスト =====
-
-def test_decode_html_content_utf8():
-    """_decode_html_content が UTF-8 でエンコードされたHTMLを正しくデコードできることをテスト"""
-    # --- Arrange ---
-    html_text = "<!DOCTYPE html><html><body>こんにちは</body></html>"
-    mock_response = MagicMock()
-    mock_response.content = html_text.encode('utf-8')
-    mock_response.headers = {'content-type': 'text/html; charset=utf-8'}
-    
-    # --- Act ---
-    result = _decode_html_content(mock_response)
-    
-    # --- Assert ---
-    assert 'こんにちは' in result
-
-
-def test_decode_html_content_meta_charset_detection():
-    """_decode_html_content が meta charset タグから文字コードを検出できることをテスト"""
-    # --- Arrange ---
-    html_text = """
-    <html>
-        <head>
-            <meta charset="shift_jis">
-        </head>
-        <body>テスト</body>
-    </html>
-    """
-    mock_response = MagicMock()
-    mock_response.content = html_text.encode('utf-8')  # 検出用プレビューはUTF-8
-    mock_response.headers = {'content-type': 'text/html'}
-    
-    # --- Act ---
-    result = _decode_html_content(mock_response)
-    
-    # --- Assert ---
-    assert '<html>' in result
-
-
-def test_decode_html_content_content_type_header():
-    """_decode_html_content が Content-Type ヘッダーから文字コードを抽出できることをテスト"""
-    # --- Arrange ---
-    html_text = "<!DOCTYPE html><html><body>Test</body></html>"
-    mock_response = MagicMock()
-    mock_response.content = html_text.encode('utf-8')
-    mock_response.headers = {'content-type': 'text/html; charset=utf-8'}
-    
-    # --- Act ---
-    result = _decode_html_content(mock_response)
-    
-    # --- Assert ---
-    assert 'Test' in result
 
 
 # ===== handle_list_sns テスト =====
