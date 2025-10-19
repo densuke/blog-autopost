@@ -103,17 +103,3 @@ class SchedulerService:
             logger.info("Scheduler shut down.")
             print("Scheduler shut down.")
 
-    def add_scheduled_post_to_scheduler(self, post: ScheduledPost):
-        """
-        新しい予約投稿をAPSchedulerに登録します。
-        """
-        # APSchedulerのジョブは_monitor_scheduled_postsで処理されるため、
-        # ここでは特に何もしない。ScheduledPostStoreに保存されることで監視対象となる。
-        pass
-
-    def remove_scheduled_post_from_scheduler(self, post_id: str):
-        """
-        APSchedulerから予約投稿を削除します。
-        """
-        # _monitor_scheduled_postsで処理されるため、ここでは特に何もしない。
-        pass
