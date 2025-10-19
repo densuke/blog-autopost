@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 from src.plugins.bluesky import Bluesky
-from atproto import Client, client_utils, models
+from atproto import client_utils, models
 
 class TestBlueskyPlugin(unittest.TestCase):
 

@@ -1,8 +1,5 @@
-import pytest
-from unittest.mock import patch, MagicMock, mock_open
-import io
+from unittest.mock import patch, MagicMock
 import sys
-from urllib.parse import urljoin
 
 from src.main import (
     extract_image_from_url,

@@ -148,7 +148,7 @@ def test_schedule_api_endpoint(mock_add_job, logged_in_client):
 @patch('src.web.main_web.scheduled_post_store')
 def test_delete_scheduled_post_from_ui(mock_scheduled_post_store, logged_in_client):
     mock_scheduled_post_store.get_post_by_id.return_value = ScheduledPost(status="予約済み", scheduled_at=datetime.now(), content="c")
-    response = logged_in_client.delete(f"/api/scheduled-posts/some_id")
+    response = logged_in_client.delete("/api/scheduled-posts/some_id")
     assert response.status_code == 204
 
 @patch('src.web.main_web.scheduled_post_store')
@@ -156,14 +156,14 @@ def test_re_execute_scheduled_post_from_ui(mock_scheduled_post_store, logged_in_
     post = ScheduledPost(status="失敗", scheduled_at=datetime.now(), content="c")
     mock_scheduled_post_store.get_post_by_id.return_value = post
     mock_scheduled_post_store.update_post.return_value = post
-    response = logged_in_client.post(f"/api/scheduled-posts/some_id/re-execute")
+    response = logged_in_client.post("/api/scheduled-posts/some_id/re-execute")
     assert response.status_code == 200
 
 @patch('src.web.main_web.post_executor')
 @patch('src.web.main_web.scheduled_post_store')
 def test_send_now_scheduled_post_from_ui(mock_store, mock_executor, logged_in_client):
     mock_store.get_post_by_id.return_value = ScheduledPost(status="予約済み", scheduled_at=datetime.now(), content="c")
-    response = logged_in_client.post(f"/api/scheduled-posts/some_id/send-now")
+    response = logged_in_client.post("/api/scheduled-posts/some_id/send-now")
     assert response.status_code == 200
     mock_executor.execute_post.assert_called_once()
 
@@ -172,7 +172,7 @@ def test_edit_scheduled_post_from_ui(mock_store, logged_in_client):
     post = ScheduledPost(status="予約済み", scheduled_at=datetime.now(), content="c")
     mock_store.get_post_by_id.return_value = post
     mock_store.update_post.return_value = post
-    response = logged_in_client.put(f"/api/scheduled-posts/some_id", data={'content': 'new'})
+    response = logged_in_client.put("/api/scheduled-posts/some_id", data={'content': 'new'})
     assert response.status_code == 200
     mock_store.update_post.assert_called_once()
 

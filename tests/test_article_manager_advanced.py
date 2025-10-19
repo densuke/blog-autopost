@@ -1,7 +1,5 @@
 import pytest
 from unittest.mock import MagicMock, patch
-import json
-import os
 from datetime import datetime, timezone
 
 from src.article_manager import ArticleManager, MultiArticleManager, DATA_FILE

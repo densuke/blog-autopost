@@ -1,9 +1,8 @@
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 import pytest
-import os
 
-from src.web.scheduler_service import _monitor_scheduled_posts_job, SchedulerService
+from src.web.scheduler_service import _monitor_scheduled_posts_job
 from src.web.scheduled_post_model import ScheduledPost
 
 @pytest.fixture

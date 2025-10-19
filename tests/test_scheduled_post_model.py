@@ -1,6 +1,4 @@
-import pytest
 from datetime import datetime, timedelta, timezone
-from uuid import UUID
 from src.web.scheduled_post_model import ScheduledPost
 
 class TestScheduledPostModel:

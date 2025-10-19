@@ -4,9 +4,8 @@
 import pytest
 import tempfile
 import os
-from pathlib import Path
 import shutil
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import patch, MagicMock
 
 from src.media_validator import MediaValidator, MediaFile, ValidationError
 from src.media_converter import MediaConverter, ConversionError
@@ -110,7 +109,7 @@ class TestMediaValidator:
     
     def test_validate_x_too_many_images(self):
         """X: 画像数制限超過テスト"""
-        image_paths = [self.create_temp_file(f'.jpg') for _ in range(5)]
+        image_paths = [self.create_temp_file('.jpg') for _ in range(5)]
         
         try:
             media_files = [MediaFile(path) for path in image_paths]
@@ -309,10 +308,6 @@ class TestSNSPluginIntegration:
     
     def test_plugin_post_with_media_signature(self):
         """プラグインのpost()メソッドシグネチャテスト"""
-        from src.plugins.x import X
-        from src.plugins.bluesky import Bluesky
-        from src.plugins.mastodon import Mastodon
-        from src.plugins.misskey import Misskey
         
         # 各プラグインクラスのpost()メソッドがmedia_filesパラメータを受け取れることを確認
         # 注: 実際の実装後にこのテストを更新する必要があります

@@ -2,7 +2,6 @@
 HTML処理共通ユーティリティのテスト
 """
 
-import pytest
 from unittest.mock import Mock
 from src.utils.html_utils import decode_html_content
 

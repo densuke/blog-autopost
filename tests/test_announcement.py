@@ -1,5 +1,4 @@
 
-import pytest
 from src.article_manager import ArticleManager
 from src.config_manager import ConfigManager
 

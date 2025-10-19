@@ -4,8 +4,6 @@
 """
 
 import pytest
-import sys
-import os
 
 # src/main.pyの実装確認と更新が必要なため、仮のテストケースを定義
 # 実際のテストは実装後に有効化する

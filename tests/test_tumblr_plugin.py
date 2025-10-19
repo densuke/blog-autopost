@@ -1,7 +1,6 @@
 import unittest
 from unittest.mock import MagicMock, patch, mock_open
 import json
-import os
 from src.plugins.tumblr import Tumblr
 
 class TestTumblrPlugin(unittest.TestCase):

@@ -1,5 +1,3 @@
-import pytest
-import yaml
 from unittest.mock import patch, mock_open
 from src.config_manager import ConfigManager, load_config
 from src.plugin_loader import load_plugins
