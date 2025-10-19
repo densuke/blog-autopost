@@ -1,7 +1,6 @@
 import pytest
-from unittest.mock import MagicMock, patch, Mock
+from unittest.mock import MagicMock, patch
 from src.plugins.bluesky import Bluesky
-from atproto import Client, client_utils, models
 
 
 @pytest.fixture

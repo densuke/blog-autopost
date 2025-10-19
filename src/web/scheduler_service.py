@@ -6,7 +6,6 @@ from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from src.web.post_executor import PostExecutor
-from src.web.scheduled_post_model import ScheduledPost
 from src.web.scheduled_post_store import ScheduledPostStore
 from src.web.timezone_utils import ensure_local_timezone, now_local
 

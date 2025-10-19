@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import patch, Mock
 from src.url_shortener import URLShortener
 from src.text_optimizer import TextOptimizer

@@ -3,8 +3,7 @@ from fastapi import status
 from datetime import datetime, timedelta, timezone
 import pytest
 import json
-from pathlib import Path
-from unittest.mock import MagicMock, patch, Mock
+from unittest.mock import patch
 
 from src.web.main_web import app, get_current_user, scheduler_service, config_manager
 from src.web.scheduled_post_model import ScheduledPost

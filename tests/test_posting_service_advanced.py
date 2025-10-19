@@ -9,7 +9,7 @@
 import os
 import tempfile
 import shutil
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 
 import pytest
 

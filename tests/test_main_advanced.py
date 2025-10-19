@@ -1,11 +1,8 @@
-import pytest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 import sys
-from io import StringIO
 
 from src.main import (
     handle_list_sns,
-    process_media_files,
     execute_sns_posting,
     main,
 )
