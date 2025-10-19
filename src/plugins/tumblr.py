@@ -149,7 +149,7 @@ class Tumblr(SocialMediaPlugin):
                 return None
 
             # 画像リサイザーを使って画像を処理
-            resizer = create_image_resizer(self.config.get('image_settings', {}))
+            resizer = create_image_resizer(debug=debug)
             processed_path = resizer.resize_image_file(media_file)
 
             # ファイルをバイナリで読み込み
