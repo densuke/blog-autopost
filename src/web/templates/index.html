@@ -316,10 +316,25 @@
             --inner-padding-end: 8px;
         }
 
+        /* 新規投稿フォームのSNS選択リスト */
+        ion-item:has(+ ion-list ion-checkbox[name="sns_targets"]),
+        ion-item:has(+ ion-list ion-checkbox[name="sns_all"]) {
+            margin-bottom: 8px;
+        }
+
+        ion-list:has(ion-checkbox[name="sns_targets"]),
+        ion-list:has(ion-checkbox[name="sns_all"]) {
+            max-height: 240px;
+            overflow-y: auto;
+            padding-right: 6px;
+            border-radius: 12px;
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            background: rgba(255, 255, 255, 0.6);
+        }
+
         #editModal ion-content {
             --padding-start: 16px;
             --padding-end: 16px;
-        }
         }
 
         @media (min-width: 1024px) {
@@ -382,6 +397,8 @@
         /* モバイル: 横スクロール対応 */
         .table-wrapper {
             overflow-x: auto;
+            overflow-y: auto;
+            max-height: 600px;
             margin-top: 16px;
             -webkit-overflow-scrolling: touch;
         }
@@ -628,7 +645,7 @@
             flex-direction: column;
             gap: 20px;
             width: 100%;
-            flex: 1;
+            flex: 1 1 auto;
             min-height: 0;
         }
 
@@ -637,6 +654,8 @@
             flex-direction: column;
             gap: 20px;
             width: 100%;
+            flex: 1 1 auto;
+            min-height: 0;
         }
 
         .column-scroll {
@@ -644,6 +663,24 @@
             flex-direction: column;
             gap: 20px;
             padding-bottom: 20px;
+            flex: 1 1 auto;
+            min-height: 0;
+        }
+
+        .history-card-content {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .history-card-scroll {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .history-card-scroll .table-wrapper {
+            margin-top: 0;
         }
 
         .status-area {
@@ -782,8 +819,34 @@
             .layout-column--history .column-scroll {
                 padding-left: 12px;
                 border-left: 1px solid var(--ion-color-light);
-                max-height: calc(100vh - 140px);
+                overflow: hidden;
+            }
+
+            .layout-column--history ion-card {
+                display: flex;
+                flex-direction: column;
+                flex: 1 1 auto;
+                min-height: 0;
+            }
+
+            .layout-column--history ion-card-content.history-card-content {
+                display: flex;
+                flex-direction: column;
+                flex: 1 1 auto;
+                min-height: 0;
+            }
+
+            .layout-column--history .history-card-scroll {
+                flex: 1 1 auto;
+                min-height: 0;
                 overflow-y: auto;
+                padding-right: 8px;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            .layout-column--history .history-card-scroll .table-wrapper {
+                flex: 1 1 auto;
+                min-height: 0;
             }
 
             .status-area {
@@ -908,7 +971,16 @@
                         <ion-item>
                             <ion-label>投稿先SNS</ion-label>
                         </ion-item>
-                                                <ion-list>
+                        <ion-list>
+                            <ion-item button="true" class="sns-item">
+                                <ion-checkbox 
+                                    slot="start"
+                                    id="sns_all" 
+                                    name="sns_all"
+                                    class="select-all-sns">
+                                </ion-checkbox>
+                                <ion-label class="ion-text-wrap"><strong>全てのSNS</strong></ion-label>
+                            </ion-item>
                             {% for account in sns_accounts %}
                                                         <ion-item button="true" class="sns-item">
                                 <ion-checkbox 
@@ -1000,91 +1072,93 @@
                 <ion-card-header>
                     <ion-card-title>投稿履歴・予約一覧</ion-card-title>
                 </ion-card-header>
-                <ion-card-content>
-                    <!-- ソート -->
-                    <ion-item>
-                        <ion-label>並び替え</ion-label>
-                        <ion-select id="sort-by" name="sort-by" value="date_desc">
-                            <ion-select-option value="date_asc">投稿日時 (昇順)</ion-select-option>
-                            <ion-select-option value="date_desc">投稿日時 (降順)</ion-select-option>
-                            <ion-select-option value="status_failed">ステータス (失敗優先)</ion-select-option>
-                            <ion-select-option value="status_completed">ステータス (完了優先)</ion-select-option>
-                        </ion-select>
-                    </ion-item>
+                <ion-card-content class="history-card-content">
+                    <div class="history-card-scroll">
+                        <!-- ソート -->
+                        <ion-item>
+                            <ion-label>並び替え</ion-label>
+                            <ion-select id="sort-by" name="sort-by" value="date_desc">
+                                <ion-select-option value="date_asc">投稿日時 (昇順)</ion-select-option>
+                                <ion-select-option value="date_desc">投稿日時 (降順)</ion-select-option>
+                                <ion-select-option value="status_failed">ステータス (失敗優先)</ion-select-option>
+                                <ion-select-option value="status_completed">ステータス (完了優先)</ion-select-option>
+                            </ion-select>
+                        </ion-item>
 
-                    <!-- 一括削除コントロール -->
-                    <div class="batch-delete-controls" id="batch-delete-controls" style="display: none;">
-                        <span id="selected-count">選択中: 0件</span>
-                        <ion-button id="batch-delete-btn" type="button" color="danger" size="small" title="選択した投稿を削除する">
-                            <ion-icon slot="start" name="trash-outline"></ion-icon>
-                            削除
-                        </ion-button>
-                        <ion-button id="select-all-btn" type="button" size="small" fill="outline" title="すべての投稿を選択">
-                            すべて選択
-                        </ion-button>
-                        <ion-button id="deselect-all-btn" type="button" size="small" fill="outline" title="選択を解除">
-                            すべて解除
-                        </ion-button>
-                    </div>
+                        <!-- 一括削除コントロール -->
+                        <div class="batch-delete-controls" id="batch-delete-controls" style="display: none;">
+                            <span id="selected-count">選択中: 0件</span>
+                            <ion-button id="batch-delete-btn" type="button" color="danger" size="small" title="選択した投稿を削除する">
+                                <ion-icon slot="start" name="trash-outline"></ion-icon>
+                                削除
+                            </ion-button>
+                            <ion-button id="select-all-btn" type="button" size="small" fill="outline" title="すべての投稿を選択">
+                                すべて選択
+                            </ion-button>
+                            <ion-button id="deselect-all-btn" type="button" size="small" fill="outline" title="選択を解除">
+                                すべて解除
+                            </ion-button>
+                        </div>
 
-                    <!-- テーブル -->
-                    <div class="table-wrapper">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th style="width: 40px;">
-                                        <input type="checkbox" id="select-all-checkbox">
-                                    </th>
-                                    <th>ID</th>
-                                    <th>投稿日時</th>
-                                    <th>内容</th>
-                                    <th>対象SNS</th>
-                                    <th>ステータス</th>
-                                    <th>エラーメッセージ</th>
-                                    <th>操作</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for post in scheduled_posts %}
-                                <tr class="{% if post.status == '失敗' and post.scheduled_at < now %}warning{% endif %}">
-                                    <td><input type="checkbox" class="post-checkbox" value="{{ post.id }}"></td>
-                                    <td>{{ post.id }}</td>
-                                    <td>{{ post.scheduled_at.strftime('%Y-%m-%d %H:%M') }}</td>
-                                    <td>{{ post.content[:50] }}...</td>
-                                    <td>{{ post.target_sns | join(', ') }}</td>
-                                    <td>{{ post.status }}</td>
-                                    <td>{{ post.error_message if post.error_message else '-' }}</td>
-                                    <td>
-                                        <ion-button size="small" onclick="editPost('{{ post.id }}')" title="編集する">
-                                            <ion-icon slot="icon-only" name="create-outline"></ion-icon>
-                                        </ion-button>
-                                        <ion-button size="small" color="danger" onclick="deletePost('{{ post.id }}')" title="削除する">
-                                            <ion-icon slot="icon-only" name="trash-outline"></ion-icon>
-                                        </ion-button>
-                                        {% if post.status == '失敗' %}
-                                        <ion-button size="small" color="warning" onclick="reExecutePost('{{ post.id }}')" title="再実行する">
-                                            <ion-icon slot="icon-only" name="refresh-outline"></ion-icon>
-                                        </ion-button>
-                                        {% endif %}
-                                        {% if post.status == '予約済み' %}
-                                        <ion-button size="small" color="success" onclick="sendNowPost('{{ post.id }}')" title="すぐに送信する">
-                                            <ion-icon slot="icon-only" name="play-outline"></ion-icon>
-                                        </ion-button>
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                                {% else %}
-                                <tr>
-                                    <td colspan="8" style="text-align: center; padding: 24px;">
-                                        予約投稿はありません。
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                        <!-- テーブル -->
+                        <div class="table-wrapper">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th style="width: 40px;">
+                                            <input type="checkbox" id="select-all-checkbox">
+                                        </th>
+                                        <th>ID</th>
+                                        <th>投稿日時</th>
+                                        <th>内容</th>
+                                        <th>対象SNS</th>
+                                        <th>ステータス</th>
+                                        <th>エラーメッセージ</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for post in scheduled_posts %}
+                                    <tr class="{% if post.status == '失敗' and post.scheduled_at < now %}warning{% endif %}">
+                                        <td><input type="checkbox" class="post-checkbox" value="{{ post.id }}"></td>
+                                        <td>{{ post.id }}</td>
+                                        <td>{{ post.scheduled_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                        <td>{{ post.content[:50] }}...</td>
+                                        <td>{{ post.target_sns | join(', ') }}</td>
+                                        <td>{{ post.status }}</td>
+                                        <td>{{ post.error_message if post.error_message else '-' }}</td>
+                                        <td>
+                                            <ion-button size="small" onclick="editPost('{{ post.id }}')" title="編集する">
+                                                <ion-icon slot="icon-only" name="create-outline"></ion-icon>
+                                            </ion-button>
+                                            <ion-button size="small" color="danger" onclick="deletePost('{{ post.id }}')" title="削除する">
+                                                <ion-icon slot="icon-only" name="trash-outline"></ion-icon>
+                                            </ion-button>
+                                            {% if post.status == '失敗' %}
+                                            <ion-button size="small" color="warning" onclick="reExecutePost('{{ post.id }}')" title="再実行する">
+                                                <ion-icon slot="icon-only" name="refresh-outline"></ion-icon>
+                                            </ion-button>
+                                            {% endif %}
+                                            {% if post.status == '予約済み' %}
+                                            <ion-button size="small" color="success" onclick="sendNowPost('{{ post.id }}')" title="すぐに送信する">
+                                                <ion-icon slot="icon-only" name="play-outline"></ion-icon>
+                                            </ion-button>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% else %}
+                                    <tr>
+                                        <td colspan="8" style="text-align: center; padding: 24px;">
+                                            予約投稿はありません。
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                </ion-card-content>
-            </ion-card>
+            </ion-card-content>
+        </ion-card>
                     </div>
                 </div>
             </div>
@@ -1145,10 +1219,14 @@
                         文字数: <span id="edit-char-counter" class="char-current">0</span> / 最小制限: <span id="edit-char-limit" class="char-limit">-</span>
                     </div>
 
-                    <ion-item lines="none">
-                        <ion-label>対象SNS</ion-label>
-                    </ion-item>
-                    <ion-list id="edit-target-sns">
+                    <ion-item lines="none" class="edit-sns-item">
+                            <ion-checkbox 
+                                slot="start" 
+                                id="edit-sns-all" 
+                                name="edit-sns-all"
+                                class="select-all-edit-sns"></ion-checkbox>
+                            <ion-label for="edit-sns-all"><strong>全てのSNS</strong></ion-label>
+                        </ion-item>
                         {% for account in sns_accounts %}
                         <ion-item lines="none" class="edit-sns-item">
                             <ion-checkbox 
@@ -1611,8 +1689,58 @@
                 editTextArea.addEventListener('input', updateEditCounter);
             }
 
-            attachCheckboxListeners('ion-checkbox[name="sns_targets"]', updateCounter);
-            attachCheckboxListeners('#edit-target-sns ion-checkbox[name="target_sns"]', updateEditCounter);
+
+            // 新規投稿フォームの「全てのSNS」制御
+            const snsAllCheckbox = document.getElementById('sns_all');
+            if (snsAllCheckbox) {
+                snsAllCheckbox.addEventListener('ionChange', (e) => {
+                    const isChecked = e.detail.checked;
+                    document.querySelectorAll('ion-checkbox[name="sns_targets"]').forEach(checkbox => {
+                        checkbox.checked = isChecked;
+                        const event = new Event('ionChange', { bubbles: true });
+                        checkbox.dispatchEvent(event);
+                    });
+                    updateCounter();
+                });
+            }
+
+            // 新規投稿フォームの個別SNS選択時に「全てのSNS」を制御
+            document.querySelectorAll('ion-checkbox[name="sns_targets"]').forEach(checkbox => {
+                checkbox.addEventListener('ionChange', () => {
+                    const allCheckboxes = document.querySelectorAll('ion-checkbox[name="sns_targets"]');
+                    const allChecked = Array.from(allCheckboxes).every(cb => cb.checked);
+                    const snsAll = document.getElementById('sns_all');
+                    if (snsAll) {
+                        snsAll.checked = allChecked;
+                    }
+                });
+            });
+
+            // 編集モーダルの「全てのSNS」制御
+            const editSnsAllCheckbox = document.getElementById('edit-sns-all');
+            if (editSnsAllCheckbox) {
+                editSnsAllCheckbox.addEventListener('ionChange', (e) => {
+                    const isChecked = e.detail.checked;
+                    document.querySelectorAll('#edit-target-sns ion-checkbox[name="target_sns"]').forEach(checkbox => {
+                        checkbox.checked = isChecked;
+                        const event = new Event('ionChange', { bubbles: true });
+                        checkbox.dispatchEvent(event);
+                    });
+                    updateEditCounter();
+                });
+            }
+
+            // 編集モーダルの個別SNS選択時に「全てのSNS」を制御
+            document.querySelectorAll('#edit-target-sns ion-checkbox[name="target_sns"]').forEach(checkbox => {
+                checkbox.addEventListener('ionChange', () => {
+                    const allCheckboxes = document.querySelectorAll('#edit-target-sns ion-checkbox[name="target_sns"]');
+                    const allChecked = Array.from(allCheckboxes).every(cb => cb.checked);
+                    const editSnsAll = document.getElementById('edit-sns-all');
+                    if (editSnsAll) {
+                        editSnsAll.checked = allChecked;
+                    }
+                });
+            });
 
             document.querySelectorAll('ion-list ion-item[button]').forEach(item => {
                 item.addEventListener('click', (e) => {
