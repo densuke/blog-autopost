@@ -4,7 +4,7 @@
 既存コードとの互換性を保証しながら SQLite の利点を活用。
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -151,14 +151,14 @@ class ScheduledPostStoreSQLite:
         sns_filter: Optional[List[str]] = None,
     ) -> tuple[List[ScheduledPost], int]:
         """ページネーション対応でフィルター付き予約投稿を取得（新機能）
-        
+
         Args:
             page: ページ番号（1から開始）
             per_page: 1ページあたりの件数
             sort_by: ソート順序
             status_filter: ステータスでフィルター
             sns_filter: SNS別フィルター
-        
+
         Returns:
             (ScheduledPost オブジェクトのリスト, 総件数)
         """
@@ -175,6 +175,52 @@ class ScheduledPostStoreSQLite:
 
             posts = [self._db_to_scheduled_post(db_post) for db_post in db_posts]
             return posts, total_count
+        finally:
+            session.close()
+
+    def get_posts_by_sns_and_time(
+        self,
+        sns_name: str,
+        scheduled_at: datetime,
+        tolerance_minutes: int = 0
+    ) -> List[ScheduledPost]:
+        """指定されたSNS・時刻の予約投稿を取得する。
+
+        Args:
+            sns_name: SNS名
+            scheduled_at: 予約時刻
+            tolerance_minutes: 時刻の許容範囲(分)
+
+        Returns:
+            該当する予約投稿のリスト
+        """
+        session = self._get_session()
+        try:
+            dao = ScheduledPostDAO(session)
+
+            # 許容範囲を考慮した時刻範囲を計算
+            start_time = scheduled_at - timedelta(minutes=tolerance_minutes)
+            end_time = scheduled_at + timedelta(minutes=tolerance_minutes)
+
+            # 全投稿を取得して、条件でフィルタリング
+            db_posts = dao.get_all_posts()
+
+            result = []
+            for db_post in db_posts:
+                # ステータスが「予約済み」のみ対象
+                if db_post.status != "予約済み":
+                    continue
+
+                # 対象SNSを確認
+                if sns_name not in db_post.target_sns:
+                    continue
+
+                # 時刻範囲をチェック
+                post_time = ensure_local_timezone(db_post.scheduled_at)
+                if post_time and start_time <= post_time <= end_time:
+                    result.append(self._db_to_scheduled_post(db_post))
+
+            return result
         finally:
             session.close()
 
