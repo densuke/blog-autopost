@@ -227,6 +227,23 @@ class ConfigManager:
         port = server_config.get('port', 8000)
         return {"host": host, "port": port}
 
+    def get_default_allowed_timings(self):
+        """グローバル投稿タイミング設定を取得する。
+
+        Returns:
+            投稿可能タイミング設定。設定されていない場合はNone。
+            例: [['*', ['18:00', '20:00']], ['Weekday', ['09:00']]]
+        """
+        return self.config.get('default_allowed_timings')
+
+    def get_allowed_timings_tolerance_minutes(self) -> int:
+        """投稿タイミングの許容範囲(分)を取得する。
+
+        Returns:
+            許容時間(分)。デフォルトは5分。
+        """
+        return self.config.get('allowed_timings_tolerance_minutes', 5)
+
 def load_config(config_path="config.yml"):
     """
     設定ファイルを読み込みます。
