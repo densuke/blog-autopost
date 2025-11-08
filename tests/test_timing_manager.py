@@ -1,3 +1,4 @@
+from unittest.mock import MagicMock
 from src.timing_manager import TimingManager
 
 
@@ -287,3 +288,41 @@ class TestTimingManagerGetAllowedTimings:
 
         # --- Assert ---
         assert result1 is result2  # 同じオブジェクト
+
+    def test_get_allowed_timings_with_both(self):
+        """グローバルとSNS固有設定がある場合"""
+        # --- Arrange ---
+        mock_config_manager = MagicMock()
+        timing_manager = TimingManager(mock_config_manager)
+
+        # ConfigManagerのモック設定(後続タスクで実装予定のメソッド)
+        timing_manager._timing_cache["x"] = {
+            "Monday": ["09:00", "12:00", "18:00"],
+            "Tuesday": ["18:00"]
+        }
+
+        # --- Act ---
+        result = timing_manager.get_allowed_timings("x")
+
+        # --- Assert ---
+        assert result == {
+            "Monday": ["09:00", "12:00", "18:00"],
+            "Tuesday": ["18:00"]
+        }
+
+    def test_get_allowed_timings_multiple_sns(self):
+        """複数SNSのキャッシュが独立している"""
+        # --- Arrange ---
+        timing_manager = TimingManager(None)
+
+        # キャッシュに直接設定(実装時はConfigManagerから読み込み)
+        timing_manager._timing_cache["x"] = {"Monday": ["09:00"]}
+        timing_manager._timing_cache["bluesky"] = {"Monday": ["10:00"]}
+
+        # --- Act ---
+        result_x = timing_manager.get_allowed_timings("x")
+        result_bs = timing_manager.get_allowed_timings("bluesky")
+
+        # --- Assert ---
+        assert result_x == {"Monday": ["09:00"]}
+        assert result_bs == {"Monday": ["10:00"]}
