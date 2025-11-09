@@ -2067,6 +2067,51 @@
         if (savedRadio) {
             savedRadio.checked = true;
             updatePostMethodUI(postState.getMethod());
+            updateScheduleFieldDisabledState(postState.getMethod());
+        }
+
+        // ========== 投稿方法ラジオボタンの制御 ==========
+        document.querySelectorAll('input[name="post_method"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                const method = e.target.value;
+                postState.setMethod(method);
+                updatePostMethodUI(method);
+                updateScheduleFieldDisabledState(method);
+                console.log(`投稿方法を切り替え: ${method}`);
+            });
+        });
+
+        /**
+         * 予約日時入力フィールドの disabled 制御
+         * 「時間指定の予約投稿」選択時のみ有効化、他は無効化
+         */
+        function updateScheduleFieldDisabledState(method) {
+            const scheduleTimeElement = document.getElementById('schedule_time');
+            const scheduleManualInput = document.getElementById('schedule-manual-input');
+            const datetimeButton = document.querySelector('.schedule-picker-group ion-datetime-button');
+            const scheduledControlsArea = document.getElementById('scheduled-controls-area');
+            
+            const isScheduledMode = method === 'scheduled';
+            
+            // エリアは常に表示
+            if (scheduledControlsArea) {
+                scheduledControlsArea.style.display = 'block';
+            }
+            
+            // フィールドの有効/無効切り替え
+            if (scheduleTimeElement) {
+                scheduleTimeElement.disabled = !isScheduledMode;
+            }
+            if (scheduleManualInput) {
+                scheduleManualInput.disabled = !isScheduledMode;
+            }
+            if (datetimeButton) {
+                datetimeButton.style.opacity = isScheduledMode ? '1' : '0.5';
+                datetimeButton.style.pointerEvents = isScheduledMode ? 'auto' : 'none';
+                datetimeButton.style.cursor = isScheduledMode ? 'pointer' : 'not-allowed';
+            }
+            
+            console.log(`予約日時フィールド状態: ${isScheduledMode ? '有効' : '無効'}`);
         }
 
         const scheduleManualInput = document.getElementById('schedule-manual-input');
@@ -2090,7 +2135,7 @@
                 }
             });
         }
-        setScheduleMode(currentScheduleMode);
+        // setScheduleMode(currentScheduleMode); // 削除: 関数が定義されていない
 
         const editScheduleManualInput = document.getElementById('edit-schedule-manual-input');
         if (editScheduleManualInput) {
@@ -2121,11 +2166,43 @@
         const postButton = document.getElementById('post-button');
         if (postButton) {
             postButton.addEventListener('click', async () => {
+                console.log('🔵 投稿ボタンクリック');
+                
+                // フォーム全体検証
+                const textArea = document.getElementById('text');
+                if (!textArea || !textArea.value.trim()) {
+                    console.warn('⚠️ 投稿文が空です');
+                    showToast('投稿文を入力してください。', 'warning');
+                    return;
+                }
+                console.log('✅ 投稿文OK:', textArea.value.substring(0, 50));
+
+                // SNS選択検証
+                const snsCheckboxes = document.querySelectorAll('ion-checkbox[name="sns_targets"]');
+                console.log('📋 SNSチェックボックス総数:', snsCheckboxes.length);
+                
+                let selectedSns = 0;
+                snsCheckboxes.forEach((checkbox, index) => {
+                    const isChecked = checkbox.checked;
+                    console.log(`  SNS ${index}:`, checkbox.value, '- checked:', isChecked);
+                    if (isChecked) selectedSns++;
+                });
+                
+                console.log('✅ 選択SNS数:', selectedSns);
+                if (selectedSns === 0) {
+                    console.warn('⚠️ SNSが選択されていません');
+                    showToast('投稿先SNSを選択してください。', 'warning');
+                    return;
+                }
+                console.log('✅ SNS選択OK');
+
                 const method = postState.getMethod();
+                console.log('📝 投稿方法:', method);
                 
                 // 投稿方法に応じた処理
                 if (method === 'immediate') {
                     // すぐに投稿
+                    console.log('🚀 submitPost呼び出し: /api/post');
                     submitPost('/api/post', 'immediate');
                 } else if (method === 'scheduled') {
                     // 時間指定予約
@@ -2227,22 +2304,17 @@
         /**
          * 投稿履歴をデータベースに保存
          */
-        function savePostHistory(postData) {
+        function savePostHistory(postData, selectedSns) {
             const textArea = document.getElementById('text');
             const content = textArea.value;
 
-            // 成功したSNSを抽出
-            const successfulSns = [];
-            for (const [sns, result] of Object.entries(postData)) {
-                if (result.success) {
-                    successfulSns.push(sns);
-                }
-            }
+            // selectedSns をそのまま使用（投稿時に選択したSNS）
+            const targetSns = selectedSns && selectedSns.length > 0 ? selectedSns : [];
 
             // 投稿履歴を保存するデータを構築
             const historyData = {
                 content: content,
-                target_sns: successfulSns,
+                target_sns: targetSns,
                 status: '投稿完了',
                 error_message: null,
                 scheduled_at: new Date().toISOString()
@@ -2251,13 +2323,24 @@
             console.log('💾 投稿履歴を保存:', historyData);
 
             // APIエンドポイントに送信（即時投稿履歴として記録）
-            fetch('/api/post-history', {
+            const csrfTokenElement = document.getElementById('csrf_token');
+            const csrfToken = csrfTokenElement ? csrfTokenElement.value : '';
+            
+            // CSRFトークンをボディに含める
+            const historyDataWithToken = {
+                ...historyData,
+                csrf_token: csrfToken
+            };
+            
+            const fetchOptions = {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify(historyData)
-            })
+                body: JSON.stringify(historyDataWithToken)
+            };
+            
+            fetch('/api/post-history', fetchOptions)
             .then(response => {
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 return response.json();
@@ -2444,7 +2527,7 @@
 
                                     snsResults[sns] = statusData;
                                     if (completedCount === totalSns) {
-                                        savePostHistory(snsResults);
+                                        savePostHistory(snsResults, selectedSns);
                                         setStatusMessage('✅ 全SNSの投稿処理が完了しました', 'success');
                                     }
                                 }
