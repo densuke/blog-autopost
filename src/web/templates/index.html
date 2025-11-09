@@ -184,6 +184,66 @@
             display: inline-flex;
         }
 
+        /* 投稿方法選択グループ */
+        .post-method-selector {
+            margin: 16px 0;
+        }
+        
+        #post-method-group {
+            border: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        #post-method-group legend {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            padding: 0;
+            color: var(--ion-color-medium-shade);
+        }
+        
+        .post-method-item {
+            --padding-start: 12px;
+            --padding-end: 12px;
+            cursor: pointer;
+        }
+        
+        .post-method-item ion-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .post-method-item input[type="radio"] {
+            margin: 0;
+            cursor: pointer;
+        }
+        
+        .post-method-item input[type="radio"]:checked + span {
+            font-weight: 600;
+            color: var(--ion-color-primary);
+        }
+        
+        /* 条件付き表示エリア */
+        #scheduled-controls-area,
+        #next-timing-info-area {
+            transition: all 0.2s ease-in-out;
+            overflow: hidden;
+        }
+        
+        #next-timing-info-area .info-card {
+            margin: 0 0 16px 0;
+        }
+        
+        #next-timing-info-area ion-icon {
+            vertical-align: middle;
+            margin-right: 4px;
+        }
+        
         .schedule-controls {
             display: flex;
             flex-direction: column;
@@ -1036,32 +1096,43 @@
                         <input type="file" id="file-input" multiple accept="image/*" style="display: none;">
                         <div class="preview-area" id="preview-area"></div>
 
-                        <!-- ボタンとステータス表示 -->
-                        <div class="submit-group">
-                            <ion-button type="submit" expand="block">
-                                <ion-icon slot="start" name="send"></ion-icon>
-                                すぐに投稿
-                            </ion-button>
-                            <div id="status-messages" class="status-area-inline"></div>
-                        </div>
-
                         <ion-divider style="margin: 20px 0;"></ion-divider>
 
-                        <!-- 予約投稿 -->
-                        <div class="schedule-controls">
-                            <div class="schedule-mode">
-                                <ion-segment id="schedule-mode-segment" value="manual">
-                                    <ion-segment-button value="manual">
-                                        <ion-label>時間指定の予約投稿</ion-label>
-                                    </ion-segment-button>
-                                    <ion-segment-button value="next">
-                                        <ion-label>次のタイミングで投稿</ion-label>
-                                    </ion-segment-button>
-                                </ion-segment>
-                                <div id="schedule-mode-helper" class="schedule-mode-helper">
-                                    予約日時を明示的に指定します。
-                                </div>
-                            </div>
+                        <!-- 投稿方法選択 -->
+                        <div class="post-method-selector">
+                            <fieldset id="post-method-group">
+                                <legend>投稿方法を選択</legend>
+                                
+                                <ion-item lines="none" class="post-method-item">
+                                    <ion-label>
+                                        <input type="radio" name="post_method" value="immediate" id="post-method-immediate" checked />
+                                        <span>すぐに投稿</span>
+                                    </ion-label>
+                                    <ion-note slot="end">各SNSに即座に投稿します</ion-note>
+                                </ion-item>
+                                
+                                <ion-item lines="none" class="post-method-item">
+                                    <ion-label>
+                                        <input type="radio" name="post_method" value="scheduled" id="post-method-scheduled" />
+                                        <span>時間指定の予約投稿</span>
+                                    </ion-label>
+                                    <ion-note slot="end">指定した日時に投稿します</ion-note>
+                                </ion-item>
+                                
+                                <ion-item lines="none" class="post-method-item">
+                                    <ion-label>
+                                        <input type="radio" name="post_method" value="next_timing" id="post-method-next-timing" />
+                                        <span>次のタイミングで投稿</span>
+                                    </ion-label>
+                                    <ion-note slot="end">各SNSの最適タイミングに自動予約</ion-note>
+                                </ion-item>
+                            </fieldset>
+                        </div>
+
+                        <ion-divider style="margin: 16px 0;"></ion-divider>
+
+                        <!-- 条件付き表示エリア: 時間指定用 -->
+                        <div class="schedule-controls" id="scheduled-controls-area" style="display: none;">
                             <div id="manual-schedule-config">
                                 <ion-item class="schedule-item" lines="none">
                                     <ion-label position="stacked">予約日時 (JST: UTC+9)</ion-label>
@@ -1091,16 +1162,30 @@
                                     </ion-note>
                                 </ion-item>
                             </div>
-                            <div class="schedule-actions" id="schedule-actions">
-                                <ion-button id="schedule-reset-btn" type="button" fill="clear" color="medium" class="schedule-reset">
-                                    <ion-icon slot="start" name="refresh"></ion-icon>
-                                    リセット
-                                </ion-button>
-                                <ion-button id="schedule-btn" type="button" fill="outline" class="schedule-submit">
-                                    <ion-icon slot="start" name="calendar"></ion-icon>
-                                    <span class="schedule-btn-label">予約投稿</span>
-                                </ion-button>
-                            </div>
+                        </div>
+
+                        <!-- 条件付き表示エリア: 次のタイミング用 -->
+                        <div id="next-timing-info-area" style="display: none;">
+                            <ion-card class="info-card">
+                                <ion-card-content>
+                                    <ion-text>
+                                        <p>
+                                            <ion-icon name="information-circle"></ion-icon>
+                                            Slot Finder が選んだ次のタイミングで各SNSに予約投稿します。
+                                        </p>
+                                        <small>タイムゾーン: サーバーのローカルタイムゾーン / スロット検索範囲: 7日以内</small>
+                                    </ion-text>
+                                </ion-card-content>
+                            </ion-card>
+                        </div>
+
+                        <!-- 統合投稿ボタン -->
+                        <div class="submit-group">
+                            <ion-button id="post-button" expand="block" type="button">
+                                <ion-icon slot="start" name="send"></ion-icon>
+                                <span id="post-button-label">投稿</span>
+                            </ion-button>
+                            <div id="status-messages" class="status-area-inline"></div>
                         </div>
                     </form>
                 </ion-card-content>
