@@ -18,12 +18,12 @@ from ..image_resizer import ImageResizer
 from ..text_optimizer import TextOptimizer
 from ..timing_manager import TimingManager
 from .auth_service import AuthService
+from ..timing_manager import TimingManager
+from .timing_validator import TimingValidator
 from .post_executor import PostExecutor
 from .posting_service import PostingService
 from .scheduled_post_store_sqlite import ScheduledPostStoreSQLite
 from .scheduler_service import SchedulerService
-from .timing_validator import TimingValidator
-from .ticket_manager import TicketManager
 
 logger = logging.getLogger(__name__)
 
