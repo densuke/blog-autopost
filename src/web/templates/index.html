@@ -191,6 +191,29 @@
             margin-top: 12px;
         }
 
+        .schedule-mode {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .schedule-mode-helper {
+            font-size: 13px;
+            color: var(--ion-color-medium);
+            line-height: 1.4;
+        }
+
+        .schedule-mode ion-segment {
+            border-radius: 14px;
+            border: 1px solid rgba(var(--ion-color-primary-rgb), 0.2);
+            background: rgba(var(--ion-color-primary-rgb), 0.04);
+        }
+
+        .schedule-mode ion-segment-button {
+            border-radius: 12px;
+            font-size: 0.95rem;
+        }
+
         .schedule-controls ion-item.schedule-item {
             margin: 0;
         }
@@ -246,6 +269,10 @@
         .schedule-actions ion-button.schedule-submit {
             min-width: 160px;
             flex: 1 1 180px;
+        }
+
+        #manual-schedule-config.hidden {
+            display: none;
         }
 
         .schedule-picker-group ion-datetime-button::part(native) {
@@ -1022,41 +1049,56 @@
 
                         <!-- 予約投稿 -->
                         <div class="schedule-controls">
-                            <ion-item class="schedule-item" lines="none">
-                                <ion-label position="stacked">予約日時 (JST: UTC+9)</ion-label>
-                                <div class="schedule-picker-group">
-                                    <ion-datetime-button datetime="schedule_time"></ion-datetime-button>
-                                    <ion-modal id="datetime-modal" keepContentsMounted="true">
-                                        <ion-datetime 
-                                            id="schedule_time" 
-                                            name="schedule_time"
-                                            presentation="date-time"
-                                            show-default-buttons="true"
-                                            prefer-wheel="true">
-                                        </ion-datetime>
-                                    </ion-modal>
-                                    <ion-input
-                                        id="schedule-manual-input"
-                                        type="datetime-local"
-                                        inputmode="numeric"
-                                        step="60"
-                                        autocomplete="off"
-                                        fill="outline"
-                                        placeholder="YYYY-MM-DDTHH:mm">
-                                    </ion-input>
+                            <div class="schedule-mode">
+                                <ion-segment id="schedule-mode-segment" value="manual">
+                                    <ion-segment-button value="manual">
+                                        <ion-label>時間指定の予約投稿</ion-label>
+                                    </ion-segment-button>
+                                    <ion-segment-button value="next">
+                                        <ion-label>次のタイミングで投稿</ion-label>
+                                    </ion-segment-button>
+                                </ion-segment>
+                                <div id="schedule-mode-helper" class="schedule-mode-helper">
+                                    予約日時を明示的に指定します。
                                 </div>
-                                <ion-note slot="helper" class="schedule-controls-helper">
-                                    日本時間で入力してください。直接入力やカーソルキーで細かく調整できます。
-                                </ion-note>
-                            </ion-item>
-                            <div class="schedule-actions">
+                            </div>
+                            <div id="manual-schedule-config">
+                                <ion-item class="schedule-item" lines="none">
+                                    <ion-label position="stacked">予約日時 (JST: UTC+9)</ion-label>
+                                    <div class="schedule-picker-group">
+                                        <ion-datetime-button datetime="schedule_time"></ion-datetime-button>
+                                        <ion-modal id="datetime-modal" keepContentsMounted="true">
+                                            <ion-datetime 
+                                                id="schedule_time" 
+                                                name="schedule_time"
+                                                presentation="date-time"
+                                                show-default-buttons="true"
+                                                prefer-wheel="true">
+                                            </ion-datetime>
+                                        </ion-modal>
+                                        <ion-input
+                                            id="schedule-manual-input"
+                                            type="datetime-local"
+                                            inputmode="numeric"
+                                            step="60"
+                                            autocomplete="off"
+                                            fill="outline"
+                                            placeholder="YYYY-MM-DDTHH:mm">
+                                        </ion-input>
+                                    </div>
+                                    <ion-note slot="helper" class="schedule-controls-helper">
+                                        日本時間で入力してください。直接入力やカーソルキーで細かく調整できます。
+                                    </ion-note>
+                                </ion-item>
+                            </div>
+                            <div class="schedule-actions" id="schedule-actions">
                                 <ion-button id="schedule-reset-btn" type="button" fill="clear" color="medium" class="schedule-reset">
                                     <ion-icon slot="start" name="refresh"></ion-icon>
                                     リセット
                                 </ion-button>
                                 <ion-button id="schedule-btn" type="button" fill="outline" class="schedule-submit">
                                     <ion-icon slot="start" name="calendar"></ion-icon>
-                                    予約投稿
+                                    <span class="schedule-btn-label">予約投稿</span>
                                 </ion-button>
                             </div>
                         </div>
@@ -1870,6 +1912,51 @@
             }
         });
 
+        const ScheduleModes = {
+            IMMEDIATE: 'immediate',
+            MANUAL: 'manual',
+            NEXT: 'next'
+        };
+        let currentScheduleMode = ScheduleModes.MANUAL;
+
+        const scheduleModeSegment = document.getElementById('schedule-mode-segment');
+        const scheduleModeHelper = document.getElementById('schedule-mode-helper');
+        const manualScheduleConfig = document.getElementById('manual-schedule-config');
+        const scheduleBtn = document.getElementById('schedule-btn');
+        const scheduleBtnLabel = scheduleBtn ? scheduleBtn.querySelector('.schedule-btn-label') : null;
+
+        function setScheduleMode(mode) {
+            const normalizedMode = Object.values(ScheduleModes).includes(mode) ? mode : ScheduleModes.MANUAL;
+            currentScheduleMode = normalizedMode;
+            const showManual = normalizedMode === ScheduleModes.MANUAL;
+            if (manualScheduleConfig) {
+                manualScheduleConfig.classList.toggle('hidden', !showManual);
+            }
+            if (scheduleResetBtn) {
+                scheduleResetBtn.style.display = showManual ? '' : 'none';
+            }
+            if (scheduleModeHelper) {
+                scheduleModeHelper.textContent = showManual
+                    ? '予約日時を明示的に指定します。'
+                    : 'Slot Finder が選んだ次のタイミングで各SNSに予約投稿します。';
+            }
+            if (scheduleBtnLabel) {
+                scheduleBtnLabel.textContent = showManual ? '予約投稿' : '次のタイミングで予約';
+            }
+            if (scheduleModeSegment && scheduleModeSegment.value !== normalizedMode) {
+                scheduleModeSegment.value = normalizedMode;
+            }
+        }
+
+        if (scheduleModeSegment) {
+            scheduleModeSegment.addEventListener('ionChange', (event) => {
+                const requestedMode = event.detail && event.detail.value
+                    ? event.detail.value
+                    : ScheduleModes.MANUAL;
+                setScheduleMode(requestedMode);
+            });
+        }
+
         const scheduleManualInput = document.getElementById('schedule-manual-input');
         if (scheduleManualInput) {
             const handleManualSchedule = (event) => {
@@ -1885,8 +1972,13 @@
 
         const scheduleResetBtn = document.getElementById('schedule-reset-btn');
         if (scheduleResetBtn) {
-            scheduleResetBtn.addEventListener('click', () => resetScheduleToDefault());
+            scheduleResetBtn.addEventListener('click', () => {
+                if (currentScheduleMode === ScheduleModes.MANUAL) {
+                    resetScheduleToDefault();
+                }
+            });
         }
+        setScheduleMode(currentScheduleMode);
 
         const editScheduleManualInput = document.getElementById('edit-schedule-manual-input');
         if (editScheduleManualInput) {
@@ -1913,14 +2005,24 @@
             });
         }
         
-        document.getElementById('schedule-btn').addEventListener('click', () => {
-            const scheduleTime = document.getElementById('schedule_time').value;
-            if (!scheduleTime) {
-                showToast('予約日時を指定してください。', 'warning');
-                return;
-            }
-            submitPost('/api/scheduled-posts', true);
-        });
+        if (scheduleBtn) {
+            scheduleBtn.addEventListener('click', () => {
+                if (currentScheduleMode === ScheduleModes.MANUAL) {
+                    const scheduleTimeElement = document.getElementById('schedule_time');
+                    const scheduleTime = scheduleTimeElement ? scheduleTimeElement.value : '';
+                    if (!scheduleTime) {
+                        showToast('予約日時を指定してください。', 'warning');
+                        return;
+                    }
+                    submitPost('/api/scheduled-posts', ScheduleModes.MANUAL);
+                    return;
+                }
+
+                if (currentScheduleMode === ScheduleModes.NEXT) {
+                    submitPost('/api/scheduled-posts/next', ScheduleModes.NEXT);
+                }
+            });
+        }
 
         /**
          * HTML エスケープ関数（XSS対策）
@@ -2068,60 +2170,69 @@
             });
         }
 
-        function submitPost(endpoint, isScheduled = false) {
+        function submitPost(endpoint, postMode = ScheduleModes.IMMEDIATE) {
             statusMessages.innerHTML = '<ion-text color="medium"><p>送信中...</p></ion-text>';
 
             const formData = new FormData();
             const textArea = document.getElementById('text');
             const selectedSns = [];
-            
-            if (isScheduled) {
+            const isManualSchedule = postMode === ScheduleModes.MANUAL;
+            const isNextSchedule = postMode === ScheduleModes.NEXT;
+            const isScheduledMode = isManualSchedule || isNextSchedule;
+            const isImmediateMode = postMode === ScheduleModes.IMMEDIATE;
+
+            if (!textArea) {
+                showToast('投稿内容が見つかりません。', 'danger');
+                return;
+            }
+
+            if (isScheduledMode) {
                 formData.append('content', textArea.value);
-                // schedule_time の値をJST形式として解釈し、ISO文字列に変換
-                const scheduledAtInput = document.getElementById('schedule_time').value;
-                const scheduledAtDate = parseJSTDatetime(scheduledAtInput);
-                const isoString = scheduledAtDate.toISOString();
-                formData.append('scheduled_at', isoString);
-                console.log('📅 予約投稿作成: 入力', scheduledAtInput, '(JST) →', isoString, '(ISO)に変換しました');
-                document.querySelectorAll('ion-checkbox[name="sns_targets"]').forEach(checkbox => {
-                    if (checkbox.checked) {
-                        formData.append('target_sns', checkbox.value);
-                        selectedSns.push(checkbox.value);
-                    }
-                });
             } else {
                 formData.append('text', textArea.value);
-                formData.append('url', document.getElementById('url').value);
-                document.querySelectorAll('ion-checkbox[name="sns_targets"]').forEach(checkbox => {
-                    if (checkbox.checked) {
-                        formData.append('sns_targets', checkbox.value);
-                        selectedSns.push(checkbox.value);
-                    }
-                });
+                const urlInput = document.getElementById('url');
+                if (urlInput) {
+                    formData.append('url', urlInput.value);
+                }
+            }
+
+            const targetFieldName = isImmediateMode ? 'sns_targets' : 'target_sns';
+            document.querySelectorAll('ion-checkbox[name="sns_targets"]').forEach(checkbox => {
+                if (checkbox.checked) {
+                    formData.append(targetFieldName, checkbox.value);
+                    selectedSns.push(checkbox.value);
+                }
+            });
+
+            if (isManualSchedule) {
+                const scheduleTimeElement = document.getElementById('schedule_time');
+                const scheduleValue = scheduleTimeElement ? scheduleTimeElement.value : '';
+                const scheduledAtDate = parseJSTDatetime(scheduleValue);
+                if (!scheduledAtDate) {
+                    showToast('予約日時の解析に失敗しました。', 'danger');
+                    return;
+                }
+                const isoString = scheduledAtDate.toISOString();
+                formData.append('scheduled_at', isoString);
+                console.log('📅 予約投稿作成: 入力', scheduleValue, '(JST) →', isoString, '(ISO)に変換しました');
             }
 
             uploadedFiles.forEach(file => {
                 formData.append('media_files', file);
             });
 
-            // CSRF トークン追加
             const csrfTokenElement = document.getElementById('csrf_token');
             if (csrfTokenElement) {
                 formData.append('csrf_token', csrfTokenElement.value);
             }
 
-            // 即時投稿の場合：スピナー表示 + ポーリング方式
-            if (!isScheduled) {
-                // チケットベースの即時投稿処理
-
-                // 古いポーリングをすべてクリア
+            if (isImmediateMode) {
                 Object.keys(pollingIntervals).forEach(sns => {
                     clearInterval(pollingIntervals[sns]);
                 });
                 pollingIntervals = {};
                 pollCounts = {};
 
-                // 各SNSのステータスインジケータを初期化（送信中状態に）
                 selectedSns.forEach(sns => {
                     const indicator = document.getElementById(`status_${sns}`);
                     if (indicator) {
@@ -2135,9 +2246,8 @@
                 const totalSns = selectedSns.length;
                 let completedCount = 0;
                 let successCount = 0;
-                let snsResults = {}; // 各SNSの結果を保存
+                let snsResults = {};
 
-                // Step 1: チケット取得
                 fetch(endpoint, { method: 'POST', body: formData })
                 .then(response => {
                     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
@@ -2157,12 +2267,11 @@
                     }
 
                     const ticketId = ticketData.ticket_id;
-                    currentTicketId = ticketId; // 現在のチケットIDを更新
+                    currentTicketId = ticketId;
                     console.log(`チケット取得: ${ticketId}`);
 
-                    // Step 2: 各SNSごとにポーリング開始
                     selectedSns.forEach(sns => {
-                        pollCounts[sns] = 0; // ポーリング回数を初期化
+                        pollCounts[sns] = 0;
 
                         const pollStatus = () => {
                             fetch(`/api/post_status/${ticketId}/${sns}`)
@@ -2176,7 +2285,6 @@
                             .then(statusData => {
                                 if (!statusData) return;
 
-                                // 古いチケットのポーリングは無視
                                 if (currentTicketId !== ticketId) {
                                     console.log(`古いポーリング無視 (${sns}): チケット${ticketId} → 現在${currentTicketId}`);
                                     return;
@@ -2184,7 +2292,6 @@
 
                                 const indicator = document.getElementById(`status_${sns}`);
 
-                                // 状態が "processing" の場合：砂時計をひっくり返すアニメーション
                                 if (statusData.status === 'processing') {
                                     if (indicator && indicator.classList.contains('loading')) {
                                         indicator.innerHTML = pollCounts[sns] % 2 === 0 ? '⏳' : '⌛';
@@ -2193,44 +2300,33 @@
                                     return;
                                 }
 
-                                // 状態が "processing" でない場合は完了
                                 if (statusData.status !== 'processing') {
-                                    // ポーリング停止
                                     clearInterval(pollingIntervals[sns]);
                                     delete pollingIntervals[sns];
 
-                                    // UI更新
                                     if (indicator) {
                                         indicator.classList.remove('loading');
 
                                         if (statusData.status === 'success') {
                                             indicator.innerHTML = '✅';
                                             indicator.style.color = 'var(--ion-color-success)';
-                                            successCount++;
-                                        } else {
+                                        } else if (statusData.status === 'failed') {
                                             indicator.innerHTML = '❌';
                                             indicator.style.color = 'var(--ion-color-danger)';
+                                        } else {
+                                            indicator.innerHTML = statusData.status;
                                         }
                                     }
 
                                     completedCount++;
-                                    snsResults[sns] = { success: statusData.status === 'success', message: statusData.message };
+                                    if (statusData.status === 'success') {
+                                        successCount++;
+                                    }
 
-                                    // 全SNS完了チェック
+                                    snsResults[sns] = statusData;
                                     if (completedCount === totalSns) {
-                                        // 簡潔なステータス表示
-                                        if (successCount === totalSns) {
-                                            statusMessages.innerHTML = '<ion-text color="success"><p>✅ 全て完了</p></ion-text>';
-                                        } else if (successCount > 0) {
-                                            statusMessages.innerHTML = `<ion-text color="warning"><p>⚠️ ${successCount}/${totalSns}送信完了</p></ion-text>`;
-                                        } else {
-                                            statusMessages.innerHTML = '<ion-text color="danger"><p>❌ 送信に失敗しました</p></ion-text>';
-                                        }
-
-                                        // 投稿履歴を記録
-                                        if (successCount > 0) {
-                                            savePostHistory(snsResults);
-                                        }
+                                        savePostHistory(snsResults);
+                                        setStatusMessage('✅ 全SNSの投稿処理が完了しました', 'success');
                                     }
                                 }
                             })
@@ -2239,12 +2335,10 @@
                             });
                         };
 
-                        // 即座に1回実行 + 500msごとにポーリング
                         pollStatus();
                         pollingIntervals[sns] = setInterval(pollStatus, 500);
                     });
 
-                    // 30秒後にタイムアウト（全ポーリング停止）
                     setTimeout(() => {
                         Object.keys(pollingIntervals).forEach(sns => {
                             clearInterval(pollingIntervals[sns]);
@@ -2274,7 +2368,6 @@
                 return;
             }
 
-            // 予約投稿の場合は従来通り fetch を使用
             fetch(endpoint, { method: 'POST', body: formData })
             .then(response => {
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
@@ -2282,13 +2375,34 @@
             })
             .then(data => {
                 statusMessages.innerHTML = '';
+                if (!data) return;
                 if (data.error) {
                     statusMessages.innerHTML = `<ion-text color="danger"><p>❌ エラー: ${data.error}</p></ion-text>`;
                     return;
                 }
-                
-                showToast('予約投稿を作成しました。', 'success');
-                setTimeout(() => location.reload(), 1000);
+
+                if (postMode === ScheduleModes.MANUAL) {
+                    showToast('予約投稿を作成しました。', 'success');
+                    setTimeout(() => location.reload(), 1000);
+                    return;
+                }
+
+                if (postMode === ScheduleModes.NEXT) {
+                    const createdCount = Array.isArray(data.created_posts) ? data.created_posts.length : 0;
+                    const errors = Array.isArray(data.errors) ? data.errors : [];
+                    if (createdCount > 0) {
+                        showToast(`${createdCount}件の予約投稿を次のタイミングで作成しました。`, 'success');
+                    }
+                    if (errors.length > 0) {
+                        const errorDetails = errors.map(error => `${error.sns}: ${error.error}`).join(' / ');
+                        statusMessages.innerHTML = `<ion-text color="warning"><p>❗ ${errorDetails}</p></ion-text>`;
+                        showToast('一部のSNSでタイミングが見つかりませんでした。', 'warning', 4000);
+                    }
+                    if (createdCount === 0 && errors.length === 0) {
+                        showToast('次のタイミングの予約投稿は作成されませんでした。', 'warning');
+                    }
+                    setTimeout(() => location.reload(), 1000);
+                }
             })
             .catch(error => {
                 statusMessages.innerHTML = `<ion-text color="danger"><p>❌ 送信中にエラーが発生しました: ${error}</p></ion-text>`;
