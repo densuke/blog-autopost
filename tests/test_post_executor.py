@@ -7,6 +7,7 @@ from src.web.scheduled_post_model import ScheduledPost
 from src.web.scheduled_post_store import ScheduledPostStore
 from src.config_manager import ConfigManager
 
+
 @pytest.fixture
 def mock_config_manager():
     """
@@ -14,15 +15,11 @@ def mock_config_manager():
     """
     mock_config = MagicMock(spec=ConfigManager)
     mock_config.config = {
-        'character_limits': {
-            'x': 280, 
-            'bluesky': 300, 
-            'mastodon': 500, 
-            'misskey': 3000
-        }
+        "character_limits": {"x": 280, "bluesky": 300, "mastodon": 500, "misskey": 3000}
     }
     mock_config.get_allowed_timings_tolerance_minutes.return_value = 5
     return mock_config
+
 
 @pytest.fixture
 def mock_scheduled_post_store():
@@ -31,12 +28,14 @@ def mock_scheduled_post_store():
     """
     return MagicMock(spec=ScheduledPostStore)
 
+
 @pytest.fixture
 def mock_core_posting_logic():
     """
     CorePostingLogicのモックを作成します。
     """
     return MagicMock()
+
 
 @pytest.fixture
 def mock_timing_validator():
@@ -64,6 +63,7 @@ def post_executor(
     )
     return executor
 
+
 @pytest.fixture
 def sample_scheduled_post():
     """
@@ -72,26 +72,34 @@ def sample_scheduled_post():
     return ScheduledPost(
         scheduled_at=datetime.now() + timedelta(hours=1),
         content="Test post content",
-        target_sns=["x", "bluesky"]
+        target_sns=["x", "bluesky"],
     )
 
-def test_execute_post_success(mock_scheduled_post_store, mock_core_posting_logic, post_executor, sample_scheduled_post):
+
+def test_execute_post_success(
+    mock_scheduled_post_store,
+    mock_core_posting_logic,
+    post_executor,
+    sample_scheduled_post,
+):
     """
     execute_postが成功した場合に、投稿ステータスが「実行済み」に更新されることを確認します。
     """
     mock_scheduled_post_store.get_post_by_id.return_value = sample_scheduled_post
     mock_core_posting_logic.post_to_sns.return_value = {
-        'success': True,
-        'results': {'x': 'success', 'bluesky': 'success'},
-        'errors': {}
+        "success": True,
+        "results": {"x": "success", "bluesky": "success"},
+        "errors": {},
     }
-    
+
     result = post_executor.execute_post(sample_scheduled_post.id)
-    
+
     assert result is True
-    mock_scheduled_post_store.get_post_by_id.assert_called_once_with(sample_scheduled_post.id)
+    mock_scheduled_post_store.get_post_by_id.assert_called_once_with(
+        sample_scheduled_post.id
+    )
     mock_scheduled_post_store.update_post.assert_called_once()
-    
+
     # update_postの引数を確認
     args, kwargs = mock_scheduled_post_store.update_post.call_args
     updated_post_id, updates = args
@@ -104,37 +112,50 @@ def test_execute_post_success(mock_scheduled_post_store, mock_core_posting_logic
     post_executor.timing_validator.validate_timing.assert_any_call("x", ANY)
     post_executor.timing_validator.validate_timing.assert_any_call("bluesky", ANY)
 
+
 def test_execute_post_post_not_found(mock_scheduled_post_store, post_executor):
     """
     指定されたIDの投稿が見つからない場合にFalseを返すことを確認します。
     """
     mock_scheduled_post_store.get_post_by_id.return_value = None
-    
-    with patch('builtins.print') as mock_print:
-        result = post_executor.execute_post("non_existent_id")
-        
-        assert result is False
-        mock_scheduled_post_store.get_post_by_id.assert_called_once_with("non_existent_id")
-        mock_scheduled_post_store.update_post.assert_not_called()
-        mock_print.assert_called_with("Error: Scheduled post with ID non_existent_id not found.")
 
-def test_execute_post_failure(mock_scheduled_post_store, mock_core_posting_logic, post_executor, sample_scheduled_post):
+    with patch("builtins.print") as mock_print:
+        result = post_executor.execute_post("non_existent_id")
+
+        assert result is False
+        mock_scheduled_post_store.get_post_by_id.assert_called_once_with(
+            "non_existent_id"
+        )
+        mock_scheduled_post_store.update_post.assert_not_called()
+        mock_print.assert_called_with(
+            "Error: Scheduled post with ID non_existent_id not found."
+        )
+
+
+def test_execute_post_failure(
+    mock_scheduled_post_store,
+    mock_core_posting_logic,
+    post_executor,
+    sample_scheduled_post,
+):
     """
     execute_postが失敗した場合に、投稿ステータスが「失敗」に更新されることを確認します。
     """
     mock_scheduled_post_store.get_post_by_id.return_value = sample_scheduled_post
     mock_core_posting_logic.post_to_sns.return_value = {
-        'success': False,
-        'results': {},
-        'errors': {'x': 'Connection timeout', 'bluesky': 'Authentication failed'}
+        "success": False,
+        "results": {},
+        "errors": {"x": "Connection timeout", "bluesky": "Authentication failed"},
     }
-    
+
     result = post_executor.execute_post(sample_scheduled_post.id)
-    
+
     assert result is False
-    mock_scheduled_post_store.get_post_by_id.assert_called_once_with(sample_scheduled_post.id)
+    mock_scheduled_post_store.get_post_by_id.assert_called_once_with(
+        sample_scheduled_post.id
+    )
     mock_scheduled_post_store.update_post.assert_called_once()
-    
+
     # update_postの引数を確認
     args, kwargs = mock_scheduled_post_store.update_post.call_args
     updated_post_id, updates = args
@@ -191,9 +212,9 @@ def test_execute_post_partial_skip(
     ]
 
     mock_core_posting_logic.post_to_sns.return_value = {
-        'success': True,
-        'results': {'bluesky': 'success'},
-        'errors': {}
+        "success": True,
+        "results": {"bluesky": "success"},
+        "errors": {},
     }
 
     result = post_executor.execute_post(sample_scheduled_post.id)

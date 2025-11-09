@@ -35,10 +35,7 @@ class SlotFinder:
         self.tolerance_minutes = max(0, tolerance_minutes)
 
     def generate_candidate_slots(
-        self,
-        sns_name: str,
-        start_date: datetime,
-        days: int
+        self, sns_name: str, start_date: datetime, days: int
     ) -> List[datetime]:
         """候補スロットを時系列順に生成する。
 
@@ -69,11 +66,7 @@ class SlotFinder:
                 try:
                     hour, minute = int(time_str[:2]), int(time_str[3:5])
                     candidate_dt = datetime(
-                        check_date.year,
-                        check_date.month,
-                        check_date.day,
-                        hour,
-                        minute
+                        check_date.year, check_date.month, check_date.day, hour, minute
                     )
 
                     # 過去の時刻はスキップ
@@ -88,11 +81,7 @@ class SlotFinder:
         candidates.sort()
         return candidates
 
-    def is_slot_available(
-        self,
-        sns_name: str,
-        slot_time: datetime
-    ) -> bool:
+    def is_slot_available(self, sns_name: str, slot_time: datetime) -> bool:
         """スロットが空いているかチェックする。
 
         Args:
@@ -110,10 +99,7 @@ class SlotFinder:
         return len(existing) == 0
 
     def find_next_available_slot(
-        self,
-        sns_name: str,
-        start_from: Optional[datetime] = None,
-        max_days: int = 7
+        self, sns_name: str, start_from: Optional[datetime] = None, max_days: int = 7
     ) -> Optional[datetime]:
         """指定されたSNSの次の空きスロットを検索する。
 
@@ -146,8 +132,7 @@ class SlotFinder:
         return None
 
     def find_slots_for_multiple_sns(
-        self,
-        sns_list: List[str]
+        self, sns_list: List[str]
     ) -> Dict[str, Optional[datetime]]:
         """複数SNSの次の空きスロットを一括検索する。
 
@@ -175,11 +160,18 @@ class SlotFinder:
         Returns:
             曜日名("Monday", "Tuesday", ...)
         """
-        normalized_date = target_date.date() if isinstance(target_date, datetime) else target_date
+        normalized_date = (
+            target_date.date() if isinstance(target_date, datetime) else target_date
+        )
         if not isinstance(normalized_date, date):
             raise ValueError("target_date must be either date or datetime")
         days = [
-            "Monday", "Tuesday", "Wednesday", "Thursday",
-            "Friday", "Saturday", "Sunday"
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday",
         ]
         return days[normalized_date.weekday()]
