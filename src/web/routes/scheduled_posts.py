@@ -251,6 +251,111 @@ def send_scheduled_post_now(
     return updated_post
 
 
+@router.post("/scheduled-posts/next", response_model=dict)
+def schedule_post_next_timing(
+    content: str = Form(...),
+    target_sns: List[str] = Form(...),
+    media_files: List[UploadFile] = File([]),
+    user: str = Depends(get_current_user),
+    config_manager: ConfigManager = Depends(get_config_manager),
+    store: ScheduledPostStoreSQLite = Depends(get_scheduled_post_store),
+    data_dir: str = Depends(get_data_dir)
+):
+    """次のタイミングで投稿（各SNSの次の空きスロットに自動予約）
+    
+    Returns:
+        {
+            "created_posts": [
+                {"id": str, "sns": str, "scheduled_at": datetime, "status": str}
+            ],
+            "errors": [
+                {"sns": str, "error": str}
+            ]
+        }
+    """
+    # メディアファイル処理
+    media_paths = []
+    if media_files:
+        post_media_dir = os.path.join(data_dir, "scheduled_media", str(uuid.uuid4()))
+        os.makedirs(post_media_dir, exist_ok=True)
+        os.chmod(post_media_dir, 0o700)
+
+        for file in media_files:
+            if not file.filename:
+                continue
+            safe_filename = os.path.basename(file.filename)
+            path = os.path.join(post_media_dir, safe_filename)
+
+            with open(path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+
+            os.chmod(path, 0o600)
+            media_paths.append(path)
+
+    # SNS検証
+    supported_sns = config_manager.get_all_sns_names()
+    if not all(sns in supported_sns for sns in target_sns):
+        raise HTTPException(status_code=400, detail="Unsupported SNS target specified")
+
+    logger.info(f"User {user} requesting next timing posts for {len(target_sns)} SNS")
+
+    # スロット検索
+    from ..slot_finder import SlotFinder
+    from ...timing_manager import TimingManager
+    
+    timing_manager = TimingManager(config_manager)
+    slot_finder = SlotFinder(timing_manager, store)
+    
+    slots = slot_finder.find_slots_for_multiple_sns(target_sns)
+    
+    created_posts = []
+    errors = []
+    
+    for sns in target_sns:
+        slot_time = slots.get(sns)
+        
+        if slot_time is None:
+            errors.append({
+                "sns": sns,
+                "error": "7日以内に空きスロットが見つかりませんでした"
+            })
+            logger.warning(f"No available slot found for SNS {sns} within 7 days")
+            continue
+        
+        try:
+            # 予約投稿を作成
+            new_post = ScheduledPost(
+                scheduled_at=slot_time,
+                content=content,
+                media_files=media_paths,
+                target_sns=[sns]
+            )
+            store.create_post(new_post)
+            
+            created_posts.append({
+                "id": new_post.id,
+                "sns": sns,
+                "scheduled_at": new_post.scheduled_at,
+                "status": new_post.status
+            })
+            
+            logger.info(f"Created scheduled post for {sns} at {slot_time}")
+            
+        except Exception as e:
+            errors.append({
+                "sns": sns,
+                "error": f"予約作成に失敗しました: {str(e)}"
+            })
+            logger.error(f"Failed to create post for {sns}: {e}")
+    
+    logger.info(f"User {user} created {len(created_posts)} posts with {len(errors)} errors")
+    
+    return {
+        "created_posts": created_posts,
+        "errors": errors
+    }
+
+
 @router.post("/schedule")
 def api_schedule(
     text: str = Form(...),
