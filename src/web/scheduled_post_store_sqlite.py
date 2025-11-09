@@ -22,10 +22,10 @@ from src.web.timezone_utils import ensure_local_timezone, now_local
 class ScheduledPostStoreSQLite:
     """SQLite ベースの ScheduledPostStore 互換実装"""
 
-    def __init__(self, db_path: str = 'data/scheduled_posts.db'):
+    def __init__(self, db_path: str = "data/scheduled_posts.db"):
         """
         SQLite ベースのデータストアを初期化
-        
+
         Args:
             db_path: SQLite データベースファイルパス
         """
@@ -39,13 +39,13 @@ class ScheduledPostStoreSQLite:
 
     # ===== 既存 API との互換性メソッド =====
 
-    def get_all_posts(self, sort_by: Optional[str] = 'date_asc') -> List[ScheduledPost]:
+    def get_all_posts(self, sort_by: Optional[str] = "date_asc") -> List[ScheduledPost]:
         """
         すべての予約投稿を取得（既存互換性メソッド）
-        
+
         Args:
             sort_by: ソート順序
-        
+
         Returns:
             ScheduledPost オブジェクトのリスト
         """
@@ -110,9 +110,7 @@ class ScheduledPostStoreSQLite:
             session.close()
 
     def delete_posts_older_than(
-        self,
-        cutoff: datetime,
-        statuses: Optional[List[str]] = None
+        self, cutoff: datetime, statuses: Optional[List[str]] = None
     ) -> int:
         """指定した日時以前の投稿を削除"""
         session = self._get_session()
@@ -127,10 +125,10 @@ class ScheduledPostStoreSQLite:
 
     def batch_delete_posts(self, post_ids: List[str]) -> int:
         """複数の予約投稿を一括削除（新機能）
-        
+
         Args:
             post_ids: 削除対象の投稿ID リスト
-        
+
         Returns:
             実際に削除された件数
         """
@@ -146,7 +144,7 @@ class ScheduledPostStoreSQLite:
         self,
         page: int = 1,
         per_page: int = 10,
-        sort_by: Optional[str] = 'date_asc',
+        sort_by: Optional[str] = "date_asc",
         status_filter: Optional[List[str]] = None,
         sns_filter: Optional[List[str]] = None,
     ) -> tuple[List[ScheduledPost], int]:
@@ -179,10 +177,7 @@ class ScheduledPostStoreSQLite:
             session.close()
 
     def get_posts_by_sns_and_time(
-        self,
-        sns_name: str,
-        scheduled_at: datetime,
-        tolerance_minutes: int = 0
+        self, sns_name: str, scheduled_at: datetime, tolerance_minutes: int = 0
     ) -> List[ScheduledPost]:
         """指定されたSNS・時刻の予約投稿を取得する。
 
@@ -240,7 +235,7 @@ class ScheduledPostStoreSQLite:
         scheduled_at_tz = ensure_local_timezone(db_post.scheduled_at)
         created_at_tz = ensure_local_timezone(db_post.created_at)
         updated_at_tz = ensure_local_timezone(db_post.updated_at)
-        
+
         return ScheduledPost(
             id=str(db_post.id),
             scheduled_at=scheduled_at_tz or db_post.scheduled_at,
