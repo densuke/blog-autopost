@@ -301,6 +301,8 @@ def schedule_post_next_timing(
             ]
         }
     """
+    # デバッグ用ログ
+    logger.debug(f"📋 schedule_post_next_timing受信: content={content[:50] if content else ''}, target_sns={target_sns}, user={user}")
     # メディアファイル処理
     media_paths = []
     if media_files:

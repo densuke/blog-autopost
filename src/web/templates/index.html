@@ -1999,8 +1999,8 @@
 
         const ScheduleModes = {
             IMMEDIATE: 'immediate',
-            MANUAL: 'manual',
-            NEXT: 'next'
+            MANUAL: 'scheduled',
+            NEXT: 'next_timing'
         };
         // ========== 投稿方法選択 状態管理 ==========
         
@@ -2420,6 +2420,9 @@
                     selectedSns.push(checkbox.value);
                 }
             });
+            
+            // デバッグ用ログ：FormData内容を確認
+            console.log(`📋 FormData フィールド名: ${targetFieldName}, 値:`, selectedSns);
 
             if (isManualSchedule) {
                 const scheduleTimeElement = document.getElementById('schedule_time');
