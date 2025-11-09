@@ -16,7 +16,7 @@ from src.web.models import (
     init_db,
 )
 from src.web.scheduled_post_model import ScheduledPost
-from src.web.timezone_utils import ensure_local_timezone
+from src.web.timezone_utils import ensure_local_timezone, now_local
 
 
 class ScheduledPostStoreSQLite:
@@ -198,9 +198,17 @@ class ScheduledPostStoreSQLite:
         try:
             dao = ScheduledPostDAO(session)
 
+            normalized_scheduled = ensure_local_timezone(scheduled_at)
+            if normalized_scheduled is None:
+                normalized_scheduled = scheduled_at
+            if normalized_scheduled.tzinfo is None:
+                normalized_scheduled = normalized_scheduled.replace(
+                    tzinfo=now_local().tzinfo
+                )
+
             # 許容範囲を考慮した時刻範囲を計算
-            start_time = scheduled_at - timedelta(minutes=tolerance_minutes)
-            end_time = scheduled_at + timedelta(minutes=tolerance_minutes)
+            start_time = normalized_scheduled - timedelta(minutes=tolerance_minutes)
+            end_time = normalized_scheduled + timedelta(minutes=tolerance_minutes)
 
             # 全投稿を取得して、条件でフィルタリング
             db_posts = dao.get_all_posts()
