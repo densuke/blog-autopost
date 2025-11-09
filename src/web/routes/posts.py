@@ -183,7 +183,6 @@ async def save_post_history(
         "scheduled_at": "2025-10-17T10:30:00.000Z"
     }
     """
-    from datetime import datetime
 
     from ..scheduled_post_model import ScheduledPost
     from ..timezone_utils import now_local
