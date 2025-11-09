@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Union
 
 from src.timing_manager import TimingManager
 from src.web.scheduled_post_store_sqlite import ScheduledPostStoreSQLite
+from src.web.timezone_utils import ensure_local_timezone, now_local
 
 
 class SlotFinder:
@@ -53,7 +54,8 @@ class SlotFinder:
             return []
 
         candidates: List[datetime] = []
-        current_date = start_date.date()
+        normalized_start = self._normalize_to_local(start_date)
+        current_date = normalized_start.date()
 
         for day_offset in range(days):
             check_date = current_date + timedelta(days=day_offset)
@@ -68,9 +70,10 @@ class SlotFinder:
                     candidate_dt = datetime(
                         check_date.year, check_date.month, check_date.day, hour, minute
                     )
+                    candidate_dt = self._normalize_to_local(candidate_dt)
 
                     # 過去の時刻はスキップ
-                    if candidate_dt <= start_date:
+                    if candidate_dt <= normalized_start:
                         continue
 
                     candidates.append(candidate_dt)
@@ -91,9 +94,11 @@ class SlotFinder:
         Returns:
             空きがあればTrue
         """
+        normalized_slot = self._normalize_to_local(slot_time)
+
         existing = self.scheduled_post_store.get_posts_by_sns_and_time(
             sns_name,
-            slot_time,
+            normalized_slot,
             tolerance_minutes=self.tolerance_minutes,
         )
         return len(existing) == 0
@@ -111,8 +116,7 @@ class SlotFinder:
         Returns:
             次の空きスロット。見つからない場合はNone。
         """
-        if start_from is None:
-            start_from = datetime.now()
+        normalized_start_from = self._normalize_to_local(start_from or now_local())
 
         # 投稿可能タイミング設定を取得
         allowed_timings = self.timing_manager.get_allowed_timings(sns_name)
@@ -121,7 +125,7 @@ class SlotFinder:
             return None
 
         # 候補スロット生成
-        candidates = self.generate_candidate_slots(sns_name, start_from, max_days)
+        candidates = self.generate_candidate_slots(sns_name, normalized_start_from, max_days)
 
         # 各候補をチェック
         for candidate in candidates:
@@ -175,3 +179,15 @@ class SlotFinder:
             "Sunday",
         ]
         return days[normalized_date.weekday()]
+
+    @staticmethod
+    def _normalize_to_local(dt: datetime) -> datetime:
+        """naiveなdatetimeをローカルタイムゾーンに揃える。"""
+        normalized = ensure_local_timezone(dt)
+        if normalized is not None:
+            return normalized
+
+        fallback = now_local()
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=fallback.tzinfo)
+        return fallback

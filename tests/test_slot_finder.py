@@ -104,6 +104,22 @@ class TestSlotFinderGenerateCandidateSlots:
         assert "08:00" not in times
         assert "09:00" in times or "10:00" in times
 
+    def test_generate_candidate_slots_timezone_normalized(self):
+        """生成されるスロットはローカルタイムゾーンに正規化される。"""
+        timing_manager = TimingManager(None)
+        timing_manager._timing_cache["x"] = {
+            "Monday": ["09:00"],
+        }
+
+        store = MagicMock()
+        slot_finder = SlotFinder(timing_manager, store)
+
+        start_date = datetime(2025, 11, 10, 8, 0)  # naive datetime
+        result = slot_finder.generate_candidate_slots("x", start_date, 1)
+
+        assert len(result) == 1
+        assert result[0].tzinfo is not None
+
 
 class TestSlotFinderIsSlotAvailable:
     """スロット空き状況確認のテスト"""
@@ -156,11 +172,13 @@ class TestSlotFinderIsSlotAvailable:
 
         slot_finder.is_slot_available("x", slot_time)
 
-        store.get_posts_by_sns_and_time.assert_called_once_with(
-            "x",
-            slot_time,
-            tolerance_minutes=10,
-        )
+        store.get_posts_by_sns_and_time.assert_called_once()
+        args, kwargs = store.get_posts_by_sns_and_time.call_args
+        assert args[0] == "x"
+        normalized_time = args[1]
+        assert normalized_time.tzinfo is not None
+        assert normalized_time.hour == slot_time.hour
+        assert kwargs["tolerance_minutes"] == 10
 
 
 class TestSlotFinderFindNextAvailableSlot:
