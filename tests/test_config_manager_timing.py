@@ -211,3 +211,55 @@ class TestConfigManagerTimingSettings:
         assert default_timings == [['*', ['18:00']]]
         assert tolerance == 3
         assert sns_configs[0]['allowed_timings'] == [['Monday', ['09:00']]]
+
+    def test_find_sns_config_list_format(self):
+        """配列形式のSNS設定から特定エントリを取得できる"""
+        config = {
+            'blog': {'feed_url': 'http://test.com/feed'},
+            'sns': [
+                {'type': 'x', 'name': 'x', 'allowed_timings': [['Monday', ['09:00']]]}
+            ]
+        }
+        config_manager = ConfigManager(config)
+
+        entry = config_manager.find_sns_config('x')
+        assert entry is not None
+        assert entry['type'] == 'x'
+
+    def test_find_sns_config_dict_format(self):
+        """辞書形式のSNS設定から特定エントリを取得できる"""
+        config = {
+            'blog': {'feed_url': 'http://test.com/feed'},
+            'sns': {
+                'bluesky': {'type': 'bluesky'}
+            }
+        }
+        config_manager = ConfigManager(config)
+
+        entry = config_manager.find_sns_config('bluesky')
+        assert entry is not None
+        assert entry['type'] == 'bluesky'
+
+    def test_get_allowed_timings_map_empty(self):
+        """allowed_timingsセクション未設定時は空辞書を返す"""
+        config = {
+            'blog': {'feed_url': 'http://test.com/feed'}
+        }
+        config_manager = ConfigManager(config)
+
+        assert config_manager.get_allowed_timings_map() == {}
+
+    def test_get_allowed_timings_map_with_values(self):
+        """allowed_timingsセクションをそのまま取得できる"""
+        config = {
+            'blog': {'feed_url': 'http://test.com/feed'},
+            'allowed_timings': {
+                'bluesky': [['*', ['05:00']]]
+            }
+        }
+        config_manager = ConfigManager(config)
+
+        allowed = config_manager.get_allowed_timings_map()
+        assert isinstance(allowed, dict)
+        assert 'bluesky' in allowed
+        assert allowed['bluesky'][0] == ['*', ['05:00']]
