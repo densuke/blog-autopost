@@ -4,8 +4,8 @@
 複数SNSへの独立した検索にも対応しています。
 """
 
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from datetime import date, datetime, timedelta
+from typing import Dict, List, Optional, Union
 
 from src.timing_manager import TimingManager
 from src.web.scheduled_post_store_sqlite import ScheduledPostStoreSQLite
@@ -20,16 +20,19 @@ class SlotFinder:
     def __init__(
         self,
         timing_manager: TimingManager,
-        scheduled_post_store: ScheduledPostStoreSQLite
+        scheduled_post_store: ScheduledPostStoreSQLite,
+        tolerance_minutes: int = 0,
     ):
         """SlotFinderを初期化する。
 
         Args:
             timing_manager: タイミング管理オブジェクト
             scheduled_post_store: 予約投稿ストア
+            tolerance_minutes: 投稿時刻の許容範囲(分)
         """
         self.timing_manager = timing_manager
         self.scheduled_post_store = scheduled_post_store
+        self.tolerance_minutes = max(0, tolerance_minutes)
 
     def generate_candidate_slots(
         self,
@@ -101,7 +104,8 @@ class SlotFinder:
         """
         existing = self.scheduled_post_store.get_posts_by_sns_and_time(
             sns_name,
-            slot_time
+            slot_time,
+            tolerance_minutes=self.tolerance_minutes,
         )
         return len(existing) == 0
 
@@ -162,17 +166,20 @@ class SlotFinder:
         return result
 
     @staticmethod
-    def _get_day_name(date: datetime) -> str:
+    def _get_day_name(target_date: Union[datetime, date]) -> str:
         """datetimeから曜日名を取得する。
 
         Args:
-            date: 日付
+            target_date: 日付または日時
 
         Returns:
             曜日名("Monday", "Tuesday", ...)
         """
+        normalized_date = target_date.date() if isinstance(target_date, datetime) else target_date
+        if not isinstance(normalized_date, date):
+            raise ValueError("target_date must be either date or datetime")
         days = [
             "Monday", "Tuesday", "Wednesday", "Thursday",
             "Friday", "Saturday", "Sunday"
         ]
-        return days[date.weekday()]
+        return days[normalized_date.weekday()]

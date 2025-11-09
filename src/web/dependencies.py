@@ -15,11 +15,13 @@ from fastapi.templating import Jinja2Templates
 from ..config_manager import ConfigManager
 from ..image_resizer import ImageResizer
 from ..text_optimizer import TextOptimizer
+from ..timing_manager import TimingManager
 from .auth_service import AuthService
 from .post_executor import PostExecutor
 from .posting_service import PostingService
 from .scheduled_post_store_sqlite import ScheduledPostStoreSQLite
 from .scheduler_service import SchedulerService
+from .timing_validator import TimingValidator
 from .ticket_manager import TicketManager
 
 logger = logging.getLogger(__name__)
@@ -44,6 +46,8 @@ _posting_service: Optional[PostingService] = None
 _ticket_manager: Optional[TicketManager] = None
 _executor: Optional[ThreadPoolExecutor] = None
 _templates: Optional[Jinja2Templates] = None
+_timing_manager: Optional[TimingManager] = None
+_timing_validator: Optional[TimingValidator] = None
 
 
 def initialize_services(config_path: str = "config.yml"):
@@ -51,7 +55,7 @@ def initialize_services(config_path: str = "config.yml"):
     global _scheduled_post_store, _config_manager, _auth_service
     global _post_executor, _scheduler_service, _image_resizer
     global _text_optimizer, _posting_service, _ticket_manager
-    global _executor, _templates
+    global _executor, _templates, _timing_manager, _timing_validator
 
     # ストレージ初期化
     _scheduled_post_store = ScheduledPostStoreSQLite(SCHEDULED_POSTS_DB)
@@ -60,8 +64,17 @@ def initialize_services(config_path: str = "config.yml"):
     _config_manager = ConfigManager(config_path)
     _auth_service = AuthService(_config_manager)
 
+    # タイミング関連サービス
+    tolerance_minutes = _config_manager.get_allowed_timings_tolerance_minutes()
+    _timing_manager = TimingManager(_config_manager)
+    _timing_validator = TimingValidator(_timing_manager, tolerance_minutes)
+
     # 投稿実行とスケジューラー
-    _post_executor = PostExecutor(_scheduled_post_store, _config_manager)
+    _post_executor = PostExecutor(
+        _scheduled_post_store,
+        _config_manager,
+        timing_validator=_timing_validator,
+    )
     retention_hours = _config_manager.get_completed_post_retention_hours()
     _scheduler_service = SchedulerService(
         _scheduled_post_store,
@@ -172,6 +185,20 @@ def get_templates() -> Jinja2Templates:
     if _templates is None:
         raise RuntimeError("Services not initialized. Call initialize_services() first.")
     return _templates
+
+
+def get_timing_manager() -> TimingManager:
+    """タイミング管理サービスを取得"""
+    if _timing_manager is None:
+        raise RuntimeError("Services not initialized. Call initialize_services() first.")
+    return _timing_manager
+
+
+def get_timing_validator() -> TimingValidator:
+    """タイミング検証サービスを取得"""
+    if _timing_validator is None:
+        raise RuntimeError("Services not initialized. Call initialize_services() first.")
+    return _timing_validator
 
 
 def get_data_dir() -> str:

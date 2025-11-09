@@ -145,6 +145,23 @@ class TestSlotFinderIsSlotAvailable:
         # --- Assert ---
         assert result is False
 
+    def test_is_slot_available_passes_tolerance(self):
+        """許容範囲がデータストア呼び出しに反映される。"""
+        timing_manager = TimingManager(None)
+        store = MagicMock()
+        store.get_posts_by_sns_and_time.return_value = []
+
+        slot_finder = SlotFinder(timing_manager, store, tolerance_minutes=10)
+        slot_time = datetime(2025, 11, 10, 9, 0)
+
+        slot_finder.is_slot_available("x", slot_time)
+
+        store.get_posts_by_sns_and_time.assert_called_once_with(
+            "x",
+            slot_time,
+            tolerance_minutes=10,
+        )
+
 
 class TestSlotFinderFindNextAvailableSlot:
     """次の空きスロット検索のテスト"""
