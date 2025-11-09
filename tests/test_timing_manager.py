@@ -1,4 +1,5 @@
 from unittest.mock import MagicMock
+from src.config_manager import ConfigManager
 from src.timing_manager import TimingManager
 
 
@@ -326,3 +327,34 @@ class TestTimingManagerGetAllowedTimings:
         # --- Assert ---
         assert result_x == {"Monday": ["09:00"]}
         assert result_bs == {"Monday": ["10:00"]}
+
+
+class TestTimingManagerConfigIntegration:
+    """ConfigManagerと連携したタイミング取得のテスト"""
+
+    def test_get_allowed_timings_merges_defaults_and_sns_settings(self):
+        # --- Arrange ---
+        config = {
+            'blog': {'feed_url': 'http://test.com/feed'},
+            'default_allowed_timings': [['*', ['09:00']]],
+            'allowed_timings': {
+                'bluesky': [['*', ['05:00']]]
+            },
+            'sns': [
+                {
+                    'type': 'bluesky',
+                    'name': 'bluesky',
+                    'allowed_timings': [['Tuesday', ['07:00']]]
+                }
+            ]
+        }
+        config_manager = ConfigManager(config)
+        timing_manager = TimingManager(config_manager)
+
+        # --- Act ---
+        result = timing_manager.get_allowed_timings('bluesky')
+
+        # --- Assert ---
+        assert result is not None
+        assert result['Monday'] == ['05:00', '09:00']
+        assert result['Tuesday'] == ['05:00', '07:00', '09:00']

@@ -108,6 +108,22 @@ class ConfigManager:
 
         return sns_configs
 
+    def find_sns_config(self, sns_name):
+        """指定された名称のSNS設定エントリを取得する"""
+        sns_configs = self.get_all_sns_configs()
+        if isinstance(sns_configs, dict):
+            return sns_configs.get(sns_name)
+        if isinstance(sns_configs, list):
+            for config in sns_configs:
+                if config.get('name') == sns_name:
+                    return config
+        return None
+
+    def get_allowed_timings_map(self):
+        """allowed_timingsセクションをそのまま返す"""
+        allowed = self.config.get('allowed_timings')
+        return allowed if isinstance(allowed, dict) else {}
+
     def _apply_env_overrides(self, sns_config, fallback_type=None):
         """
         環境変数による認証情報の上書きを適用します

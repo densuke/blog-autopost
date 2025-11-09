@@ -178,7 +178,28 @@ class TimingManager:
         if sns_name in self._timing_cache:
             return self._timing_cache[sns_name]
 
-        # ConfigManagerから設定を読み込み(後続タスクで実装)
-        # 現段階ではNoneを返す
-        self._timing_cache[sns_name] = None
-        return None
+        if not self.config_manager:
+            self._timing_cache[sns_name] = None
+            return None
+
+        global_timings = self.config_manager.get_default_allowed_timings() or []
+        allowed_map = self.config_manager.get_allowed_timings_map()
+        sns_specific_timings = allowed_map.get(sns_name) if isinstance(allowed_map, dict) else None
+
+        extra_timings: List[Tuple[str, List[str]]] = []
+        if isinstance(sns_specific_timings, list):
+            extra_timings.extend(sns_specific_timings)
+
+        sns_entry = self.config_manager.find_sns_config(sns_name)
+        if sns_entry:
+            entry_timings = sns_entry.get('allowed_timings')
+            if isinstance(entry_timings, list):
+                extra_timings.extend(entry_timings)
+
+        if not global_timings and not extra_timings:
+            self._timing_cache[sns_name] = None
+            return None
+
+        merged_timings = self.merge_timings(global_timings, extra_timings)
+        self._timing_cache[sns_name] = merged_timings
+        return merged_timings
