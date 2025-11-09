@@ -49,10 +49,10 @@ class ScheduledPostDAO:
             }
             # SQLite での CASE 文を用いたソート
             from sqlalchemy import case
-            case_stmt = case(
-                [(ScheduledPostDB.status == k, v) for k, v in status_priority.items()],
-                else_=99
-            )
+            whens = [
+                (ScheduledPostDB.status == k, v) for k, v in status_priority.items()
+            ]
+            case_stmt = case(*whens, else_=99)
             query = query.order_by(case_stmt, ScheduledPostDB.scheduled_at)
         elif sort_by == 'status_completed':
             # ステータス順: 実行済み -> 予約済み -> 失敗
@@ -62,10 +62,10 @@ class ScheduledPostDAO:
                 '失敗': 2,
             }
             from sqlalchemy import case
-            case_stmt = case(
-                [(ScheduledPostDB.status == k, v) for k, v in status_priority.items()],
-                else_=99
-            )
+            whens = [
+                (ScheduledPostDB.status == k, v) for k, v in status_priority.items()
+            ]
+            case_stmt = case(*whens, else_=99)
             query = query.order_by(case_stmt, ScheduledPostDB.scheduled_at)
         else:  # date_asc (default)
             query = query.order_by(ScheduledPostDB.scheduled_at.asc())
@@ -116,18 +116,18 @@ class ScheduledPostDAO:
         elif sort_by == 'status_failed':
             from sqlalchemy import case
             status_priority = {'失敗': 0, '予約済み': 1, '実行済み': 2}
-            case_stmt = case(
-                [(ScheduledPostDB.status == k, v) for k, v in status_priority.items()],
-                else_=99
-            )
+            whens = [
+                (ScheduledPostDB.status == k, v) for k, v in status_priority.items()
+            ]
+            case_stmt = case(*whens, else_=99)
             query = query.order_by(case_stmt, ScheduledPostDB.scheduled_at)
         elif sort_by == 'status_completed':
             from sqlalchemy import case
             status_priority = {'実行済み': 0, '予約済み': 1, '失敗': 2}
-            case_stmt = case(
-                [(ScheduledPostDB.status == k, v) for k, v in status_priority.items()],
-                else_=99
-            )
+            whens = [
+                (ScheduledPostDB.status == k, v) for k, v in status_priority.items()
+            ]
+            case_stmt = case(*whens, else_=99)
             query = query.order_by(case_stmt, ScheduledPostDB.scheduled_at)
         else:  # date_asc
             query = query.order_by(ScheduledPostDB.scheduled_at.asc())
@@ -143,6 +143,26 @@ class ScheduledPostDAO:
         return self.session.query(ScheduledPostDB).filter(
             ScheduledPostDB.id == post_id
         ).first()
+
+    def get_posts_by_sns_and_time(
+        self,
+        sns_name: str,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> List[ScheduledPostDB]:
+        """SNSと時刻範囲で予約済み投稿を検索する。"""
+
+        query = (
+            self.session.query(ScheduledPostDB)
+            .filter(ScheduledPostDB.status == "予約済み")
+            .filter(ScheduledPostDB.scheduled_at >= start_time)
+            .filter(ScheduledPostDB.scheduled_at <= end_time)
+        )
+
+        # target_sns(JSON配列)に指定SNSが含まれる投稿のみ取得
+        query = query.filter(ScheduledPostDB.target_sns.contains([sns_name]))
+
+        return query.all()
 
     # ===== CREATE 操作 =====
 
@@ -166,7 +186,9 @@ class ScheduledPostDAO:
             setattr(post, key, value)
 
         updated_at_tz = ensure_local_timezone(datetime.now())
-        post.updated_at = updated_at_tz if updated_at_tz is not None else datetime.now()
+        post.updated_at = (
+            updated_at_tz if updated_at_tz is not None else datetime.now()
+        )  # type: ignore[assignment]
         self.session.commit()
         return post
 
