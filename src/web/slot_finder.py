@@ -125,7 +125,9 @@ class SlotFinder:
             return None
 
         # 候補スロット生成
-        candidates = self.generate_candidate_slots(sns_name, normalized_start_from, max_days)
+        candidates = self.generate_candidate_slots(
+            sns_name, normalized_start_from, max_days
+        )
 
         # 各候補をチェック
         for candidate in candidates:
