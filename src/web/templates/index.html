@@ -2002,44 +2002,71 @@
             MANUAL: 'manual',
             NEXT: 'next'
         };
-        let currentScheduleMode = ScheduleModes.MANUAL;
-
-        const scheduleModeSegment = document.getElementById('schedule-mode-segment');
-        const scheduleModeHelper = document.getElementById('schedule-mode-helper');
-        const manualScheduleConfig = document.getElementById('manual-schedule-config');
-        const scheduleBtn = document.getElementById('schedule-btn');
-        const scheduleBtnLabel = scheduleBtn ? scheduleBtn.querySelector('.schedule-btn-label') : null;
-
-        function setScheduleMode(mode) {
-            const normalizedMode = Object.values(ScheduleModes).includes(mode) ? mode : ScheduleModes.MANUAL;
-            currentScheduleMode = normalizedMode;
-            const showManual = normalizedMode === ScheduleModes.MANUAL;
-            if (manualScheduleConfig) {
-                manualScheduleConfig.classList.toggle('hidden', !showManual);
+        // ========== 投稿方法選択 状態管理 ==========
+        
+        // グローバル状態
+        const postState = {
+            method: 'immediate',  // immediate | scheduled | next_timing
+            init: function() {
+                const saved = localStorage.getItem('post_method_preference');
+                this.method = saved || 'immediate';
+            },
+            setMethod: function(method) {
+                this.method = method;
+                localStorage.setItem('post_method_preference', method);
+            },
+            getMethod: function() {
+                return this.method;
             }
-            if (scheduleResetBtn) {
-                scheduleResetBtn.style.display = showManual ? '' : 'none';
+        };
+        
+        // 初期化
+        postState.init();
+        
+        // UI更新関数
+        function updatePostMethodUI(method) {
+            const scheduledArea = document.getElementById('scheduled-controls-area');
+            const nextTimingArea = document.getElementById('next-timing-info-area');
+            const postButton = document.getElementById('post-button');
+            const buttonLabel = document.getElementById('post-button-label');
+            
+            // 条件付き表示
+            if (scheduledArea) {
+                scheduledArea.style.display = method === 'scheduled' ? 'block' : 'none';
             }
-            if (scheduleModeHelper) {
-                scheduleModeHelper.textContent = showManual
-                    ? '予約日時を明示的に指定します。'
-                    : 'Slot Finder が選んだ次のタイミングで各SNSに予約投稿します。';
+            if (nextTimingArea) {
+                nextTimingArea.style.display = method === 'next_timing' ? 'block' : 'none';
             }
-            if (scheduleBtnLabel) {
-                scheduleBtnLabel.textContent = showManual ? '予約投稿' : '次のタイミングで予約';
+            
+            // ボタンラベル更新
+            const labels = {
+                'immediate': '投稿',
+                'scheduled': '予約投稿',
+                'next_timing': '次のタイミングで予約'
+            };
+            
+            if (buttonLabel) {
+                buttonLabel.textContent = labels[method] || '投稿';
             }
-            if (scheduleModeSegment && scheduleModeSegment.value !== normalizedMode) {
-                scheduleModeSegment.value = normalizedMode;
-            }
+            
+            console.log(`投稿方法UI更新: ${method}`);
         }
-
-        if (scheduleModeSegment) {
-            scheduleModeSegment.addEventListener('ionChange', (event) => {
-                const requestedMode = event.detail && event.detail.value
-                    ? event.detail.value
-                    : ScheduleModes.MANUAL;
-                setScheduleMode(requestedMode);
+        
+        // ラジオボタン変更イベント
+        document.querySelectorAll('input[name="post_method"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                const method = e.target.value;
+                postState.setMethod(method);
+                updatePostMethodUI(method);
+                console.log(`投稿方法を切り替え: ${method}`);
             });
+        });
+        
+        // ページロード時に保存された方法を復元
+        const savedRadio = document.querySelector(`input[name="post_method"][value="${postState.getMethod()}"]`);
+        if (savedRadio) {
+            savedRadio.checked = true;
+            updatePostMethodUI(postState.getMethod());
         }
 
         const scheduleManualInput = document.getElementById('schedule-manual-input');
@@ -2090,21 +2117,28 @@
             });
         }
         
-        if (scheduleBtn) {
-            scheduleBtn.addEventListener('click', () => {
-                if (currentScheduleMode === ScheduleModes.MANUAL) {
+        // 統合投稿ボタンのクリックイベント
+        const postButton = document.getElementById('post-button');
+        if (postButton) {
+            postButton.addEventListener('click', async () => {
+                const method = postState.getMethod();
+                
+                // 投稿方法に応じた処理
+                if (method === 'immediate') {
+                    // すぐに投稿
+                    submitPost('/api/post', 'immediate');
+                } else if (method === 'scheduled') {
+                    // 時間指定予約
                     const scheduleTimeElement = document.getElementById('schedule_time');
                     const scheduleTime = scheduleTimeElement ? scheduleTimeElement.value : '';
                     if (!scheduleTime) {
                         showToast('予約日時を指定してください。', 'warning');
                         return;
                     }
-                    submitPost('/api/scheduled-posts', ScheduleModes.MANUAL);
-                    return;
-                }
-
-                if (currentScheduleMode === ScheduleModes.NEXT) {
-                    submitPost('/api/scheduled-posts/next', ScheduleModes.NEXT);
+                    submitPost('/api/scheduled-posts', 'scheduled');
+                } else if (method === 'next_timing') {
+                    // 次のタイミング
+                    submitPost('/api/scheduled-posts/next', 'next_timing');
                 }
             });
         }
