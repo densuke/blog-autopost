@@ -14,10 +14,11 @@ logger = logging.getLogger(__name__)
 
 ScheduledPostStoreType = Union[ScheduledPostStore, ScheduledPostStoreSQLite]
 
+
 class PostExecutor:
     def __init__(
         self,
-    scheduled_post_store: ScheduledPostStoreType,
+        scheduled_post_store: ScheduledPostStoreType,
         config_manager: ConfigManager,
         core_posting_logic: Optional[CorePostingLogic] = None,
         timing_validator: Optional[TimingValidator] = None,
@@ -38,11 +39,11 @@ class PostExecutor:
 
         投稿時刻が許容範囲内にあるかを検証し、範囲外の場合はスキップとして扱います。
         既存のmain.pyの投稿処理をラップし、投稿結果に基づいてScheduledPostStoreのステータスを更新します。
-        
+
         Args:
             post_id: 予約投稿のID
             debug: デバッグモード
-            
+
         Returns:
             bool: 投稿が成功した場合True
         """
@@ -65,12 +66,17 @@ class PostExecutor:
 
         if target_sns and self.timing_validator:
             for sns in target_sns:
-                is_valid, reason = self.timing_validator.validate_timing(sns, execution_time)
+                is_valid, reason = self.timing_validator.validate_timing(
+                    sns, execution_time
+                )
                 if is_valid:
                     allowed_sns.append(sns)
                     continue
 
-                skip_reason = reason or "投稿時刻が許可されたタイミングの範囲外のためスキップしました"
+                skip_reason = (
+                    reason
+                    or "投稿時刻が許可されたタイミングの範囲外のためスキップしました"
+                )
                 skipped_reasons[sns] = skip_reason
                 scheduled_str = scheduled_time.isoformat() if scheduled_time else "N/A"
                 logger.info(
@@ -91,9 +97,12 @@ class PostExecutor:
 
         # 全SNSがスキップされた場合はステータスのみ更新
         if target_sns and not allowed_sns:
-            error_message = " ; ".join(
-                f"{sns}: {reason}" for sns, reason in skipped_reasons.items()
-            ) or "投稿時刻が許可されたタイミングの範囲外のためスキップしました"
+            error_message = (
+                " ; ".join(
+                    f"{sns}: {reason}" for sns, reason in skipped_reasons.items()
+                )
+                or "投稿時刻が許可されたタイミングの範囲外のためスキップしました"
+            )
 
             updates = {
                 "status": "スキップ",
@@ -114,9 +123,11 @@ class PostExecutor:
         result = self.core_posting_logic.post_to_sns(
             content=post.content,
             media_files=post.media_files if post.media_files else None,
-            target_sns=allowed_sns if allowed_sns else (post.target_sns if post.target_sns else None),
+            target_sns=allowed_sns
+            if allowed_sns
+            else (post.target_sns if post.target_sns else None),
             optimize=False,  # 予約投稿では最適化は行わない（投稿作成時に行うべき）
-            debug=debug
+            debug=debug,
         )
 
         # エラーメッセージの統合(スキップ理由 + 投稿失敗理由)
@@ -127,15 +138,15 @@ class PostExecutor:
                 f"{sns}: {reason}" for sns, reason in skipped_reasons.items()
             )
 
-        if result.get('errors'):
+        if result.get("errors"):
             error_messages.extend(
-                f"{sns}: {message}" for sns, message in result['errors'].items()
+                f"{sns}: {message}" for sns, message in result["errors"].items()
             )
 
         combined_error = " ; ".join(error_messages) if error_messages else None
 
         # 投稿結果に応じてステータスを更新
-        if result['success']:
+        if result["success"]:
             updates = {
                 "status": "実行済み",
                 "updated_at": execution_time,
@@ -145,8 +156,8 @@ class PostExecutor:
             if debug:
                 print(f"Post {post_id} executed successfully: {result['results']}")
         else:
-            error_details = combined_error or '; '.join(
-                f"{k}: {v}" for k, v in result.get('errors', {}).items()
+            error_details = combined_error or "; ".join(
+                f"{k}: {v}" for k, v in result.get("errors", {}).items()
             )
             updates = {
                 "status": "失敗",
@@ -158,4 +169,4 @@ class PostExecutor:
                 print(f"Post {post_id} failed: {error_details}")
 
         self.scheduled_post_store.update_post(post_id, updates)
-        return result['success']
+        return result["success"]
