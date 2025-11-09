@@ -18,3 +18,4 @@ config.yml
 *.egg_info/
 .coverage
 .claude
+config_backup.yml

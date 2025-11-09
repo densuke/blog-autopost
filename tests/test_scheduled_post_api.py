@@ -516,3 +516,96 @@ def test_cleanup_deleted_post_from_ui(setup_test_database):
     data2 = response2.json()
     assert len(data2) == 1
     assert data2[0]['id'] == 'post2'
+
+# --- POST /api/scheduled-posts/next ---
+
+def test_schedule_post_next_timing_single_sns(setup_test_database):
+    """次のタイミングで投稿（単一SNS）"""
+    from unittest.mock import patch, MagicMock
+    from datetime import datetime, timezone
+    
+    next_slot = datetime(2025, 11, 10, 9, 0, tzinfo=timezone.utc)
+    
+    # SlotFinder の find_slots_for_multiple_sns メソッドをパッチ
+    with patch('src.web.slot_finder.SlotFinder.find_slots_for_multiple_sns') as mock_find_slots:
+        mock_find_slots.return_value = {"x": next_slot}
+        
+        response = client.post(
+            "/api/scheduled-posts/next",
+            data={
+                "content": "テスト投稿",
+                "target_sns": ["x"]
+            }
+        )
+    
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert "created_posts" in data
+    assert len(data["created_posts"]) == 1
+    assert data["created_posts"][0]["sns"] == "x"
+    assert "errors" in data
+    assert len(data["errors"]) == 0
+
+
+def test_schedule_post_next_timing_multiple_sns(setup_test_database):
+    """次のタイミングで投稿（複数SNS）"""
+    from unittest.mock import patch
+    from datetime import datetime, timezone
+    
+    next_slot_x = datetime(2025, 11, 10, 9, 0, tzinfo=timezone.utc)
+    next_slot_bluesky = datetime(2025, 11, 10, 10, 0, tzinfo=timezone.utc)
+    
+    with patch('src.web.slot_finder.SlotFinder.find_slots_for_multiple_sns') as mock_find_slots:
+        mock_find_slots.return_value = {
+            "x": next_slot_x,
+            "bluesky": next_slot_bluesky
+        }
+        
+        response = client.post(
+            "/api/scheduled-posts/next",
+            data={
+                "content": "テスト投稿",
+                "target_sns": ["x", "bluesky"]
+            }
+        )
+    
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert len(data["created_posts"]) == 2
+    assert len(data["errors"]) == 0
+
+
+def test_schedule_post_next_timing_no_slots(setup_test_database):
+    """次のタイミングで投稿（空きスロットなし）"""
+    from unittest.mock import patch
+    
+    with patch('src.web.slot_finder.SlotFinder.find_slots_for_multiple_sns') as mock_find_slots:
+        mock_find_slots.return_value = {"x": None}
+        
+        response = client.post(
+            "/api/scheduled-posts/next",
+            data={
+                "content": "テスト投稿",
+                "target_sns": ["x"]
+            }
+        )
+    
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert len(data["created_posts"]) == 0
+    assert len(data["errors"]) == 1
+    assert "7日以内に空きスロット" in data["errors"][0]["error"]
+
+
+def test_schedule_post_next_timing_unsupported_sns(setup_test_database):
+    """次のタイミング投稿（サポートされていないSNS）"""
+    response = client.post(
+        "/api/scheduled-posts/next",
+        data={
+            "content": "テスト投稿",
+            "target_sns": ["unsupported_sns"]
+        }
+    )
+    
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "Unsupported SNS target" in response.json()["detail"]

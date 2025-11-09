@@ -3,11 +3,12 @@
 各サービスのインスタンスをグローバル変数として管理し、
 Depends()を通じて各エンドポイントに注入する。
 """
+
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Optional
+from typing import Optional, cast
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.templating import Jinja2Templates
@@ -15,8 +16,11 @@ from fastapi.templating import Jinja2Templates
 from ..config_manager import ConfigManager
 from ..image_resizer import ImageResizer
 from ..text_optimizer import TextOptimizer
+from ..timing_manager import TimingManager
 from .auth_service import AuthService
-from .post_executor import PostExecutor
+from .slot_finder import SlotFinder
+from .timing_validator import TimingValidator
+from .post_executor import PostExecutor, ScheduledPostStoreType
 from .posting_service import PostingService
 from .scheduled_post_store_sqlite import ScheduledPostStoreSQLite
 from .scheduler_service import SchedulerService
@@ -44,6 +48,9 @@ _posting_service: Optional[PostingService] = None
 _ticket_manager: Optional[TicketManager] = None
 _executor: Optional[ThreadPoolExecutor] = None
 _templates: Optional[Jinja2Templates] = None
+_timing_manager: Optional[TimingManager] = None
+_timing_validator: Optional[TimingValidator] = None
+_slot_finder: Optional[SlotFinder] = None
 
 
 def initialize_services(config_path: str = "config.yml"):
@@ -51,7 +58,8 @@ def initialize_services(config_path: str = "config.yml"):
     global _scheduled_post_store, _config_manager, _auth_service
     global _post_executor, _scheduler_service, _image_resizer
     global _text_optimizer, _posting_service, _ticket_manager
-    global _executor, _templates
+    global _executor, _templates, _timing_manager, _timing_validator
+    global _slot_finder
 
     # ストレージ初期化
     _scheduled_post_store = ScheduledPostStoreSQLite(SCHEDULED_POSTS_DB)
@@ -60,14 +68,29 @@ def initialize_services(config_path: str = "config.yml"):
     _config_manager = ConfigManager(config_path)
     _auth_service = AuthService(_config_manager)
 
+    # タイミング関連サービス
+    tolerance_minutes = _config_manager.get_allowed_timings_tolerance_minutes()
+    _timing_manager = TimingManager(_config_manager)
+    _timing_validator = TimingValidator(_timing_manager, tolerance_minutes)
+
     # 投稿実行とスケジューラー
-    _post_executor = PostExecutor(_scheduled_post_store, _config_manager)
+    _post_executor = PostExecutor(
+        cast(ScheduledPostStoreType, _scheduled_post_store),
+        _config_manager,
+        timing_validator=_timing_validator,
+    )
     retention_hours = _config_manager.get_completed_post_retention_hours()
     _scheduler_service = SchedulerService(
         _scheduled_post_store,
         _post_executor,
         data_dir=DATA_DIR,
-        completed_post_retention_hours=retention_hours
+        completed_post_retention_hours=retention_hours,
+    )
+
+    _slot_finder = SlotFinder(
+        timing_manager=_timing_manager,
+        scheduled_post_store=_scheduled_post_store,
+        tolerance_minutes=tolerance_minutes,
     )
 
     # 投稿関連サービス
@@ -76,7 +99,7 @@ def initialize_services(config_path: str = "config.yml"):
     _posting_service = PostingService(
         config_manager=_config_manager,
         image_resizer=_image_resizer,
-        text_optimizer=_text_optimizer
+        text_optimizer=_text_optimizer,
     )
 
     # チケット管理とスレッドプール
@@ -90,14 +113,18 @@ def initialize_services(config_path: str = "config.yml"):
 def get_scheduled_post_store() -> ScheduledPostStoreSQLite:
     """予約投稿ストアを取得"""
     if _scheduled_post_store is None:
-        raise RuntimeError("Services not initialized. Call initialize_services() first.")
+        raise RuntimeError(
+            "Services not initialized. Call initialize_services() first."
+        )
     return _scheduled_post_store
 
 
 def get_config_manager() -> ConfigManager:
     """設定マネージャーを取得"""
     if _config_manager is None:
-        raise RuntimeError("Services not initialized. Call initialize_services() first.")
+        raise RuntimeError(
+            "Services not initialized. Call initialize_services() first."
+        )
 
     # テスト用モック対応
     manager = _config_manager
@@ -114,64 +141,109 @@ def get_config_manager() -> ConfigManager:
 def get_auth_service() -> AuthService:
     """認証サービスを取得"""
     if _auth_service is None:
-        raise RuntimeError("Services not initialized. Call initialize_services() first.")
+        raise RuntimeError(
+            "Services not initialized. Call initialize_services() first."
+        )
     return _auth_service
 
 
 def get_post_executor() -> PostExecutor:
     """投稿実行サービスを取得"""
     if _post_executor is None:
-        raise RuntimeError("Services not initialized. Call initialize_services() first.")
+        raise RuntimeError(
+            "Services not initialized. Call initialize_services() first."
+        )
     return _post_executor
 
 
 def get_scheduler_service() -> SchedulerService:
     """スケジューラーサービスを取得"""
     if _scheduler_service is None:
-        raise RuntimeError("Services not initialized. Call initialize_services() first.")
+        raise RuntimeError(
+            "Services not initialized. Call initialize_services() first."
+        )
     return _scheduler_service
 
 
 def get_image_resizer() -> ImageResizer:
     """画像リサイザーを取得"""
     if _image_resizer is None:
-        raise RuntimeError("Services not initialized. Call initialize_services() first.")
+        raise RuntimeError(
+            "Services not initialized. Call initialize_services() first."
+        )
     return _image_resizer
 
 
 def get_text_optimizer() -> TextOptimizer:
     """テキスト最適化サービスを取得"""
     if _text_optimizer is None:
-        raise RuntimeError("Services not initialized. Call initialize_services() first.")
+        raise RuntimeError(
+            "Services not initialized. Call initialize_services() first."
+        )
     return _text_optimizer
 
 
 def get_posting_service() -> PostingService:
     """投稿サービスを取得"""
     if _posting_service is None:
-        raise RuntimeError("Services not initialized. Call initialize_services() first.")
+        raise RuntimeError(
+            "Services not initialized. Call initialize_services() first."
+        )
     return _posting_service
 
 
 def get_ticket_manager() -> TicketManager:
     """チケット管理サービスを取得"""
     if _ticket_manager is None:
-        raise RuntimeError("Services not initialized. Call initialize_services() first.")
+        raise RuntimeError(
+            "Services not initialized. Call initialize_services() first."
+        )
     return _ticket_manager
 
 
 def get_executor() -> ThreadPoolExecutor:
     """スレッドプール実行サービスを取得"""
     if _executor is None:
-        raise RuntimeError("Services not initialized. Call initialize_services() first.")
+        raise RuntimeError(
+            "Services not initialized. Call initialize_services() first."
+        )
     return _executor
 
 
 def get_templates() -> Jinja2Templates:
     """テンプレートエンジンを取得"""
     if _templates is None:
-        raise RuntimeError("Services not initialized. Call initialize_services() first.")
+        raise RuntimeError(
+            "Services not initialized. Call initialize_services() first."
+        )
     return _templates
+
+
+def get_timing_manager() -> TimingManager:
+    """タイミング管理サービスを取得"""
+    if _timing_manager is None:
+        raise RuntimeError(
+            "Services not initialized. Call initialize_services() first."
+        )
+    return _timing_manager
+
+
+def get_timing_validator() -> TimingValidator:
+    """タイミング検証サービスを取得"""
+    if _timing_validator is None:
+        raise RuntimeError(
+            "Services not initialized. Call initialize_services() first."
+        )
+    return _timing_validator
+
+
+def get_slot_finder() -> SlotFinder:
+    """スロット検索サービスを取得"""
+    if _slot_finder is None:
+        raise RuntimeError(
+            "Services not initialized. Call initialize_services() first."
+        )
+    return _slot_finder
 
 
 def get_data_dir() -> str:
@@ -207,7 +279,7 @@ def get_current_user(request: Request) -> str:
 
 
 def get_valid_sns_names(
-    config_manager: ConfigManager = Depends(get_config_manager)
+    config_manager: ConfigManager = Depends(get_config_manager),
 ) -> set[str]:
     """有効なSNS名一覧を取得
 
@@ -223,8 +295,8 @@ def get_valid_sns_names(
 
     if isinstance(sns_configs, list):
         for config in sns_configs:
-            sns_type = config.get('type')
-            sns_name = config.get('name') or sns_type
+            sns_type = config.get("type")
+            sns_name = config.get("name") or sns_type
             if sns_type:
                 valid_names.add(sns_type)
             if sns_name:
@@ -233,7 +305,7 @@ def get_valid_sns_names(
         for name, config in sns_configs.items():
             if name:
                 valid_names.add(name)
-            sns_type = config.get('type')
+            sns_type = config.get("type")
             if sns_type:
                 valid_names.add(sns_type)
     else:

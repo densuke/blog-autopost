@@ -1,10 +1,144 @@
+# Blog AutoPost CLI 設定ファイルテンプレート
+# このファイルを config.yml にコピーして、自分の環境に合わせて編集してください
 
+# ========================================
+# 基本設定
+# ========================================
 
-# Webサーバーの設定
+announcement_text: "ブログを更新しました！"
+
+blog:
+  - name: "main"
+    feed_url: "https://example.com/blog/index.xml"
+    image_settings:
+      default_image: "https://example.com/assets/default-card.png"
+      enable_link_cards: true
+      image_strategy:
+        - "featured_image"
+        - "first_content_image"
+        - "og_image"
+        - "default"
+      image_filters:
+        exclude_domains:
+          - "affiliate.example.com"
+          - "ads.example.com"
+        min_width: 200
+        min_height: 200
+  - name: "youtube"
+    feed_url: "https://www.youtube.com/feeds/videos.xml?channel_id=YOUR_CHANNEL_ID"
+    image_settings:
+      default_image: null
+      enable_link_cards: true
+      image_strategy:
+        - "featured_image"
+        - "og_image"
+        - "default"
+      image_filters:
+        min_width: 200
+        min_height: 200
+
+# ========================================
+# SNS設定（配列形式で複数アカウントを指定可能）
+# ========================================
+
+sns:
+  - type: x
+    name: "x-main"
+    consumer_key: "<X_CONSUMER_KEY>"
+    consumer_secret: "<X_CONSUMER_SECRET>"
+    access_token: "<X_ACCESS_TOKEN>"
+    access_token_secret: "<X_ACCESS_TOKEN_SECRET>"
+  - type: bluesky
+    name: "bluesky-main"
+    identifier: "<BLUESKY_HANDLE>"
+    password: "<BLUESKY_APP_PASSWORD>"
+  - type: mastodon
+    name: "mastodon-main"
+    instance_url: "https://mastodon.example"
+    access_token: "<MASTODON_ACCESS_TOKEN>"
+  - type: misskey
+    name: "misskey-main"
+    instance_url: "https://misskey.example"
+    access_token: "<MISSKEY_ACCESS_TOKEN>"
+    is_sensitive: false
+  - type: threads
+    name: "threads-main"
+    app_id: "<THREADS_APP_ID>"
+    app_secret: "<THREADS_APP_SECRET>"
+    access_token: "<THREADS_ACCESS_TOKEN>"
+  - type: tumblr
+    name: "tumblr-main"
+    client_id: "<TUMBLR_CLIENT_ID>"
+    client_secret: "<TUMBLR_CLIENT_SECRET>"
+    access_token: "<TUMBLR_ACCESS_TOKEN>"
+    blog_name: "<TUMBLR_BLOG_NAME>"
+
+# ========================================
+# Web UI 認証・セッション設定
+# ========================================
+
+web_auth:
+  username: "admin"
+  password: "changeme"
+  secret_key: "<WEB_SESSION_SECRET>"
+
+web:
+  session:
+    secret_key: "<WEB_SESSION_SECRET>"  # 後方互換性のため同じ値を設定
+
 web_server:
-  host: "127.0.0.1"
+  host: "0.0.0.0"
   port: 8000
 
-# Scheduled post settings
+# ========================================
+# 予約投稿と投稿タイミングの設定
+# ========================================
+
 scheduled_posts:
-  completed_retention_hours: 12  # 送信済みエントリを自動削除するまでの時間（時間単位）
+  completed_retention_hours: 12.0  # 投稿済みジョブを保持する時間（時間単位）
+
+default_allowed_timings:
+  - ["*", ["09:00", "12:00", "18:00"]]
+  - ["Weekday", ["07:30", "20:00"]]
+  - ["Weekend", ["10:00", "21:00"]]
+
+allowed_timings_tolerance_minutes: 5
+
+allowed_timings:
+  x-main:
+    - ["Weekday", ["08:00", "12:00", "17:00", "21:00"]]
+  bluesky-main:
+    - ["*", ["07:30", "13:30", "19:30"]]
+  mastodon-main:
+    - ["*", ["06:00", "14:00", "22:00"]]
+
+# ========================================
+# CLI補助設定
+# ========================================
+
+cli:
+  default_just_target: "blog-check"
+
+# ========================================
+# テンプレートサンプル
+# ========================================
+
+templates:
+  default: "{title} {link}"
+  mastodon: "{title}\n{link}\n\n{summary}"
+  slack: "*{title}*\n{link}"
+
+# ========================================
+# 追加の設定例
+# ========================================
+
+# allowed_timings:
+#   misskey-main:
+#     - ["Saturday", ["11:00", "16:00", "20:00"]]
+#     - ["Sunday", ["10:00", "15:00", "19:00"]]
+#
+# default_allowed_timings:
+#   - ["*", ["09:00", "15:00", "21:00"]]
+#   - ["Weekday", ["08:00", "18:00"]]
+#   - ["Weekend", ["10:00", "20:00"]]
+#   - type: x
