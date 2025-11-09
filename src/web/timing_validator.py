@@ -98,7 +98,8 @@ class TimingValidator:
                 execution_time.month,
                 execution_time.day,
                 hour,
-                minute
+                minute,
+                tzinfo=execution_time.tzinfo
             )
 
             # 時間差を計算(秒単位)
