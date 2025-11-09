@@ -2081,6 +2081,21 @@
             });
         });
 
+        // ion-itemのクリック時にラジオボタンを切り替え
+        document.querySelectorAll('.post-method-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                // ion-noteをクリックした場合は無視
+                if (e.target.closest('ion-note')) return;
+                
+                const radio = item.querySelector('input[type="radio"]');
+                if (radio) {
+                    radio.checked = true;
+                    const changeEvent = new Event('change', { bubbles: true });
+                    radio.dispatchEvent(changeEvent);
+                }
+            });
+        });
+
         /**
          * 予約日時入力フィールドの disabled 制御
          * 「時間指定の予約投稿」選択時のみ有効化、他は無効化
