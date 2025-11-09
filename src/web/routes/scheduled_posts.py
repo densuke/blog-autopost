@@ -304,7 +304,8 @@ def schedule_post_next_timing(
     from ...timing_manager import TimingManager
     
     timing_manager = TimingManager(config_manager)
-    slot_finder = SlotFinder(timing_manager, store)
+    tolerance_minutes = config_manager.get_allowed_timings_tolerance_minutes()
+    slot_finder = SlotFinder(timing_manager, store, tolerance_minutes=tolerance_minutes)
     
     slots = slot_finder.find_slots_for_multiple_sns(target_sns)
     
