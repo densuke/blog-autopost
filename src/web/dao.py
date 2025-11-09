@@ -22,46 +22,50 @@ class ScheduledPostDAO:
 
     # ===== READ 操作 =====
 
-    def get_all_posts(self, sort_by: Optional[str] = 'date_asc') -> List[ScheduledPostDB]:
+    def get_all_posts(
+        self, sort_by: Optional[str] = "date_asc"
+    ) -> List[ScheduledPostDB]:
         """
         すべての予約投稿を取得し、指定されたキーでソート。
-        
+
         Args:
             sort_by: ソート順序
                 - 'date_asc': 投稿日時（昇順）
                 - 'date_desc': 投稿日時（降順）
                 - 'status_failed': ステータス（失敗優先）
                 - 'status_completed': ステータス（完了優先）
-        
+
         Returns:
             ScheduledPostDB オブジェクトのリスト
         """
         query = self.session.query(ScheduledPostDB)
 
-        if sort_by == 'date_desc':
+        if sort_by == "date_desc":
             query = query.order_by(ScheduledPostDB.scheduled_at.desc())
-        elif sort_by == 'status_failed':
+        elif sort_by == "status_failed":
             # ステータス順: 失敗 -> 予約済み -> 実行済み
             status_priority = {
-                '失敗': 0,
-                '予約済み': 1,
-                '実行済み': 2,
+                "失敗": 0,
+                "予約済み": 1,
+                "実行済み": 2,
             }
             # SQLite での CASE 文を用いたソート
             from sqlalchemy import case
+
             whens = [
                 (ScheduledPostDB.status == k, v) for k, v in status_priority.items()
             ]
             case_stmt = case(*whens, else_=99)
             query = query.order_by(case_stmt, ScheduledPostDB.scheduled_at)
-        elif sort_by == 'status_completed':
+        elif sort_by == "status_completed":
             # ステータス順: 実行済み -> 予約済み -> 失敗
             status_priority = {
-                '実行済み': 0,
-                '予約済み': 1,
-                '失敗': 2,
+                "実行済み": 0,
+                "予約済み": 1,
+                "失敗": 2,
             }
             from sqlalchemy import case
+
             whens = [
                 (ScheduledPostDB.status == k, v) for k, v in status_priority.items()
             ]
@@ -76,20 +80,20 @@ class ScheduledPostDAO:
         self,
         page: int = 1,
         per_page: int = 10,
-        sort_by: Optional[str] = 'date_asc',
+        sort_by: Optional[str] = "date_asc",
         status_filter: Optional[List[str]] = None,
         sns_filter: Optional[List[str]] = None,
     ) -> tuple[List[ScheduledPostDB], int]:
         """
         ページネーション対応でフィルター付き予約投稿を取得。
-        
+
         Args:
             page: ページ番号（1から開始）
             per_page: 1ページあたりの件数
             sort_by: ソート順序
             status_filter: ステータスでフィルター（例：['失敗', '予約済み']）
             sns_filter: SNS別フィルター（例：['x', 'bluesky']）
-        
+
         Returns:
             (ScheduledPostDB オブジェクトのリスト, 総件数)
         """
@@ -111,19 +115,21 @@ class ScheduledPostDAO:
         total_count = query.count()
 
         # ソート
-        if sort_by == 'date_desc':
+        if sort_by == "date_desc":
             query = query.order_by(ScheduledPostDB.scheduled_at.desc())
-        elif sort_by == 'status_failed':
+        elif sort_by == "status_failed":
             from sqlalchemy import case
-            status_priority = {'失敗': 0, '予約済み': 1, '実行済み': 2}
+
+            status_priority = {"失敗": 0, "予約済み": 1, "実行済み": 2}
             whens = [
                 (ScheduledPostDB.status == k, v) for k, v in status_priority.items()
             ]
             case_stmt = case(*whens, else_=99)
             query = query.order_by(case_stmt, ScheduledPostDB.scheduled_at)
-        elif sort_by == 'status_completed':
+        elif sort_by == "status_completed":
             from sqlalchemy import case
-            status_priority = {'実行済み': 0, '予約済み': 1, '失敗': 2}
+
+            status_priority = {"実行済み": 0, "予約済み": 1, "失敗": 2}
             whens = [
                 (ScheduledPostDB.status == k, v) for k, v in status_priority.items()
             ]
@@ -140,9 +146,11 @@ class ScheduledPostDAO:
 
     def get_post_by_id(self, post_id: str) -> Optional[ScheduledPostDB]:
         """指定されたIDの予約投稿を取得"""
-        return self.session.query(ScheduledPostDB).filter(
-            ScheduledPostDB.id == post_id
-        ).first()
+        return (
+            self.session.query(ScheduledPostDB)
+            .filter(ScheduledPostDB.id == post_id)
+            .first()
+        )
 
     def get_posts_by_sns_and_time(
         self,
@@ -186,9 +194,7 @@ class ScheduledPostDAO:
             setattr(post, key, value)
 
         updated_at_tz = ensure_local_timezone(datetime.now())
-        post.updated_at = (
-            updated_at_tz if updated_at_tz is not None else datetime.now()
-        )  # type: ignore[assignment]
+        post.updated_at = updated_at_tz if updated_at_tz is not None else datetime.now()  # type: ignore[assignment]
         self.session.commit()
         return post
 
@@ -206,19 +212,21 @@ class ScheduledPostDAO:
 
     def batch_delete_posts(self, post_ids: List[str]) -> int:
         """複数の予約投稿を一括削除
-        
+
         Args:
             post_ids: 削除対象の投稿ID リスト
-        
+
         Returns:
             実際に削除された件数
         """
         if not post_ids:
             return 0
 
-        deleted_count = self.session.query(ScheduledPostDB).filter(
-            ScheduledPostDB.id.in_(post_ids)
-        ).delete(synchronize_session=False)
+        deleted_count = (
+            self.session.query(ScheduledPostDB)
+            .filter(ScheduledPostDB.id.in_(post_ids))
+            .delete(synchronize_session=False)
+        )
 
         self.session.commit()
         return deleted_count
@@ -229,11 +237,11 @@ class ScheduledPostDAO:
         statuses: Optional[List[str]] = None,
     ) -> int:
         """指定した日時以前の投稿を削除
-        
+
         Args:
             cutoff: カットオフ日時
             statuses: 削除対象のステータス（例：['実行済み', '失敗']）
-        
+
         Returns:
             削除された件数
         """
