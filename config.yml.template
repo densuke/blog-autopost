@@ -1,173 +1,144 @@
 # Blog AutoPost CLI 設定ファイルテンプレート
 # このファイルを config.yml にコピーして、自分の環境に合わせて編集してください
 
-# ブログ設定
-blog:
-  feed_url: "https://example.com/feed"  # あなたのブログのRSS/AtomフィードURLを設定
-  # Blueskyリンクカード機能用の画像設定
-  image_settings:
-    enable_link_cards: true              # リンクカード機能を有効にする
-    default_image: ""                    # デフォルト画像URL（空の場合は画像なし）
-    image_strategy:
-      - "featured_image"                 # RSS内のenclosure/media:content
-      - "first_content_image"            # 記事本文の最初の画像
-      - "og_image"                       # ページのOGP画像
-      - "default"                        # デフォルト画像
-    image_filters:
-      exclude_domains:                   # 除外ドメイン（アフィリエイト対策）
-        - "amazon.co.jp"
-        - "affiliate.rakuten.co.jp"
-        - "px.a8.net"
-      min_width: 200                     # 最小幅（ピクセル）
-      min_height: 200                    # 最小高さ（ピクセル）
+# ========================================
+# 基本設定
+# ========================================
 
-# 投稿時のアナウンス文（不要な場合は ""（空文字列）にするか、この行を削除）
 announcement_text: "ブログを更新しました！"
 
-# ========================================
-# 投稿タイミング設定（新機能）
-# ========================================
+blog:
+  - name: "main"
+    feed_url: "https://example.com/blog/index.xml"
+    image_settings:
+      default_image: "https://example.com/assets/default-card.png"
+      enable_link_cards: true
+      image_strategy:
+        - "featured_image"
+        - "first_content_image"
+        - "og_image"
+        - "default"
+      image_filters:
+        exclude_domains:
+          - "affiliate.example.com"
+          - "ads.example.com"
+        min_width: 200
+        min_height: 200
+  - name: "youtube"
+    feed_url: "https://www.youtube.com/feeds/videos.xml?channel_id=YOUR_CHANNEL_ID"
+    image_settings:
+      default_image: null
+      enable_link_cards: true
+      image_strategy:
+        - "featured_image"
+        - "og_image"
+        - "default"
+      image_filters:
+        min_width: 200
+        min_height: 200
 
-# グローバル投稿タイミング設定（全SNS共通）
-# すべてのSNSアカウントで共有される投稿可能なタイミングを定義します
-# このセクションを削除または空にすると、タイミング制約が適用されません
-default_allowed_timings:
-  # 形式: [曜日指定, [時刻リスト]]
-  # 曜日指定: "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
-  #          "*"（全曜日）, "Weekday"（平日 月-金）, "Weekend"（週末 土日）
-  # 時刻形式: "HH:MM" (例: "09:00", "15:30")
-  - ["*", ["18:00", "20:00"]]           # 全曜日の18:00と20:00に投稿可能
-  - ["Weekday", ["09:00", "12:00"]]    # 平日（月-金）の9:00と12:00に投稿可能
-  - ["Weekend", ["10:00", "15:00"]]    # 週末（土日）の10:00と15:00に投稿可能
-
-# 投稿タイミング設定の許容範囲（分単位）
-# 実際の投稿実行時刻が設定時刻±この値の範囲内ならば、投稿を実行します
-# デフォルト: 5分（スケジューラーの実行ズレを許容）
-# 設定例: allowed_timings_tolerance_minutes: 10  # ±10分の許容範囲
-allowed_timings_tolerance_minutes: 5
-
 # ========================================
-# SNS設定
+# SNS設定（配列形式で複数アカウントを指定可能）
 # ========================================
 
 sns:
-  # ========================================
-  # X (旧Twitter) の設定
-  # ========================================
   - type: x
-    name: "x"
-    consumer_key: "YOUR_X_CONSUMER_KEY"
-    consumer_secret: "YOUR_X_CONSUMER_SECRET"
-    access_token: "YOUR_X_ACCESS_TOKEN"
-    access_token_secret: "YOUR_X_ACCESS_TOKEN_SECRET"
-    # X固有の投稿タイミング設定（オプション）
-    # グローバル設定(default_allowed_timings)との和集合
-    # つまり、グローバル設定またはここで指定した時刻のいずれかに投稿可能
-    # このセクションを削除するとグローバル設定のみが適用されます
-    allowed_timings:
-      - ["Monday", ["09:00", "12:00", "15:00"]]
-      - ["Wednesday", ["09:00", "15:30"]]
-      - ["Friday", ["10:00", "14:00"]]
-
-  # ========================================
-  # Bluesky の設定
-  # ========================================
+    name: "x-main"
+    consumer_key: "<X_CONSUMER_KEY>"
+    consumer_secret: "<X_CONSUMER_SECRET>"
+    access_token: "<X_ACCESS_TOKEN>"
+    access_token_secret: "<X_ACCESS_TOKEN_SECRET>"
   - type: bluesky
-    name: "bluesky"
-    identifier: "YOUR_BLUESKY_IDENTIFIER"  # @yourhandle.bsky.social または登録メールアドレス
-    password: "YOUR_BLUESKY_APP_PASSWORD"  # アプリパスワード（本体パスワードではない）
-    image_settings:
-      enable_link_cards: true              # リンクカード機能を有効にする
-      default_image: ""                    # デフォルト画像URL
-    # Blueskyはグローバル設定（default_allowed_timings）のみを使用
-    # 固有のallowed_timingsを指定することも可能です
-
-  # ========================================
-  # Mastodon の設定
-  # ========================================
+    name: "bluesky-main"
+    identifier: "<BLUESKY_HANDLE>"
+    password: "<BLUESKY_APP_PASSWORD>"
   - type: mastodon
-    name: "mastodon-social"
-    instance_url: "https://mastodon.social"
-    access_token: "YOUR_MASTODON_ACCESS_TOKEN"
-    # Mastodonはグローバル設定（default_allowed_timings）のみを使用
-    # write:media スコープを含むアクセストークンが必要です
-
-  # ========================================
-  # Misskey の設定
-  # ========================================
+    name: "mastodon-main"
+    instance_url: "https://mastodon.example"
+    access_token: "<MASTODON_ACCESS_TOKEN>"
   - type: misskey
-    name: "misskey"
-    instance_url: "https://misskey.io"
-    access_token: "YOUR_MISSKEY_ACCESS_TOKEN"
-    is_sensitive: false                   # メディアをセンシティブコンテンツとしてマークするか
-    # Misskeyはグローバル設定（default_allowed_timings）のみを使用
-    # 「ドライブを操作する」権限を含むアクセストークンが必要です
-
-  # ========================================
-  # Threads の設定
-  # ========================================
+    name: "misskey-main"
+    instance_url: "https://misskey.example"
+    access_token: "<MISSKEY_ACCESS_TOKEN>"
+    is_sensitive: false
   - type: threads
-    name: "threads"
-    app_id: "YOUR_META_APP_ID"
-    app_secret: "YOUR_META_APP_SECRET"
-    access_token: "YOUR_THREADS_LONG_LIVED_ACCESS_TOKEN"
-    # Threadsはグローバル設定（default_allowed_timings）のみを使用
+    name: "threads-main"
+    app_id: "<THREADS_APP_ID>"
+    app_secret: "<THREADS_APP_SECRET>"
+    access_token: "<THREADS_ACCESS_TOKEN>"
+  - type: tumblr
+    name: "tumblr-main"
+    client_id: "<TUMBLR_CLIENT_ID>"
+    client_secret: "<TUMBLR_CLIENT_SECRET>"
+    access_token: "<TUMBLR_ACCESS_TOKEN>"
+    blog_name: "<TUMBLR_BLOG_NAME>"
 
 # ========================================
-# Webサーバーの設定
+# Web UI 認証・セッション設定
 # ========================================
+
+web_auth:
+  username: "admin"
+  password: "changeme"
+  secret_key: "<WEB_SESSION_SECRET>"
+
+web:
+  session:
+    secret_key: "<WEB_SESSION_SECRET>"  # 後方互換性のため同じ値を設定
 
 web_server:
-  host: "127.0.0.1"  # バインドするホストアドレス
-  port: 8000         # バインドするポート
+  host: "0.0.0.0"
+  port: 8000
 
 # ========================================
-# 予約投稿設定
+# 予約投稿と投稿タイミングの設定
 # ========================================
 
 scheduled_posts:
-  completed_retention_hours: 12  # 送信済み投稿を自動削除するまでの時間（時間単位）
+  completed_retention_hours: 12.0  # 投稿済みジョブを保持する時間（時間単位）
+
+default_allowed_timings:
+  - ["*", ["09:00", "12:00", "18:00"]]
+  - ["Weekday", ["07:30", "20:00"]]
+  - ["Weekend", ["10:00", "21:00"]]
+
+allowed_timings_tolerance_minutes: 5
+
+allowed_timings:
+  x-main:
+    - ["Weekday", ["08:00", "12:00", "17:00", "21:00"]]
+  bluesky-main:
+    - ["*", ["07:30", "13:30", "19:30"]]
+  mastodon-main:
+    - ["*", ["06:00", "14:00", "22:00"]]
 
 # ========================================
-# Web UI認証設定
+# CLI補助設定
 # ========================================
 
-# Web UIにアクセスするための認証情報
-# 設定しない場合、Web UIは利用できません
-web_auth:
-  username: "admin"                      # ログインユーザー名
-  password: "your_strong_password_here"  # ログインパスワード
-  secret_key: "your_very_secret_key_here"  # セッション管理用の秘密鍵（openssl rand -hex 32で生成）
+cli:
+  default_just_target: "blog-check"
 
 # ========================================
-# 設定例：複数タイミングの詳細例
+# テンプレートサンプル
 # ========================================
 
-# 以下は、より詳細な設定例です。必要に応じて参考にしてください。
+templates:
+  default: "{title} {link}"
+  mastodon: "{title}\n{link}\n\n{summary}"
+  slack: "*{title}*\n{link}"
 
-# 複数のタイミングを定義する場合：
-# default_allowed_timings:
-#   # 平日のみ
-#   - ["Weekday", ["06:00", "09:00", "12:00", "15:00", "18:00", "21:00"]]
-#   # 土曜日は昼と夜
-#   - ["Saturday", ["12:00", "19:00"]]
-#   # 日曜日は朝と夜
-#   - ["Sunday", ["08:00", "20:00"]]
+# ========================================
+# 追加の設定例
+# ========================================
 
-# SNS固有タイミングの例：
-# sns:
-#   - type: x
-#     name: "x-personal"
-#     # ... 認証情報 ...
-#     allowed_timings:
-#       # Xは平日9:00, 12:00, 15:00, 18:00に投稿可能
-#       - ["Weekday", ["09:00", "12:00", "15:00", "18:00"]]
-#       # 週末は昼12:00のみ
-#       - ["Weekend", ["12:00"]]
+# allowed_timings:
+#   misskey-main:
+#     - ["Saturday", ["11:00", "16:00", "20:00"]]
+#     - ["Sunday", ["10:00", "15:00", "19:00"]]
 #
-#   - type: bluesky
-#     name: "bluesky"
-#     # ... 認証情報 ...
-#     allowed_timings:
-#       # Blueskyはすべての時刻で投稿可能（制約なし）
-#       - ["*", ["00:00", "06:00", "12:00", "18:00"]]
+# default_allowed_timings:
+#   - ["*", ["09:00", "15:00", "21:00"]]
+#   - ["Weekday", ["08:00", "18:00"]]
+#   - ["Weekend", ["10:00", "20:00"]]
+#   - type: x
