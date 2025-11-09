@@ -98,7 +98,8 @@ uv run pytest -v
 - `dark-mode-system-integration` - ダークモードの実装と切り替え機能(+システム連動)
 - `test-coverage-improvement` - テストコードを現在に合わせ直す、カバレッジを向上させる
 - `reserved-post-sns-selection-fix` - 予約投稿編集時のSNS選択バグ修正
-- `scheduled-post-timing-extension` - 各SNSの投稿タイミング設定を複数化し予約投稿機能を拡張
+- `scheduled-post-timing-extension` - 各SNSの投稿タイミング設定を複数化し予約投稿機能を拡張 ✅ 完了
+- `unified-post-form-ui` - 投稿フォームUIの統合（すぐに投稿、時間指定予約、次のタイミング投稿を1つの投稿ボタンで管理）
 
 ## 注意事項
 
