@@ -108,6 +108,22 @@ class ConfigManager:
 
         return sns_configs
 
+    def find_sns_config(self, sns_name):
+        """指定された名称のSNS設定エントリを取得する"""
+        sns_configs = self.get_all_sns_configs()
+        if isinstance(sns_configs, dict):
+            return sns_configs.get(sns_name)
+        if isinstance(sns_configs, list):
+            for config in sns_configs:
+                if config.get('name') == sns_name:
+                    return config
+        return None
+
+    def get_allowed_timings_map(self):
+        """allowed_timingsセクションをそのまま返す"""
+        allowed = self.config.get('allowed_timings')
+        return allowed if isinstance(allowed, dict) else {}
+
     def _apply_env_overrides(self, sns_config, fallback_type=None):
         """
         環境変数による認証情報の上書きを適用します
@@ -226,6 +242,23 @@ class ConfigManager:
         host = server_config.get('host', '127.0.0.1')
         port = server_config.get('port', 8000)
         return {"host": host, "port": port}
+
+    def get_default_allowed_timings(self):
+        """グローバル投稿タイミング設定を取得する。
+
+        Returns:
+            投稿可能タイミング設定。設定されていない場合はNone。
+            例: [['*', ['18:00', '20:00']], ['Weekday', ['09:00']]]
+        """
+        return self.config.get('default_allowed_timings')
+
+    def get_allowed_timings_tolerance_minutes(self) -> int:
+        """投稿タイミングの許容範囲(分)を取得する。
+
+        Returns:
+            許容時間(分)。デフォルトは5分。
+        """
+        return self.config.get('allowed_timings_tolerance_minutes', 5)
 
 def load_config(config_path="config.yml"):
     """

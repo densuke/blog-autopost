@@ -4,7 +4,7 @@
 既存コードとの互換性を保証しながら SQLite の利点を活用。
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -16,16 +16,16 @@ from src.web.models import (
     init_db,
 )
 from src.web.scheduled_post_model import ScheduledPost
-from src.web.timezone_utils import ensure_local_timezone
+from src.web.timezone_utils import ensure_local_timezone, now_local
 
 
 class ScheduledPostStoreSQLite:
     """SQLite ベースの ScheduledPostStore 互換実装"""
 
-    def __init__(self, db_path: str = 'data/scheduled_posts.db'):
+    def __init__(self, db_path: str = "data/scheduled_posts.db"):
         """
         SQLite ベースのデータストアを初期化
-        
+
         Args:
             db_path: SQLite データベースファイルパス
         """
@@ -39,13 +39,13 @@ class ScheduledPostStoreSQLite:
 
     # ===== 既存 API との互換性メソッド =====
 
-    def get_all_posts(self, sort_by: Optional[str] = 'date_asc') -> List[ScheduledPost]:
+    def get_all_posts(self, sort_by: Optional[str] = "date_asc") -> List[ScheduledPost]:
         """
         すべての予約投稿を取得（既存互換性メソッド）
-        
+
         Args:
             sort_by: ソート順序
-        
+
         Returns:
             ScheduledPost オブジェクトのリスト
         """
@@ -110,9 +110,7 @@ class ScheduledPostStoreSQLite:
             session.close()
 
     def delete_posts_older_than(
-        self,
-        cutoff: datetime,
-        statuses: Optional[List[str]] = None
+        self, cutoff: datetime, statuses: Optional[List[str]] = None
     ) -> int:
         """指定した日時以前の投稿を削除"""
         session = self._get_session()
@@ -127,10 +125,10 @@ class ScheduledPostStoreSQLite:
 
     def batch_delete_posts(self, post_ids: List[str]) -> int:
         """複数の予約投稿を一括削除（新機能）
-        
+
         Args:
             post_ids: 削除対象の投稿ID リスト
-        
+
         Returns:
             実際に削除された件数
         """
@@ -146,19 +144,19 @@ class ScheduledPostStoreSQLite:
         self,
         page: int = 1,
         per_page: int = 10,
-        sort_by: Optional[str] = 'date_asc',
+        sort_by: Optional[str] = "date_asc",
         status_filter: Optional[List[str]] = None,
         sns_filter: Optional[List[str]] = None,
     ) -> tuple[List[ScheduledPost], int]:
         """ページネーション対応でフィルター付き予約投稿を取得（新機能）
-        
+
         Args:
             page: ページ番号（1から開始）
             per_page: 1ページあたりの件数
             sort_by: ソート順序
             status_filter: ステータスでフィルター
             sns_filter: SNS別フィルター
-        
+
         Returns:
             (ScheduledPost オブジェクトのリスト, 総件数)
         """
@@ -178,6 +176,57 @@ class ScheduledPostStoreSQLite:
         finally:
             session.close()
 
+    def get_posts_by_sns_and_time(
+        self, sns_name: str, scheduled_at: datetime, tolerance_minutes: int = 0
+    ) -> List[ScheduledPost]:
+        """指定されたSNS・時刻の予約投稿を取得する。
+
+        Args:
+            sns_name: SNS名
+            scheduled_at: 予約時刻
+            tolerance_minutes: 時刻の許容範囲(分)
+
+        Returns:
+            該当する予約投稿のリスト
+        """
+        session = self._get_session()
+        try:
+            dao = ScheduledPostDAO(session)
+
+            normalized_scheduled = ensure_local_timezone(scheduled_at)
+            if normalized_scheduled is None:
+                normalized_scheduled = scheduled_at
+            if normalized_scheduled.tzinfo is None:
+                normalized_scheduled = normalized_scheduled.replace(
+                    tzinfo=now_local().tzinfo
+                )
+
+            # 許容範囲を考慮した時刻範囲を計算
+            start_time = normalized_scheduled - timedelta(minutes=tolerance_minutes)
+            end_time = normalized_scheduled + timedelta(minutes=tolerance_minutes)
+
+            # 全投稿を取得して、条件でフィルタリング
+            db_posts = dao.get_all_posts()
+
+            result = []
+            for db_post in db_posts:
+                # ステータスが「予約済み」のみ対象
+                if db_post.status != "予約済み":
+                    continue
+
+                # 対象SNSを確認
+                if sns_name not in db_post.target_sns:
+                    continue
+
+                # 時刻範囲をチェック
+                post_time = ensure_local_timezone(db_post.scheduled_at)
+                if post_time and start_time <= post_time <= end_time:
+                    result.append(self._db_to_scheduled_post(db_post))
+
+            return result
+        finally:
+            session.close()
+
     # ===== 内部ヘルパーメソッド =====
 
     def _db_to_scheduled_post(self, db_post: ScheduledPostDB) -> ScheduledPost:
@@ -186,7 +235,7 @@ class ScheduledPostStoreSQLite:
         scheduled_at_tz = ensure_local_timezone(db_post.scheduled_at)
         created_at_tz = ensure_local_timezone(db_post.created_at)
         updated_at_tz = ensure_local_timezone(db_post.updated_at)
-        
+
         return ScheduledPost(
             id=str(db_post.id),
             scheduled_at=scheduled_at_tz or db_post.scheduled_at,
