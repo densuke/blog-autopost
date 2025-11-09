@@ -15,6 +15,7 @@ from ..dependencies import (
     get_config_manager,
     get_current_user,
     get_data_dir,
+    get_slot_finder,
     get_post_executor,
     get_posting_service,
     get_scheduled_post_store,
@@ -25,6 +26,7 @@ from ..posting_service import PostingService
 from ..scheduled_post_model import ScheduledPost
 from ..scheduled_post_store_sqlite import ScheduledPostStoreSQLite
 from ..scheduler_service import SchedulerService
+from ..slot_finder import SlotFinder
 from ..timezone_utils import ensure_local_timezone, now_local
 
 router = APIRouter(prefix="/api")
@@ -285,6 +287,7 @@ def schedule_post_next_timing(
     config_manager: ConfigManager = Depends(get_config_manager),
     store: ScheduledPostStoreSQLite = Depends(get_scheduled_post_store),
     data_dir: str = Depends(get_data_dir),
+    slot_finder: SlotFinder = Depends(get_slot_finder),
 ):
     """次のタイミングで投稿（各SNSの次の空きスロットに自動予約）
 
@@ -323,14 +326,6 @@ def schedule_post_next_timing(
         raise HTTPException(status_code=400, detail="Unsupported SNS target specified")
 
     logger.info(f"User {user} requesting next timing posts for {len(target_sns)} SNS")
-
-    # スロット検索
-    from ..slot_finder import SlotFinder
-    from ...timing_manager import TimingManager
-
-    timing_manager = TimingManager(config_manager)
-    tolerance_minutes = config_manager.get_allowed_timings_tolerance_minutes()
-    slot_finder = SlotFinder(timing_manager, store, tolerance_minutes=tolerance_minutes)
 
     slots = slot_finder.find_slots_for_multiple_sns(target_sns)
 

@@ -8,7 +8,7 @@ import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Optional
+from typing import Optional, cast
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.templating import Jinja2Templates
@@ -18,12 +18,13 @@ from ..image_resizer import ImageResizer
 from ..text_optimizer import TextOptimizer
 from ..timing_manager import TimingManager
 from .auth_service import AuthService
-from ..timing_manager import TimingManager
+from .slot_finder import SlotFinder
 from .timing_validator import TimingValidator
-from .post_executor import PostExecutor
+from .post_executor import PostExecutor, ScheduledPostStoreType
 from .posting_service import PostingService
 from .scheduled_post_store_sqlite import ScheduledPostStoreSQLite
 from .scheduler_service import SchedulerService
+from .ticket_manager import TicketManager
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ _executor: Optional[ThreadPoolExecutor] = None
 _templates: Optional[Jinja2Templates] = None
 _timing_manager: Optional[TimingManager] = None
 _timing_validator: Optional[TimingValidator] = None
+_slot_finder: Optional[SlotFinder] = None
 
 
 def initialize_services(config_path: str = "config.yml"):
@@ -57,6 +59,7 @@ def initialize_services(config_path: str = "config.yml"):
     global _post_executor, _scheduler_service, _image_resizer
     global _text_optimizer, _posting_service, _ticket_manager
     global _executor, _templates, _timing_manager, _timing_validator
+    global _slot_finder
 
     # ストレージ初期化
     _scheduled_post_store = ScheduledPostStoreSQLite(SCHEDULED_POSTS_DB)
@@ -72,7 +75,7 @@ def initialize_services(config_path: str = "config.yml"):
 
     # 投稿実行とスケジューラー
     _post_executor = PostExecutor(
-        _scheduled_post_store,
+        cast(ScheduledPostStoreType, _scheduled_post_store),
         _config_manager,
         timing_validator=_timing_validator,
     )
@@ -82,6 +85,12 @@ def initialize_services(config_path: str = "config.yml"):
         _post_executor,
         data_dir=DATA_DIR,
         completed_post_retention_hours=retention_hours,
+    )
+
+    _slot_finder = SlotFinder(
+        timing_manager=_timing_manager,
+        scheduled_post_store=_scheduled_post_store,
+        tolerance_minutes=tolerance_minutes,
     )
 
     # 投稿関連サービス
@@ -226,6 +235,15 @@ def get_timing_validator() -> TimingValidator:
             "Services not initialized. Call initialize_services() first."
         )
     return _timing_validator
+
+
+def get_slot_finder() -> SlotFinder:
+    """スロット検索サービスを取得"""
+    if _slot_finder is None:
+        raise RuntimeError(
+            "Services not initialized. Call initialize_services() first."
+        )
+    return _slot_finder
 
 
 def get_data_dir() -> str:
