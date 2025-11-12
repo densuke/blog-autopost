@@ -316,3 +316,83 @@ class TestSlotFinderFindSlotsForMultipleSns:
         # --- Assert ---
         assert result["x"] is not None
         assert result["bluesky"] is None  # 設定なし
+
+
+class TestSlotFinderToleranceHandling:
+    """tolerance_minutesを考慮したスロット検索のテスト"""
+
+    def test_generate_candidate_slots_with_tolerance(self):
+        """tolerance_minutesを考慮して近すぎるスロットをスキップする"""
+        # --- Arrange ---
+        timing_manager = TimingManager(None)
+        timing_manager._timing_cache["x"] = {
+            "Monday": ["12:10", "12:15", "12:20", "12:25"],
+        }
+
+        store = MagicMock()
+        # tolerance_minutes=5分で初期化
+        slot_finder = SlotFinder(timing_manager, store, tolerance_minutes=5)
+
+        # 月曜日12:11を開始時刻(12:15のスロットまで4分)
+        start_date = datetime(2025, 11, 10, 12, 11)  # 2025年11月10日は月曜日
+
+        # --- Act ---
+        result = slot_finder.generate_candidate_slots("x", start_date, 1)
+
+        # --- Assert ---
+        # 12:11 + 5分 = 12:16より後のスロットのみが候補
+        times = [dt.strftime("%H:%M") for dt in result]
+        assert "12:10" not in times  # 過去
+        assert "12:15" not in times  # 近すぎる(12:16より前)
+        assert "12:20" in times       # OK
+        assert "12:25" in times       # OK
+
+    def test_find_next_available_slot_skips_near_past_slots(self):
+        """過去に近いスロットを正しくスキップして次のスロットを返す"""
+        # --- Arrange ---
+        timing_manager = TimingManager(None)
+        timing_manager._timing_cache["x"] = {
+            "Monday": ["12:15", "12:25", "12:35"],
+        }
+
+        store = MagicMock()
+        store.get_posts_by_sns_and_time.return_value = []  # 全スロット空き
+
+        # tolerance_minutes=5分で初期化
+        slot_finder = SlotFinder(timing_manager, store, tolerance_minutes=5)
+
+        # 月曜日12:15を過ぎた時刻(12:20)から検索
+        start_date = datetime(2025, 11, 10, 12, 20)  # 2025年11月10日は月曜日
+
+        # --- Act ---
+        result = slot_finder.find_next_available_slot("x", start_date)
+
+        # --- Assert ---
+        # 12:20 + 5分 = 12:25より後のスロット → 12:35
+        assert result is not None
+        assert result.strftime("%H:%M") == "12:35"
+
+    def test_find_next_available_slot_with_zero_tolerance(self):
+        """tolerance_minutes=0の場合は現在時刻より後のスロットを返す"""
+        # --- Arrange ---
+        timing_manager = TimingManager(None)
+        timing_manager._timing_cache["x"] = {
+            "Monday": ["12:15", "12:20"],
+        }
+
+        store = MagicMock()
+        store.get_posts_by_sns_and_time.return_value = []
+
+        # tolerance_minutes=0で初期化
+        slot_finder = SlotFinder(timing_manager, store, tolerance_minutes=0)
+
+        # 月曜日12:15の直後(12:15:01)から検索
+        start_date = datetime(2025, 11, 10, 12, 15, 1)
+
+        # --- Act ---
+        result = slot_finder.find_next_available_slot("x", start_date)
+
+        # --- Assert ---
+        # tolerance=0なので、12:15:01より後の最初のスロット → 12:20
+        assert result is not None
+        assert result.strftime("%H:%M") == "12:20"
