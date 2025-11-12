@@ -57,6 +57,10 @@ class SlotFinder:
         normalized_start = self._normalize_to_local(start_date)
         current_date = normalized_start.date()
 
+        # tolerance_minutesを考慮した最小時刻を計算
+        # 例: tolerance=5分なら、現在時刻+5分より後のスロットのみを候補とする
+        min_candidate_time = normalized_start + timedelta(minutes=self.tolerance_minutes)
+
         for day_offset in range(days):
             check_date = current_date + timedelta(days=day_offset)
             day_name = self._get_day_name(check_date)
@@ -72,8 +76,8 @@ class SlotFinder:
                     )
                     candidate_dt = self._normalize_to_local(candidate_dt)
 
-                    # 過去の時刻はスキップ
-                    if candidate_dt <= normalized_start:
+                    # 過去の時刻、またはtoleranceを考慮して近すぎる時刻はスキップ
+                    if candidate_dt <= min_candidate_time:
                         continue
 
                     candidates.append(candidate_dt)
