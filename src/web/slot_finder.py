@@ -112,6 +112,9 @@ class SlotFinder:
     ) -> Optional[datetime]:
         """指定されたSNSの次の空きスロットを検索する。
 
+        投稿可能タイミング設定がない場合（制限なしモード）は、
+        現在時刻より後の次の利用可能な時刻を返す。
+
         Args:
             sns_name: SNS名
             start_from: 検索開始日時(デフォルト: 現在時刻)
@@ -125,8 +128,11 @@ class SlotFinder:
         # 投稿可能タイミング設定を取得
         allowed_timings = self.timing_manager.get_allowed_timings(sns_name)
 
+        # 設定がない場合（制限なしモード）：現在時刻より後の最初の利用可能時刻を返す
         if allowed_timings is None:
-            return None
+            # 現在時刻の1分後を候補として返す（tolerance考慮）
+            default_slot = normalized_start_from + timedelta(minutes=max(1, self.tolerance_minutes + 1))
+            return default_slot
 
         # 候補スロット生成
         candidates = self.generate_candidate_slots(
