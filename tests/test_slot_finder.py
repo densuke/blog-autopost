@@ -257,8 +257,10 @@ class TestSlotFinderFindNextAvailableSlot:
         assert result is None
 
     def test_find_next_available_slot_no_config(self):
-        """設定なしの場合None"""
+        """設定なしの場合は制限なしモードで現在時刻より後の時刻を返す"""
         # --- Arrange ---
+        from src.web.timezone_utils import ensure_local_timezone
+        
         timing_manager = TimingManager(None)
         timing_manager._timing_cache["x"] = None
 
@@ -266,12 +268,18 @@ class TestSlotFinderFindNextAvailableSlot:
         slot_finder = SlotFinder(timing_manager, store)
 
         start_from = datetime(2025, 11, 10, 8, 0)
+        start_from_tz = ensure_local_timezone(start_from)
 
         # --- Act ---
         result = slot_finder.find_next_available_slot("x", start_from, 7)
 
         # --- Assert ---
-        assert result is None
+        # 設定なし時は現在時刻より後の時刻を返す
+        assert result is not None
+        assert result > start_from_tz
+        # 1分以上後の時刻を返す
+        from datetime import timedelta
+        assert result >= start_from_tz + timedelta(minutes=1)
 
 
 class TestSlotFinderFindSlotsForMultipleSns:
@@ -299,11 +307,11 @@ class TestSlotFinderFindSlotsForMultipleSns:
         assert result["bluesky"] is not None
 
     def test_find_slots_for_multiple_sns_partial_failure(self):
-        """一部SNSで空きなし"""
+        """一部SNSで投稿可能タイミング設定あり、一部なし"""
         # --- Arrange ---
         timing_manager = TimingManager(None)
         timing_manager._timing_cache["x"] = {"Monday": ["09:00"]}
-        timing_manager._timing_cache["bluesky"] = None
+        timing_manager._timing_cache["bluesky"] = None  # 設定なし = 制限なしモード
 
         store = MagicMock()
         store.get_posts_by_sns_and_time.return_value = []
@@ -315,7 +323,8 @@ class TestSlotFinderFindSlotsForMultipleSns:
 
         # --- Assert ---
         assert result["x"] is not None
-        assert result["bluesky"] is None  # 設定なし
+        # 設定なし時は制限なしモードで現在時刻より後の時刻を返す
+        assert result["bluesky"] is not None  # 設定なし
 
 
 class TestSlotFinderToleranceHandling:
