@@ -5,6 +5,7 @@ import pytest
 from src.web.post_executor import PostExecutor
 from src.web.scheduled_post_model import ScheduledPost
 from src.web.scheduled_post_store import ScheduledPostStore
+from src.web.timezone_utils import ensure_local_timezone
 from src.config_manager import ConfigManager
 
 
@@ -111,6 +112,29 @@ def test_execute_post_success(
     # TimingValidatorが両SNS分呼び出されること
     post_executor.timing_validator.validate_timing.assert_any_call("x", ANY)
     post_executor.timing_validator.validate_timing.assert_any_call("bluesky", ANY)
+
+
+def test_execute_post_uses_scheduled_time_for_validation(
+    mock_scheduled_post_store,
+    mock_core_posting_logic,
+    post_executor,
+    mock_timing_validator,
+    sample_scheduled_post,
+):
+    """Scheduled posts should validate against their scheduled time."""
+    mock_scheduled_post_store.get_post_by_id.return_value = sample_scheduled_post
+    mock_core_posting_logic.post_to_sns.return_value = {
+        "success": True,
+        "results": {"x": "success", "bluesky": "success"},
+        "errors": {},
+    }
+
+    post_executor.execute_post(sample_scheduled_post.id)
+
+    expected_time = ensure_local_timezone(sample_scheduled_post.scheduled_at)
+    assert expected_time is not None
+    for call in mock_timing_validator.validate_timing.call_args_list:
+        assert call.args[1] == expected_time
 
 
 def test_execute_post_post_not_found(mock_scheduled_post_store, post_executor):

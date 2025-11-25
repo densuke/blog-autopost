@@ -15,3 +15,10 @@ apscheduler
 itsdangerous
 sqlalchemy
 starlette-csrf>=3.0.0
+
+[dev]
+mypy>=1.18.2
+pytest-order>=1.3.0
+types-pyyaml>=6.0.12.20250915
+types-requests>=2.32.4.20250913
+pytest-xdist

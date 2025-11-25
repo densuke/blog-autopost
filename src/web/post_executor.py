@@ -7,7 +7,7 @@ from src.web.core_posting_logic import CorePostingLogic
 from src.web.scheduled_post_store import ScheduledPostStore
 from src.web.scheduled_post_store_sqlite import ScheduledPostStoreSQLite
 from src.web.timing_validator import TimingValidator
-from src.web.timezone_utils import now_local
+from src.web.timezone_utils import ensure_local_timezone, now_local
 
 # ロガーの設定
 logger = logging.getLogger(__name__)
@@ -58,7 +58,12 @@ class PostExecutor:
         print(f"Executing post {post.id}: {post.content[:50]}...")
 
         execution_time = now_local()
-        scheduled_time = post.scheduled_at
+        scheduled_time = (
+            ensure_local_timezone(post.scheduled_at)
+            if post.scheduled_at
+            else None
+        )
+        validation_time = scheduled_time or execution_time
 
         target_sns = post.target_sns or []
         allowed_sns: List[str] = []
@@ -67,7 +72,7 @@ class PostExecutor:
         if target_sns and self.timing_validator:
             for sns in target_sns:
                 is_valid, reason = self.timing_validator.validate_timing(
-                    sns, execution_time
+                    sns, validation_time
                 )
                 if is_valid:
                     allowed_sns.append(sns)

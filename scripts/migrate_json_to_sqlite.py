@@ -22,7 +22,6 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.web.models import init_db, get_session, ScheduledPostDB
-from src.web.timezone_utils import ensure_local_timezone, now_local
 
 
 def load_json_posts(json_path: Path) -> list:
@@ -74,7 +73,7 @@ def migrate_posts_to_db(json_posts: list, db_path: str) -> tuple[int, int]:
     # コミット
     try:
         session.commit()
-        print(f"✅ コミット完了")
+        print("✅ コミット完了")
     except Exception as e:
         session.rollback()
         print(f"❌ コミット失敗: {e}")
@@ -93,12 +92,12 @@ def verify_migration(json_posts: list, db_path: str) -> bool:
     db_count = session.query(ScheduledPostDB).count()
     json_count = len(json_posts)
     
-    print(f"\n📊 検証結果:")
+    print("\n📊 検証結果:")
     print(f"  JSONデータ件数: {json_count}")
     print(f"  SQLiteデータ件数: {db_count}")
     
     if db_count == json_count:
-        print(f"✅ マイグレーション成功: すべてのデータが正常に移行されました")
+        print("✅ マイグレーション成功: すべてのデータが正常に移行されました")
         session.close()
         return True
     else:
@@ -172,7 +171,7 @@ def main():
             break
     
     if not json_path:
-        print(f"❌ JSONファイルが見つかりません")
+        print("❌ JSONファイルが見つかりません")
         print(f"確認パス: {json_candidates}")
         return 1
     

@@ -406,3 +406,62 @@ def test_delete_posts_older_than_preserves_newer(dao, sample_posts, db_session):
         post_updated = ensure_local_timezone(post.updated_at) or post.updated_at
         cutoff_tz = ensure_local_timezone(cutoff) or cutoff
         assert post_updated > cutoff_tz
+
+
+# ===== get_posts_by_sns_and_time テスト =====
+
+def test_get_posts_by_sns_and_time_match(dao, sample_posts):
+    """SNSと時刻範囲が一致する投稿を取得できることをテスト"""
+    now = now_local()
+    start_time = now - timedelta(minutes=10)
+    end_time = now + timedelta(minutes=10)
+    
+    # post1: scheduled_at=now, status="予約済み", target_sns=["x", "bluesky"]
+    # post4: scheduled_at=now+3h, status="予約済み", target_sns=["bluesky"]
+    
+    # x で検索
+    posts = dao.get_posts_by_sns_and_time("x", start_time, end_time)
+    assert len(posts) == 1
+    assert posts[0].id == "post1"
+
+    # bluesky で検索
+    posts = dao.get_posts_by_sns_and_time("bluesky", start_time, end_time)
+    assert len(posts) == 1
+    assert posts[0].id == "post1"
+
+
+def test_get_posts_by_sns_and_time_no_match_sns(dao, sample_posts):
+    """SNSが一致しない場合は取得されないことをテスト"""
+    now = now_local()
+    start_time = now - timedelta(minutes=10)
+    end_time = now + timedelta(minutes=10)
+    
+    # mastodon で検索 (post1 は mastodon を含まない)
+    posts = dao.get_posts_by_sns_and_time("mastodon", start_time, end_time)
+    assert len(posts) == 0
+
+
+def test_get_posts_by_sns_and_time_no_match_time(dao, sample_posts):
+    """時刻範囲外の場合は取得されないことをテスト"""
+    now = now_local()
+    # post1 は now
+    
+    # 未来の範囲
+    start_time = now + timedelta(hours=1)
+    end_time = now + timedelta(hours=2)
+    
+    posts = dao.get_posts_by_sns_and_time("x", start_time, end_time)
+    assert len(posts) == 0
+
+
+def test_get_posts_by_sns_and_time_status_filter(dao, sample_posts):
+    """ステータスが「予約済み」以外は取得されないことをテスト"""
+    now = now_local()
+    # post2: scheduled_at=now+1h, status="実行済み", target_sns=["mastodon"]
+    
+    start_time = now + timedelta(minutes=50)
+    end_time = now + timedelta(minutes=70)
+    
+    # 時間とSNSは一致するが、ステータスが実行済み
+    posts = dao.get_posts_by_sns_and_time("mastodon", start_time, end_time)
+    assert len(posts) == 0
