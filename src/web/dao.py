@@ -168,7 +168,7 @@ class ScheduledPostDAO:
         )
 
         # target_sns(JSON配列)に指定SNSが含まれる投稿のみ取得
-        query = query.filter(ScheduledPostDB.target_sns.contains([sns_name]))
+        query = query.filter(ScheduledPostDB.target_sns.contains(sns_name))
 
         return query.all()
 

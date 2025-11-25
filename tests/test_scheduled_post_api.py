@@ -521,7 +521,7 @@ def test_cleanup_deleted_post_from_ui(setup_test_database):
 
 def test_schedule_post_next_timing_single_sns(setup_test_database):
     """次のタイミングで投稿（単一SNS）"""
-    from unittest.mock import patch, MagicMock
+    from unittest.mock import patch
     from datetime import datetime, timezone
     
     next_slot = datetime(2025, 11, 10, 9, 0, tzinfo=timezone.utc)

@@ -205,25 +205,10 @@ class ScheduledPostStoreSQLite:
             start_time = normalized_scheduled - timedelta(minutes=tolerance_minutes)
             end_time = normalized_scheduled + timedelta(minutes=tolerance_minutes)
 
-            # 全投稿を取得して、条件でフィルタリング
-            db_posts = dao.get_all_posts()
+            # DAOを使用してフィルタリング済みの投稿を取得
+            db_posts = dao.get_posts_by_sns_and_time(sns_name, start_time, end_time)
 
-            result = []
-            for db_post in db_posts:
-                # ステータスが「予約済み」のみ対象
-                if db_post.status != "予約済み":
-                    continue
-
-                # 対象SNSを確認
-                if sns_name not in db_post.target_sns:
-                    continue
-
-                # 時刻範囲をチェック
-                post_time = ensure_local_timezone(db_post.scheduled_at)
-                if post_time and start_time <= post_time <= end_time:
-                    result.append(self._db_to_scheduled_post(db_post))
-
-            return result
+            return [self._db_to_scheduled_post(db_post) for db_post in db_posts]
         finally:
             session.close()
 
