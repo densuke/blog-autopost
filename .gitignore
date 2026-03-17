@@ -16,6 +16,7 @@ config.yml
 .DS_Store
 
 *.egg_info/
+*.egg-info/
 .coverage
 .claude
 config_backup.yml
