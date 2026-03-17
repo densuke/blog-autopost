@@ -7,6 +7,7 @@
 各チケットは24時間の有効期限を持ち、自動クリーンアップされる。
 """
 
+import os
 import threading
 import uuid
 from datetime import datetime, timedelta
@@ -18,6 +19,11 @@ class TicketManager:
 
     チケットの発行、状態更新、クリーンアップを管理する。
     スレッドセーフな実装。
+
+    設計方針:
+        ロック内ではメモリ操作（辞書の読み書き）のみ行い、
+        I/O操作（ファイル削除）はロック解放後に実行する。
+        これによりロック保持時間を最小化し、スループットを向上させる。
     """
 
     def __init__(self, ticket_lifetime_hours: int = 24):
@@ -72,18 +78,25 @@ class TicketManager:
             状態辞書 {'status': str, 'message': str, 'updated_at': datetime}
             チケットが存在しないか期限切れの場合はNone
         """
-        with self._lock:
-            if ticket_id not in self.tickets:
-                return None
+        media_files_to_delete: list = []
+        try:
+            with self._lock:
+                if ticket_id not in self.tickets:
+                    return None
 
-            ticket = self.tickets[ticket_id]
+                ticket = self.tickets[ticket_id]
 
-            # 期限チェック
-            if ticket['expire_at'] < datetime.now():
-                self._cleanup_ticket(ticket_id)
-                return None
+                # 期限チェック
+                if ticket['expire_at'] < datetime.now():
+                    # ロック内ではメモリ操作のみ
+                    media_files_to_delete = ticket.get('media_files', [])
+                    del self.tickets[ticket_id]
+                    return None
 
-            return ticket['sns_statuses'].get(sns)
+                return ticket['sns_statuses'].get(sns)
+        finally:
+            # ロック解放後にI/O（ファイル削除）を実行
+            self._delete_media_files(media_files_to_delete)
 
     def update_status(self, ticket_id: str, sns: str, status: str, message: Optional[str] = None) -> bool:
         """SNSの投稿状態を更新
@@ -102,80 +115,87 @@ class TicketManager:
         if status not in valid_statuses:
             raise ValueError(f"Invalid status: {status}. Must be one of {valid_statuses}")
 
-        with self._lock:
-            if ticket_id not in self.tickets:
-                return False
+        media_files_to_delete: list = []
+        try:
+            with self._lock:
+                if ticket_id not in self.tickets:
+                    return False
 
-            ticket = self.tickets[ticket_id]
+                ticket = self.tickets[ticket_id]
 
-            # 期限チェック
-            if ticket['expire_at'] < datetime.now():
-                self._cleanup_ticket(ticket_id)
-                return False
+                # 期限チェック
+                if ticket['expire_at'] < datetime.now():
+                    # ロック内ではメモリ操作のみ
+                    media_files_to_delete = ticket.get('media_files', [])
+                    del self.tickets[ticket_id]
+                    return False
 
-            if sns not in ticket['sns_statuses']:
-                return False
+                if sns not in ticket['sns_statuses']:
+                    return False
 
-            # 状態更新
-            ticket['sns_statuses'][sns] = {
-                'status': status,
-                'message': message,
-                'updated_at': datetime.now()
-            }
+                # 状態更新
+                ticket['sns_statuses'][sns] = {
+                    'status': status,
+                    'message': message,
+                    'updated_at': datetime.now()
+                }
 
-            # 全SNSが完了したかチェック
-            all_completed = all(
-                s['status'] in ['success', 'failed', 'error']
-                for s in ticket['sns_statuses'].values()
-            )
+                return True
+        finally:
+            # ロック解放後にI/O（ファイル削除）を実行
+            self._delete_media_files(media_files_to_delete)
 
-            # 全完了なら自動クリーンアップ（24時間待たずに）
-            if all_completed:
-                # ただし即座には削除せず、少し保持する（結果取得のため）
-                # 実際のクリーンアップは get_status で期限切れ時に実行
-                pass
-
-            return True
-
-    def _cleanup_ticket(self, ticket_id: str):
-        """チケットのクリーンアップ（内部用）
-
-        メディアファイルを削除し、チケット情報を削除する。
+    @staticmethod
+    def _delete_media_files(media_files: list) -> None:
+        """メディアファイルを削除する（ロック外から呼ぶこと）
 
         Args:
-            ticket_id: チケットID
+            media_files: 削除対象のファイルパスリスト
         """
-        if ticket_id not in self.tickets:
-            return
-
-        ticket = self.tickets[ticket_id]
-
-        # メディアファイルの削除
-        import os
-        for media_file in ticket.get('media_files', []):
+        for media_file in media_files:
             try:
                 if os.path.exists(media_file):
                     os.remove(media_file)
             except Exception:
                 pass  # 削除失敗は無視
 
-        # チケット削除
-        del self.tickets[ticket_id]
+    def _cleanup_ticket(self, ticket_id: str) -> None:
+        """チケットのクリーンアップ
 
-    def cleanup_expired_tickets(self):
+        チケットを辞書から削除し、メディアファイルを削除する。
+        ロック外から安全に呼び出せる。
+
+        Args:
+            ticket_id: チケットID
+        """
+        with self._lock:
+            ticket = self.tickets.pop(ticket_id, None)
+
+        # ロック解放後にI/O（ファイル削除）を実行
+        if ticket is not None:
+            self._delete_media_files(ticket.get('media_files', []))
+
+    def cleanup_expired_tickets(self) -> int:
         """期限切れチケットの一括クリーンアップ
 
         定期的に呼び出すことで、期限切れチケットをクリーンアップする。
+
+        Returns:
+            削除されたチケット数
         """
         now = datetime.now()
-        expired_tickets = []
+        expired_media: list = []
 
         with self._lock:
-            for ticket_id, ticket in self.tickets.items():
-                if ticket['expire_at'] < now:
-                    expired_tickets.append(ticket_id)
+            expired_ids = [
+                tid for tid, ticket in self.tickets.items()
+                if ticket['expire_at'] < now
+            ]
+            for ticket_id in expired_ids:
+                ticket = self.tickets.pop(ticket_id)
+                expired_media.extend(ticket.get('media_files', []))
 
-            for ticket_id in expired_tickets:
-                self._cleanup_ticket(ticket_id)
+        # ロック解放後にまとめてI/O（ファイル削除）を実行
+        self._delete_media_files(expired_media)
 
-        return len(expired_tickets)
+        return len(expired_ids)
