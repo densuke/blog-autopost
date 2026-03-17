@@ -52,6 +52,7 @@ tests/test_bluesky_plugin.py
 tests/test_bluesky_plugin_advanced.py
 tests/test_cli_argument_parser.py
 tests/test_config_manager_timing.py
+tests/test_config_security.py
 tests/test_config_template.py
 tests/test_core_posting_logic.py
 tests/test_dao.py
