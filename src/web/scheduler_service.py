@@ -16,40 +16,40 @@ def _monitor_scheduled_posts_job(scheduled_post_store: ScheduledPostStore, post_
     """
     予約投稿を監視し、実行日時が来たものをPostExecutorに渡します。
     """
-    logger.info("--- Running scheduled post monitor job ---")
+    logger.debug("--- Running scheduled post monitor job ---")
     now_local_dt = now_local()
-    logger.info(f"Current local time: {now_local_dt.isoformat()}")
+    logger.debug(f"Current local time: {now_local_dt.isoformat()}")
 
     try:
         posts = scheduled_post_store.get_all_posts()
-        logger.info(f"Found {len(posts)} posts to check.")
+        logger.debug(f"Found {len(posts)} posts to check.")
 
         executed_count = 0
         for post in posts:
             scheduled_time = ensure_local_timezone(post.scheduled_at)
 
-            logger.info(f"Checking post ID: {post.id}, Status: {post.status}, Scheduled: {scheduled_time.isoformat() if scheduled_time else 'N/A'}")
+            logger.debug(f"Checking post ID: {post.id}, Status: {post.status}, Scheduled: {scheduled_time.isoformat() if scheduled_time else 'N/A'}")
             # 投稿が予約済み状態で、スケジュール時刻を過ぎているかチェック
             if post.status == "予約済み" and scheduled_time and scheduled_time <= now_local_dt:
-                logger.info(f"Executing post ID: {post.id}")
+                logger.info(f"予約投稿を実行します: post_id={post.id}")
                 success = post_executor.execute_post(post.id)
                 if success:
                     executed_count += 1
-                    logger.info(f"Successfully executed post ID: {post.id}")
+                    logger.info(f"予約投稿の実行に成功しました: post_id={post.id}")
                 else:
-                    logger.error(f"Failed to execute post ID: {post.id}")
+                    logger.error(f"予約投稿の実行に失敗しました: post_id={post.id}")
 
         if executed_count > 0:
-            logger.info(f"Finished job. Executed {executed_count} post(s).")
+            logger.info(f"スケジューラージョブ完了: {executed_count}件の投稿を実行しました。")
 
         cutoff = now_local_dt - timedelta(hours=retention_hours)
         removed = scheduled_post_store.delete_posts_older_than(cutoff, statuses=["実行済み"])
         if removed:
-            logger.info(f"Cleaned up {removed} completed post(s) older than {retention_hours}h.")
+            logger.info(f"古い実行済み投稿を{removed}件削除しました（保持期間: {retention_hours}h）。")
 
     except Exception as e:
-        logger.error(f"An error occurred in the monitor job: {e}", exc_info=True)
-    logger.info("--- Finished scheduled post monitor job ---")
+        logger.error(f"スケジューラージョブでエラーが発生しました: {e}", exc_info=True)
+    logger.debug("--- Finished scheduled post monitor job ---")
 
 class SchedulerService:
     def __init__(self, scheduled_post_store: ScheduledPostStore, post_executor: PostExecutor, data_dir: str = "data", completed_post_retention_hours: float = 12.0):
@@ -90,8 +90,7 @@ class SchedulerService:
                 args=[self.scheduled_post_store, self.post_executor, self.completed_post_retention_hours],
                 replace_existing=True
             )
-            logger.info("Scheduler started and monitoring job added.")
-            print("Scheduler started and monitoring job added.")
+            logger.info("スケジューラーを開始しました。")
 
     def shutdown(self):
         """
@@ -99,6 +98,5 @@ class SchedulerService:
         """
         if self.scheduler.running:
             self.scheduler.shutdown()
-            logger.info("Scheduler shut down.")
-            print("Scheduler shut down.")
+            logger.info("スケジューラーを停止しました。")
 

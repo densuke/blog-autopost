@@ -49,13 +49,10 @@ class PostExecutor:
         """
         post = self.scheduled_post_store.get_post_by_id(post_id)
         if not post:
-            error_msg = f"Scheduled post with ID {post_id} not found."
-            logger.error(error_msg)
-            print(f"Error: {error_msg}")
+            logger.error(f"予約投稿が見つかりません: post_id={post_id}")
             return False
 
-        logger.info(f"Executing post {post.id}: {post.content[:50]}...")
-        print(f"Executing post {post.id}: {post.content[:50]}...")
+        logger.debug(f"予約投稿を処理中: post_id={post.id}, content={post.content[:50]}...")
 
         execution_time = now_local()
         scheduled_time = (
@@ -84,7 +81,7 @@ class PostExecutor:
                 )
                 skipped_reasons[sns] = skip_reason
                 scheduled_str = scheduled_time.isoformat() if scheduled_time else "N/A"
-                logger.info(
+                logger.debug(
                     "Post %s skipped for SNS %s (scheduled: %s, execution: %s): %s",
                     post.id,
                     sns,
@@ -92,11 +89,6 @@ class PostExecutor:
                     execution_time.isoformat(),
                     skip_reason,
                 )
-                if debug:
-                    print(
-                        f"Post {post.id} skipped for {sns}: {skip_reason} "
-                        f"(scheduled: {scheduled_str}, execution: {execution_time.isoformat()})"
-                    )
         else:
             allowed_sns = target_sns
 
@@ -115,13 +107,11 @@ class PostExecutor:
                 "updated_at": execution_time,
             }
             self.scheduled_post_store.update_post(post_id, updates)
-            logger.info(
-                "Post %s marked as skipped for all targets. Reasons: %s",
+            logger.warning(
+                "全SNSへの投稿をスキップしました: post_id=%s, reasons=%s",
                 post.id,
                 error_message,
             )
-            if debug:
-                print(f"Post {post.id} skipped: {error_message}")
             return True
 
         # CorePostingLogicを使って投稿を実行
@@ -157,9 +147,7 @@ class PostExecutor:
                 "updated_at": execution_time,
                 "error_message": combined_error,
             }
-            logger.info(f"Post {post_id} executed successfully: {result['results']}")
-            if debug:
-                print(f"Post {post_id} executed successfully: {result['results']}")
+            logger.debug(f"予約投稿の実行詳細: post_id={post_id}, results={result['results']}")
         else:
             error_details = combined_error or "; ".join(
                 f"{k}: {v}" for k, v in result.get("errors", {}).items()
@@ -169,9 +157,7 @@ class PostExecutor:
                 "error_message": error_details,
                 "updated_at": execution_time,
             }
-            logger.error(f"Post {post_id} failed: {error_details}")
-            if debug:
-                print(f"Post {post_id} failed: {error_details}")
+            logger.error(f"予約投稿の実行に失敗しました: post_id={post_id}, errors={error_details}")
 
         self.scheduled_post_store.update_post(post_id, updates)
         return result["success"]

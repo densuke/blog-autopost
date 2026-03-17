@@ -399,8 +399,8 @@ def test_empty_text_validation(logged_in_client):
         files={'media_files': ('test.jpg', b'', 'image/jpeg')}
     )
 
-    # 空のテキストは拒否されるべき
-    assert response.status_code == 400, "Empty text should return 400"
+    # 空のテキストは拒否されるべき（FastAPI 0.135+ では空Formは422を返す）
+    assert response.status_code in (400, 422), "Empty text should be rejected"
 
 
 def test_xss_prevention_error_messages(logged_in_client):
