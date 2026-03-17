@@ -2534,7 +2534,7 @@
                                             indicator.innerHTML = '❌';
                                             indicator.style.color = 'var(--ion-color-danger)';
                                         } else {
-                                            indicator.innerHTML = statusData.status;
+                                            indicator.innerHTML = escapeHtml(statusData.status);
                                         }
                                     }
 
@@ -2597,7 +2597,7 @@
                 statusMessages.innerHTML = '';
                 if (!data) return;
                 if (data.error) {
-                    statusMessages.innerHTML = `<ion-text color="danger"><p>❌ エラー: ${data.error}</p></ion-text>`;
+                    statusMessages.innerHTML = `<ion-text color="danger"><p>❌ エラー: ${escapeHtml(data.error)}</p></ion-text>`;
                     return;
                 }
 
@@ -2614,7 +2614,7 @@
                         showToast(`${createdCount}件の予約投稿を次のタイミングで作成しました。`, 'success');
                     }
                     if (errors.length > 0) {
-                        const errorDetails = errors.map(error => `${error.sns}: ${error.error}`).join(' / ');
+                        const errorDetails = errors.map(error => `${escapeHtml(error.sns)}: ${escapeHtml(error.error)}`).join(' / ');
                         statusMessages.innerHTML = `<ion-text color="warning"><p>❗ ${errorDetails}</p></ion-text>`;
                         showToast('一部のSNSでタイミングが見つかりませんでした。', 'warning', 4000);
                     }
@@ -2625,7 +2625,7 @@
                 }
             })
             .catch(error => {
-                statusMessages.innerHTML = `<ion-text color="danger"><p>❌ 送信中にエラーが発生しました: ${error}</p></ion-text>`;
+                statusMessages.innerHTML = `<ion-text color="danger"><p>❌ 送信中にエラーが発生しました: ${escapeHtml(String(error))}</p></ion-text>`;
             });
         }
 
@@ -2833,13 +2833,13 @@
                     }
 
                     row.innerHTML = `
-                        <td><input type="checkbox" class="post-checkbox" value="${post.id}"></td>
-                        <td>${post.id}</td>
-                        <td>${scheduledAtFormatted}</td>
-                        <td>${post.content.substring(0, 50)}...</td>
-                        <td>${post.target_sns.join(', ')}</td>
+                        <td><input type="checkbox" class="post-checkbox" value="${escapeHtml(post.id)}"></td>
+                        <td>${escapeHtml(post.id)}</td>
+                        <td>${escapeHtml(scheduledAtFormatted)}</td>
+                        <td>${escapeHtml(post.content.substring(0, 50))}...</td>
+                        <td>${escapeHtml(post.target_sns.join(', '))}</td>
                         <td>${statusDisplay}</td>
-                        <td>${post.error_message || '-'}</td>
+                        <td>${escapeHtml(post.error_message || '-')}</td>
                         <td>${buttonsHtml}</td>
                     `;
                     postsTableBody.appendChild(row);
