@@ -12,7 +12,7 @@ from slowapi.errors import RateLimitExceeded
 from starlette.middleware.sessions import SessionMiddleware
 
 from .csrf_protection import CSRFCookieMiddleware, FormCSRFMiddleware
-from .dependencies import get_config_manager, get_scheduler_service, initialize_services
+from .dependencies import get_config_manager, get_csrf_secret_key, get_scheduler_service, initialize_services
 from .rate_limiter import limiter
 from .routes import auth, index, posts, scheduled_posts
 
@@ -53,9 +53,12 @@ secret_key = config_manager.get_secret_key()
 if not secret_key:
     raise RuntimeError("セッション管理用のsecret_keyが設定されていません。config.ymlを確認してください。")
 
-app.add_middleware(SessionMiddleware, secret_key=secret_key)
-app.add_middleware(CSRFCookieMiddleware, secret=secret_key)
-app.add_middleware(FormCSRFMiddleware, secret=secret_key)
+csrf_secret = config_manager.get_csrf_secret_key() or secret_key
+cookie_secure = config_manager.get_cookie_secure()
+
+app.add_middleware(SessionMiddleware, secret_key=secret_key, https_only=cookie_secure)
+app.add_middleware(CSRFCookieMiddleware, secret=csrf_secret, cookie_secure=cookie_secure)
+app.add_middleware(FormCSRFMiddleware, secret=csrf_secret)
 
 # ルート登録
 app.include_router(index.router)

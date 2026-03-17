@@ -271,6 +271,47 @@ class ConfigManager:
         secret_key = web_auth_config.get('secret_key')
         return secret_key
 
+    def get_csrf_secret_key(self):
+        """CSRF保護用の秘密鍵を取得する。
+
+        ``csrf_secret_key`` が設定されている場合はそちらを返す。
+        未設定の場合は ``secret_key`` から HMAC-SHA256 を用いて派生させた値を返す。
+        ``secret_key`` 自体がない場合は None を返す。
+        """
+        import hashlib
+        import hmac
+
+        web_auth_config = self.config.get('web_auth', {})
+
+        dedicated = web_auth_config.get('csrf_secret_key')
+        if dedicated:
+            return dedicated
+
+        session_key = web_auth_config.get('secret_key')
+        if not session_key:
+            return None
+
+        # secret_key から CSRF 専用キーを派生させる
+        derived = hmac.new(
+            session_key.encode(),
+            b"csrf-key-derivation",
+            hashlib.sha256,
+        ).hexdigest()
+        return derived
+
+    def get_cookie_secure(self) -> bool:
+        """セッション・CSRFクッキーの Secure フラグ設定を取得する。
+
+        ``web_auth.cookie_secure`` が True に設定されている場合のみ True を返す。
+        デフォルトは False（ローカル環境での開発に対応するため）。
+        HTTPS のみの本番環境では True に設定することを推奨する。
+
+        Returns:
+            cookie_secure 設定値（デフォルト False）。
+        """
+        web_auth_config = self.config.get('web_auth', {})
+        return bool(web_auth_config.get('cookie_secure', False))
+
     def get_web_server_settings(self):
         """Webサーバーの設定を取得する"""
         server_config = self.config.get('web_server', {})
