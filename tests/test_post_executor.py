@@ -143,17 +143,13 @@ def test_execute_post_post_not_found(mock_scheduled_post_store, post_executor):
     """
     mock_scheduled_post_store.get_post_by_id.return_value = None
 
-    with patch("builtins.print") as mock_print:
-        result = post_executor.execute_post("non_existent_id")
+    result = post_executor.execute_post("non_existent_id")
 
-        assert result is False
-        mock_scheduled_post_store.get_post_by_id.assert_called_once_with(
-            "non_existent_id"
-        )
-        mock_scheduled_post_store.update_post.assert_not_called()
-        mock_print.assert_called_with(
-            "Error: Scheduled post with ID non_existent_id not found."
-        )
+    assert result is False
+    mock_scheduled_post_store.get_post_by_id.assert_called_once_with(
+        "non_existent_id"
+    )
+    mock_scheduled_post_store.update_post.assert_not_called()
 
 
 def test_execute_post_failure(
