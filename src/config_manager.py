@@ -1,7 +1,12 @@
+import logging
 import os
+import stat
+from pathlib import Path
 from typing import List
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigManager:
@@ -14,9 +19,11 @@ class ConfigManager:
         """
         if isinstance(config_path, str):
             # 設定ファイルのパスが渡された場合は読み込み
+            self._config_path: str | None = config_path
             self.config = load_config(config_path)
         else:
-            # 辞書が直接渡された場合はそのまま使用
+            # 辞書が直接渡された場合はそのまま使用（テスト時など）
+            self._config_path = None
             self.config = config_path
 
     def get_feed_url(self):
@@ -215,6 +222,34 @@ class ConfigManager:
         """Web UIの認証情報を取得する"""
         return self.config.get('web_auth', {})
 
+    def update_web_auth_password(self, hashed_password: str) -> None:
+        """
+        Web UIのパスワードをbcryptハッシュで更新し、設定ファイルに書き戻す。
+
+        インメモリの設定も同時に更新するため、再起動なしに即座に反映される。
+        設定ファイルパスが不明な場合（テスト用辞書渡しなど）はメモリのみ更新する。
+
+        Args:
+            hashed_password (str): bcryptでハッシュ化済みのパスワード文字列
+        """
+        if 'web_auth' not in self.config:
+            self.config['web_auth'] = {}
+        self.config['web_auth']['password'] = hashed_password
+
+        if self._config_path is None:
+            return
+
+        path = Path(self._config_path)
+        current_config = yaml.safe_load(path.read_text(encoding='utf-8')) or {}
+        if 'web_auth' not in current_config:
+            current_config['web_auth'] = {}
+        current_config['web_auth']['password'] = hashed_password
+
+        tmp_path = path.with_suffix('.yml.tmp')
+        tmp_path.write_text(yaml.dump(current_config, allow_unicode=True), encoding='utf-8')
+        tmp_path.chmod(0o600)
+        tmp_path.rename(path)
+
     def get_completed_post_retention_hours(self, default: float = 12) -> float:
         """
         送信済み予約投稿を保持する時間(時間単位)を取得します。
@@ -264,11 +299,31 @@ def load_config(config_path="config.yml"):
     """
     設定ファイルを読み込みます。
 
+    読み込み前にファイルのパーミッションを確認し、所有者以外がアクセスできる
+    設定（グループ・その他への読み書き権限）が存在する場合は警告を出して
+    自動的に 600 に修正します。
+
     Args:
         config_path (str): 設定ファイルのパス。
 
     Returns:
         dict: 設定内容。
     """
+    path = Path(config_path)
+    # パーミッションチェック（ファイルが実在する場合のみ）
+    try:
+        current_mode = stat.S_IMODE(path.stat().st_mode)
+        # 所有者以外の読み書き実行ビットが立っている場合は修正
+        if current_mode & 0o077:
+            logger.warning(
+                "設定ファイル %s のパーミッションが不適切です（%s）。600 に変更します。",
+                config_path,
+                oct(current_mode),
+            )
+            path.chmod(0o600)
+    except (FileNotFoundError, OSError):
+        # ファイルが実在しない場合（テストでのモック利用など）はスキップ
+        pass
+
     with open(config_path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
