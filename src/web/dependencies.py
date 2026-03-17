@@ -138,6 +138,16 @@ def get_config_manager() -> ConfigManager:
     return manager
 
 
+def get_csrf_secret_key() -> str:
+    """CSRF保護用シークレットキーを取得する。
+
+    ConfigManager.get_csrf_secret_key() の結果を返す。
+    未設定の場合はセッションキーから派生した値が返される。
+    """
+    manager = get_config_manager()
+    return manager.get_csrf_secret_key() or manager.get_secret_key()
+
+
 def get_auth_service() -> AuthService:
     """認証サービスを取得"""
     if _auth_service is None:
