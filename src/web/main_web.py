@@ -15,6 +15,7 @@ from .csrf_protection import CSRFCookieMiddleware, FormCSRFMiddleware
 from .dependencies import get_config_manager, get_csrf_secret_key, get_scheduler_service, initialize_services
 from .rate_limiter import limiter
 from .routes import auth, index, posts, scheduled_posts
+from .security_headers import SecurityHeadersMiddleware
 
 # ログの設定
 logging.basicConfig(
@@ -56,6 +57,7 @@ if not secret_key:
 csrf_secret = config_manager.get_csrf_secret_key() or secret_key
 cookie_secure = config_manager.get_cookie_secure()
 
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(SessionMiddleware, secret_key=secret_key, https_only=cookie_secure)
 app.add_middleware(CSRFCookieMiddleware, secret=csrf_secret, cookie_secure=cookie_secure)
 app.add_middleware(FormCSRFMiddleware, secret=csrf_secret)
