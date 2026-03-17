@@ -1,3 +1,5 @@
+import os
+
 import uvicorn
 
 from ..config_manager import ConfigManager
@@ -9,10 +11,13 @@ if __name__ == "__main__":
     host = server_settings.get("host", "127.0.0.1")
     port = server_settings.get("port", 8000)
 
+    # 開発モードのみリロードを有効にする
+    debug_mode = os.environ.get("DEBUG", "").lower() in ("1", "true", "yes")
+
     # Uvicornを起動
     uvicorn.run(
         "src.web.main_web:app",
         host=host,
         port=port,
-        reload=True
+        reload=debug_mode,
     )

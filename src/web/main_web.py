@@ -4,6 +4,7 @@ FastAPIベースのWebアプリケーション。
 SNS投稿管理（即時投稿・予約投稿）を行う。
 """
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
@@ -26,8 +27,18 @@ logger = logging.getLogger(__name__)
 # サービス初期化
 initialize_services("config.yml")
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """アプリケーションのライフサイクル管理（起動・終了処理）"""
+    scheduler_service = get_scheduler_service()
+    scheduler_service.start()
+    yield
+    scheduler_service.shutdown()
+
+
 # アプリケーション作成
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
 
 # ミドルウェア設定
 config_manager = get_config_manager()
@@ -44,17 +55,3 @@ app.include_router(index.router)
 app.include_router(auth.router)
 app.include_router(posts.router)
 app.include_router(scheduled_posts.router)
-
-
-@app.on_event("startup")
-def startup_event():
-    """アプリケーション起動時処理"""
-    scheduler_service = get_scheduler_service()
-    scheduler_service.start()
-
-
-@app.on_event("shutdown")
-def shutdown_event():
-    """アプリケーション終了時処理"""
-    scheduler_service = get_scheduler_service()
-    scheduler_service.shutdown()
