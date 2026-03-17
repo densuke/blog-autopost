@@ -5,6 +5,7 @@ from fastapi.templating import Jinja2Templates
 
 from ..auth_service import AuthService
 from ..dependencies import get_auth_service, get_csrf_token, get_templates
+from ..rate_limiter import limiter
 
 router = APIRouter()
 
@@ -25,6 +26,7 @@ def login_form(
 
 
 @router.post("/login")
+@limiter.limit("5/minute")
 def login_submit(
     request: Request,
     username: str = Form(...),

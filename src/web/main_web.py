@@ -7,10 +7,13 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from starlette.middleware.sessions import SessionMiddleware
 
 from .csrf_protection import CSRFCookieMiddleware, FormCSRFMiddleware
 from .dependencies import get_config_manager, get_scheduler_service, initialize_services
+from .rate_limiter import limiter
 from .routes import auth, index, posts, scheduled_posts
 
 # ログの設定
@@ -39,6 +42,10 @@ async def lifespan(app: FastAPI):
 
 # アプリケーション作成
 app = FastAPI(lifespan=lifespan)
+
+# レート制限の設定
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ミドルウェア設定
 config_manager = get_config_manager()
