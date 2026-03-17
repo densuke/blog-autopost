@@ -22,6 +22,7 @@ from ..dependencies import (
 from ..posting_service import PostingService
 from ..scheduled_post_store_sqlite import ScheduledPostStoreSQLite
 from ..ticket_manager import TicketManager
+from ..upload_validator import validate_upload_files
 
 router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
@@ -60,6 +61,12 @@ def api_post(
             status_code=400,
             content={"error": "投稿テキストは空にできません"}
         )
+
+    # メディアファイルのバリデーション
+    if media_files:
+        upload_error = validate_upload_files(media_files)
+        if upload_error:
+            return JSONResponse(status_code=400, content={"error": upload_error})
 
     # メディアファイル保存（TicketManagerが削除を管理）
     media_paths = []
