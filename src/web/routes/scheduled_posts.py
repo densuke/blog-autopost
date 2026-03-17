@@ -28,6 +28,7 @@ from ..scheduled_post_store_sqlite import ScheduledPostStoreSQLite
 from ..scheduler_service import SchedulerService
 from ..slot_finder import SlotFinder
 from ..timezone_utils import ensure_local_timezone, now_local
+from ..upload_validator import validate_upload_files
 
 router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
@@ -81,6 +82,11 @@ def create_scheduled_post(
     data_dir: str = Depends(get_data_dir),
 ):
     """予約投稿作成"""
+    if media_files:
+        upload_error = validate_upload_files(media_files)
+        if upload_error:
+            raise HTTPException(status_code=400, detail=upload_error)
+
     media_paths = []
     if media_files:
         post_media_dir = os.path.join(data_dir, "scheduled_media", str(uuid.uuid4()))
@@ -129,6 +135,11 @@ def update_scheduled_post(
     store: ScheduledPostStoreSQLite = Depends(get_scheduled_post_store),
 ):
     """予約投稿更新"""
+    if media_files:
+        upload_error = validate_upload_files(media_files)
+        if upload_error:
+            raise HTTPException(status_code=400, detail=upload_error)
+
     existing_post = store.get_post_by_id(post_id)
     if not existing_post:
         raise HTTPException(status_code=404, detail="Scheduled post not found")
@@ -303,6 +314,12 @@ def schedule_post_next_timing(
     """
     # デバッグ用ログ
     logger.debug(f"📋 schedule_post_next_timing受信: content={content[:50] if content else ''}, target_sns={target_sns}, user={user}")
+    # メディアファイルのバリデーション
+    if media_files:
+        upload_error = validate_upload_files(media_files)
+        if upload_error:
+            raise HTTPException(status_code=400, detail=upload_error)
+
     # メディアファイル処理
     media_paths = []
     if media_files:
