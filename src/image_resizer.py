@@ -74,13 +74,13 @@ class ImageResizer:
 
             # 元画像がサイズ制限内の場合はそのまま返す
             if len(image_data) <= max_size:
-                image = Image.open(io.BytesIO(image_data))
-                if image.width <= max_width and image.height <= max_height:
-                    self._debug_print("リサイズ不要")
-                    return image_data
+                with Image.open(io.BytesIO(image_data)) as img:
+                    if img.width <= max_width and img.height <= max_height:
+                        self._debug_print("リサイズ不要")
+                        return image_data
 
             # 画像を開く
-            image = Image.open(io.BytesIO(image_data))
+            image: Image.Image = Image.open(io.BytesIO(image_data))
             original_format = image.format
 
             # RGBAモードの場合はRGBに変換（JPEGサポートのため）

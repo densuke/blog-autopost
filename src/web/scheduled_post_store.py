@@ -110,8 +110,9 @@ class ScheduledPostStore:
                 kept_posts.append(post)
                 continue
 
-            reference_time = post.updated_at or post.scheduled_at
-            reference_time = ensure_local_timezone(reference_time) if reference_time else None
+            reference_time: Optional[datetime] = post.updated_at or post.scheduled_at
+            if reference_time:
+                reference_time = ensure_local_timezone(reference_time)
 
             if reference_time and reference_time <= cutoff:
                 removed += 1
