@@ -5,7 +5,7 @@
 """
 
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, cast
 
 from sqlalchemy.orm import Session
 
@@ -217,20 +217,26 @@ class ScheduledPostStoreSQLite:
     def _db_to_scheduled_post(self, db_post: ScheduledPostDB) -> ScheduledPost:
         """SQLAlchemy モデルを ScheduledPost データクラスに変換"""
         # Column 型を明示的に str/datetime にキャスト
-        scheduled_at_tz = ensure_local_timezone(db_post.scheduled_at)
-        created_at_tz = ensure_local_timezone(db_post.created_at)
-        updated_at_tz = ensure_local_timezone(db_post.updated_at)
+        db_scheduled_at = cast(Optional[datetime], db_post.scheduled_at) or now_local()
+        db_created_at = cast(Optional[datetime], db_post.created_at) or now_local()
+        db_updated_at = cast(Optional[datetime], db_post.updated_at) or db_created_at
+        db_media_files = cast(List[str], db_post.media_files)
+        db_target_sns = cast(List[str], db_post.target_sns)
+
+        scheduled_at_tz = ensure_local_timezone(db_scheduled_at)
+        created_at_tz = ensure_local_timezone(db_created_at)
+        updated_at_tz = ensure_local_timezone(db_updated_at)
 
         return ScheduledPost(
             id=str(db_post.id),
-            scheduled_at=scheduled_at_tz or db_post.scheduled_at,
+            scheduled_at=scheduled_at_tz or db_scheduled_at,
             content=str(db_post.content),
-            media_files=db_post.media_files or [],
-            target_sns=db_post.target_sns or [],
+            media_files=db_media_files or [],
+            target_sns=db_target_sns or [],
             status=str(db_post.status),
             error_message=str(db_post.error_message) if db_post.error_message else None,
-            created_at=created_at_tz or db_post.created_at,
-            updated_at=updated_at_tz or db_post.updated_at,
+            created_at=created_at_tz or db_created_at,
+            updated_at=updated_at_tz or db_updated_at,
         )
 
     def _scheduled_post_to_db(

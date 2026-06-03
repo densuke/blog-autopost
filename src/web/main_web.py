@@ -46,7 +46,7 @@ app = FastAPI(lifespan=lifespan)
 
 # レート制限の設定
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
 # ミドルウェア設定
 config_manager = get_config_manager()
