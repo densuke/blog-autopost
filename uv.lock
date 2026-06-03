@@ -215,6 +215,7 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "coverage" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -230,6 +231,7 @@ requires-dist = [
     { name = "atproto", specifier = ">=0.0.65" },
     { name = "bcrypt", specifier = ">=4.3.0" },
     { name = "beautifulsoup4", specifier = ">=4.14.3" },
+    { name = "coverage", marker = "extra == 'dev'", specifier = ">=7.6.0" },
     { name = "cryptography", specifier = ">=46.0.5" },
     { name = "fastapi", specifier = ">=0.135.1" },
     { name = "feedparser", specifier = ">=6.0.12" },

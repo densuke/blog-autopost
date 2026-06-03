@@ -43,6 +43,7 @@ dev = [
     "pytest-xdist",
     "types-pyyaml>=6.0.12.20250915",
     "types-requests>=2.32.4.20250913",
+    "coverage>=7.6.0",
 ]
 
 [tool.setuptools.package-dir]
