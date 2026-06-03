@@ -17,9 +17,9 @@ def login_form(
 ):
     """ログインフォーム表示"""
     return templates.TemplateResponse(
-        "login.html",
-        {
-            "request": request,
+        request=request,
+        name="login.html",
+        context={
             "csrf_token": get_csrf_token(request),
         },
     )
