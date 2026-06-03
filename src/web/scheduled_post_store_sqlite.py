@@ -217,8 +217,8 @@ class ScheduledPostStoreSQLite:
     def _db_to_scheduled_post(self, db_post: ScheduledPostDB) -> ScheduledPost:
         """SQLAlchemy モデルを ScheduledPost データクラスに変換"""
         # Column 型を明示的に str/datetime にキャスト
-        db_scheduled_at = cast(datetime, db_post.scheduled_at)
-        db_created_at = cast(datetime, db_post.created_at)
+        db_scheduled_at = cast(Optional[datetime], db_post.scheduled_at) or now_local()
+        db_created_at = cast(Optional[datetime], db_post.created_at) or now_local()
         db_updated_at = cast(Optional[datetime], db_post.updated_at) or db_created_at
         db_media_files = cast(List[str], db_post.media_files)
         db_target_sns = cast(List[str], db_post.target_sns)
