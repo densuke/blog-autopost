@@ -145,7 +145,7 @@ class FormCSRFMiddleware(_BaseCSRFMiddleware):
         if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
             form = await request.form()
             form_token = form.get("csrf_token")
-            if form_token:
+            if isinstance(form_token, str):
                 return form_token
 
         query_token = request.query_params.get("csrf_token")

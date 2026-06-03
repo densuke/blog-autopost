@@ -45,9 +45,9 @@ def read_root(
             post.scheduled_at = scheduled_at_tz
 
     return templates.TemplateResponse(
-        "index.html",
-        {
-            "request": request,
+        request=request,
+        name="index.html",
+        context={
             "user": user,
             "sns_accounts": sns_accounts,
             "scheduled_posts": scheduled_posts,

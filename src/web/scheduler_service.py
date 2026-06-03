@@ -5,14 +5,13 @@ from datetime import timedelta
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from src.web.post_executor import PostExecutor
-from src.web.scheduled_post_store import ScheduledPostStore
+from src.web.post_executor import PostExecutor, ScheduledPostStoreType
 from src.web.timezone_utils import ensure_local_timezone, now_local
 
 # ロガーの設定
 logger = logging.getLogger(__name__)
 
-def _monitor_scheduled_posts_job(scheduled_post_store: ScheduledPostStore, post_executor: PostExecutor, retention_hours: float):
+def _monitor_scheduled_posts_job(scheduled_post_store: ScheduledPostStoreType, post_executor: PostExecutor, retention_hours: float):
     """
     予約投稿を監視し、実行日時が来たものをPostExecutorに渡します。
     """
@@ -52,7 +51,7 @@ def _monitor_scheduled_posts_job(scheduled_post_store: ScheduledPostStore, post_
     logger.debug("--- Finished scheduled post monitor job ---")
 
 class SchedulerService:
-    def __init__(self, scheduled_post_store: ScheduledPostStore, post_executor: PostExecutor, data_dir: str = "data", completed_post_retention_hours: float = 12.0):
+    def __init__(self, scheduled_post_store: ScheduledPostStoreType, post_executor: PostExecutor, data_dir: str = "data", completed_post_retention_hours: float = 12.0):
         self.scheduled_post_store = scheduled_post_store
         self.post_executor = post_executor
         self.completed_post_retention_hours = completed_post_retention_hours if completed_post_retention_hours > 0 else 12.0

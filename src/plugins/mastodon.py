@@ -48,7 +48,7 @@ class Mastodon(SocialMediaPlugin):
                     # エラーが発生しても他のメディアの処理を続行
 
         # 投稿データを準備
-        data = {"status": optimized_text}
+        data: dict[str, Any] = {"status": optimized_text}
         if media_ids:
             # media_idsは配列として渡す
             data["media_ids"] = media_ids
