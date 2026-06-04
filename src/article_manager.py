@@ -14,6 +14,24 @@ from .text_optimizer import TextOptimizer
 DATA_FILE = "data/articles.json"
 
 
+def _safe_load_json(file_path: str, default_value):
+    """
+    JSONファイルを安全に読み込みます。ファイルが存在しないか破損している場合は
+    デフォルト値を返します。
+    """
+    if not os.path.exists(file_path):
+        return default_value
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        print(
+            f"警告: キャッシュファイル '{file_path}' の読み込み中にエラーが発生しました: {e}。ファイルが破損している可能性があるため、デフォルト値として処理します。"
+        )
+        return default_value
+
+
 class ArticleManager:
     def __init__(self, config_manager: ConfigManager, feed_name=None):
         self.config_manager = config_manager
@@ -27,23 +45,6 @@ class ArticleManager:
             self.feed_url = self.config_manager.get_feed_url()
 
         self.text_optimizer = TextOptimizer(config_manager.config)
-
-    def _safe_load_json(self, file_path: str, default_value):
-        """
-        JSONファイルを安全に読み込みます。ファイルが存在しないか破損している場合は
-        デフォルト値を返します。
-        """
-        if not os.path.exists(file_path):
-            return default_value
-
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            print(
-                f"警告: キャッシュファイル '{file_path}' の読み込み中にエラーが発生しました: {e}。ファイルが破損している可能性があるため、デフォルト値として処理します。"
-            )
-            return default_value
 
     def force_mark_all_as_posted(self) -> dict:
         """
@@ -77,7 +78,7 @@ class ArticleManager:
             processed_feeds_count += 1
 
         # 既存の保存済み記事を読み込む
-        saved_data = self._safe_load_json(DATA_FILE, {})
+        saved_data = _safe_load_json(DATA_FILE, {})
         if isinstance(saved_data, list):
             saved_data = {"articles": saved_data}
 
@@ -127,7 +128,7 @@ class ArticleManager:
         return sorted(articles, key=lambda x: x["published_parsed"], reverse=True)
 
     def load_saved_articles(self):
-        return self._safe_load_json(DATA_FILE, [])
+        return _safe_load_json(DATA_FILE, [])
 
     def save_articles(self, articles):
         # 保存前に_feed_entryとpublished_parsedを削除（JSONシリアライズエラー回避）
@@ -150,7 +151,7 @@ class ArticleManager:
         saved_links = {article["link"] for article in saved_articles}
 
         # __forced_posted_urls__ を読み込み、saved_linksに追加
-        data = self._safe_load_json(DATA_FILE, {})
+        data = _safe_load_json(DATA_FILE, {})
         if isinstance(data, dict):
             forced_posted_urls = set(data.get("__forced_posted_urls__", []))
             saved_links.update(forced_posted_urls)
@@ -512,10 +513,10 @@ class MultiArticleManager:
 
         # フィード別ファイルが存在する場合
         if os.path.exists(feed_data_file):
-            return self._safe_load_json(feed_data_file, [])
+            return _safe_load_json(feed_data_file, [])
 
         # 従来の共通ファイルから該当フィードの記事を取得（移行用）
-        all_articles = self._safe_load_json(DATA_FILE, [])
+        all_articles = _safe_load_json(DATA_FILE, [])
         if all_articles:
             # 旧形式(list)・新形式(dict)の双方に対応
             if isinstance(all_articles, dict):
