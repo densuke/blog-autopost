@@ -500,14 +500,27 @@ class MultiArticleManager:
 
         # フィード別ファイルが存在する場合
         if os.path.exists(feed_data_file):
-            with open(feed_data_file, "r", encoding="utf-8") as f:
-                return json.load(f)
+            try:
+                with open(feed_data_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                print(
+                    f"警告: フィード '{feed_name}' のキャッシュファイル '{feed_data_file}' の読み込み中にエラーが発生しました: {e}。ファイルが破損している可能性があるため、空のリストとして処理します。"
+                )
+                return []
 
         # 従来の共通ファイルから該当フィードの記事を取得（移行用）
         if os.path.exists(DATA_FILE):
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
-                all_articles = json.load(f)
+            try:
+                with open(DATA_FILE, "r", encoding="utf-8") as f:
+                    all_articles = json.load(f)
+            except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                print(
+                    f"警告: 共通キャッシュファイル '{DATA_FILE}' の読み込み中にエラーが発生しました: {e}。ファイルが破損している可能性があるため、空のリストとして処理します。"
+                )
+                all_articles = []
 
+            if all_articles:
                 # 旧形式(list)・新形式(dict)の双方に対応
                 if isinstance(all_articles, dict):
                     legacy_articles = all_articles.get("articles", [])
