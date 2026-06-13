@@ -13,7 +13,12 @@ def _get_csrf_token(client: TestClient) -> str:
     login_page = client.get("/login")
     soup = BeautifulSoup(login_page.content, "html.parser")
     token_input = soup.find("input", {"name": "csrf_token"})
-    return token_input.get("value") if token_input else ""
+    if token_input:
+        val = token_input.get("value")
+        if isinstance(val, list):
+            return val[0] if val else ""
+        return val or ""
+    return ""
 
 
 @pytest.fixture

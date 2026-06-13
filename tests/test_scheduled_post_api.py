@@ -37,7 +37,7 @@ original_get_all_sns_names = config_manager.get_all_sns_names
 def mock_get_all_sns_names():
     return ['x', 'bluesky', 'mastodon', 'misskey']
 
-config_manager.get_all_sns_names = mock_get_all_sns_names
+config_manager.get_all_sns_names = mock_get_all_sns_names  # type: ignore[method-assign]
 
 @pytest.fixture(autouse=True)
 def setup_test_database(monkeypatch):
