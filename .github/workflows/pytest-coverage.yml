@@ -34,9 +34,7 @@ jobs:
 
             - name: Run tests with coverage
               run: |
-                  uv run coverage run -m pytest --maxfail=1 -q
-                  uv run coverage xml -i -o coverage.xml
-                  uv run coverage report -m
+                  uv run pytest -v
 
             - name: Upload coverage to GitHub Actions summary
               if: always()
