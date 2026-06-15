@@ -12,7 +12,7 @@ dependencies = [
     "atproto>=0.0.68",
     "beautifulsoup4>=4.15.0",
     "pillow>=11.3.0",
-    "fastapi>=0.135.1",
+    "fastapi>=0.137.0",
     "uvicorn[standard]",
     "python-multipart",
     "jinja2",
