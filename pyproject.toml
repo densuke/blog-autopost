@@ -22,7 +22,7 @@ dependencies = [
     "starlette-csrf>=3.0.0",
     "cryptography>=46.0.5",
     "bcrypt>=4.3.0",
-    "slowapi>=0.1.9",
+    "slowapi>=0.1.10",
 ]
 
 [project.scripts]
