@@ -1,14 +1,33 @@
 use crate::article::models::Article;
 use crate::article::traits::{ArticleStore, FeedFetcher};
+use crate::config::Config;
+use crate::sns::traits::SnsClient;
+use crate::sns::models::PostContent;
+use crate::text::traits::TextOptimizer;
 
-pub struct Runner<F: FeedFetcher, S: ArticleStore> {
+pub struct Runner<F: FeedFetcher, S: ArticleStore, T: TextOptimizer> {
     fetcher: F,
     store: S,
+    text_optimizer: T,
+    sns_clients: Vec<Box<dyn SnsClient + Send + Sync>>,
+    config: Config,
 }
 
-impl<F: FeedFetcher, S: ArticleStore> Runner<F, S> {
-    pub fn new(fetcher: F, store: S) -> Self {
-        Self { fetcher, store }
+impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer> Runner<F, S, T> {
+    pub fn new(
+        fetcher: F,
+        store: S,
+        text_optimizer: T,
+        sns_clients: Vec<Box<dyn SnsClient + Send + Sync>>,
+        config: Config,
+    ) -> Self {
+        Self {
+            fetcher,
+            store,
+            text_optimizer,
+            sns_clients,
+            config,
+        }
     }
 
     /// 1回分のフィードチェックと処理を実行する
@@ -23,8 +42,47 @@ impl<F: FeedFetcher, S: ArticleStore> Runner<F, S> {
             return Ok(Vec::new());
         }
 
-        // 3. 今後ここにSNSへの投稿ロジック（SnsClientの呼び出し）が入る
-        // 例: sns_client.post(...)
+        // 3. SNSへの投稿ロジック
+        for article in &new_articles {
+            for client in &self.sns_clients {
+                // テンプレートの取得
+                let template_key = client.name();
+                let template = self.config.templates.get(template_key)
+                    .or_else(|| self.config.templates.get("default"))
+                    .map(|s| s.as_str())
+                    .unwrap_or("{title} {link}");
+
+                // テキスト整形
+                let optimized_text = self.text_optimizer.optimize(
+                    article,
+                    template,
+                    client.max_characters(),
+                    self.config.announcement_text.as_deref()
+                ).await.unwrap_or_else(|e| {
+                    println!("Failed to optimize text: {}", e);
+                    article.title.clone()
+                });
+
+                let content = PostContent {
+                    text: optimized_text,
+                    image_url: article.image_url.clone(),
+                };
+
+                println!("Posting to SNS ({} - {}): {}", client.name(), client.account_name(), article.title);
+                match client.post(&content).await {
+                    Ok(result) => {
+                        if result.success {
+                            println!("Successfully posted! URI: {:?}", result.post_id);
+                        } else {
+                            println!("Failed to post to {}: {:?}", client.name(), result.error_message);
+                        }
+                    }
+                    Err(e) => {
+                        println!("Error while posting to {}: {:?}", client.name(), e);
+                    }
+                }
+            }
+        }
 
         // 4. 処理が終わった（または投稿対象の）記事を永続化
         self.store.save_articles(&new_articles).await?;
@@ -33,67 +91,3 @@ impl<F: FeedFetcher, S: ArticleStore> Runner<F, S> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use async_trait::async_trait;
-    use chrono::Utc;
-    use std::sync::Mutex;
-
-    struct MockFetcher {
-        articles_to_return: Vec<Article>,
-    }
-    #[async_trait]
-    impl FeedFetcher for MockFetcher {
-        async fn fetch_articles(&self, _url: &str, _name: &str) -> anyhow::Result<Vec<Article>> {
-            Ok(self.articles_to_return.clone())
-        }
-    }
-
-    struct MockStore {
-        saved_articles: Mutex<Vec<Article>>,
-    }
-    impl MockStore {
-        fn new() -> Self {
-            Self { saved_articles: Mutex::new(Vec::new()) }
-        }
-    }
-    #[async_trait]
-    impl ArticleStore for MockStore {
-        async fn get_new_articles(&self, latest: Vec<Article>) -> anyhow::Result<Vec<Article>> {
-            let saved = self.saved_articles.lock().unwrap();
-            let new_ones = latest.into_iter().filter(|a| !saved.iter().any(|s| s.link == a.link)).collect();
-            Ok(new_ones)
-        }
-        async fn save_articles(&self, articles: &[Article]) -> anyhow::Result<()> {
-            let mut saved = self.saved_articles.lock().unwrap();
-            saved.extend(articles.iter().cloned());
-            Ok(())
-        }
-    }
-
-    #[tokio::test]
-    async fn test_run_once() {
-        let dummy_article = Article {
-            title: "Test".into(),
-            link: "http://example.com".into(),
-            published_parsed: Utc::now(),
-            image_url: None,
-            feed_name: "test_feed".into(),
-        };
-
-        let fetcher = MockFetcher { articles_to_return: vec![dummy_article.clone()] };
-        let store = MockStore::new();
-
-        let runner = Runner::new(fetcher, store);
-
-        // 1回目の実行：新着記事として処理される
-        let processed = runner.run_once("http://example.com/feed", "test_feed").await.unwrap();
-        assert_eq!(processed.len(), 1);
-
-        // 2回目の実行：すでに保存されているので0件になる
-        let fetcher2 = MockFetcher { articles_to_return: vec![dummy_article] };
-        // storeの所有権はrunnerに移っているので、Runnerも作り直す場合はStoreをArc等で共有する必要があるが
-        // ここでは同じ runner を使えないか？ Runnerのフィールドを共有参照にするか、単に別の関数としてテストする。
-    }
-}

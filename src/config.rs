@@ -1,20 +1,23 @@
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Config {
     pub announcement_text: Option<String>,
     pub blog: Option<Vec<BlogConfig>>,
     #[serde(default)]
     pub sns: Vec<SnsConfig>,
+    #[serde(default)]
+    pub templates: HashMap<String, String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct BlogConfig {
     pub name: String,
     pub feed_url: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 #[serde(tag = "type")]
 pub enum SnsConfig {
     #[serde(rename = "mastodon")]
