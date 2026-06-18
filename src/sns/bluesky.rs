@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::Utc;
-use reqwest::{header, Client};
+use reqwest::Client;
 use serde_json::json;
 
 use super::models::{PostContent, PostResult};
@@ -48,6 +48,29 @@ impl BlueskyClient {
 
         Ok((did.to_string(), access_jwt.to_string()))
     }
+    async fn upload_blob(&self, image_url: &str, access_jwt: &str) -> anyhow::Result<serde_json::Value> {
+        let (bytes, mime) = super::download_image(&self.client, image_url).await?;
+        
+        let url = "https://bsky.social/xrpc/com.atproto.repo.uploadBlob";
+        
+        let response = self.client.post(url)
+            .header(reqwest::header::AUTHORIZATION, format!("Bearer {}", access_jwt))
+            .header(reqwest::header::CONTENT_TYPE, mime)
+            .body(bytes)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await?;
+            return Err(anyhow::anyhow!("Bluesky blob upload failed: {}", error_text));
+        }
+
+        let res_json: serde_json::Value = response.json().await?;
+        // {"blob": { ... }} という形式で返ってくるので "blob" を抽出する
+        let blob = res_json.get("blob").cloned().ok_or_else(|| anyhow::anyhow!("No blob object in response"))?;
+        
+        Ok(blob)
+    }
 }
 
 #[async_trait]
@@ -71,22 +94,44 @@ impl SnsClient for BlueskyClient {
             })
         };
 
+        let mut embed_blob = None;
+        if let Some(img_url) = &content.image_url {
+            match self.upload_blob(img_url, &access_jwt).await {
+                Ok(blob) => embed_blob = Some(blob),
+                Err(e) => println!("Warning: Failed to upload blob to Bluesky: {}", e),
+            }
+        }
+
         // 2. レコードを作成して投稿
         let url = "https://bsky.social/xrpc/com.atproto.repo.createRecord";
         let now = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         
+        let mut record = json!({
+            "$type": "app.bsky.feed.post",
+            "text": content.text,
+            "createdAt": now
+        });
+
+        if let Some(blob) = embed_blob {
+            record["embed"] = json!({
+                "$type": "app.bsky.embed.images",
+                "images": [
+                    {
+                        "alt": "",
+                        "image": blob
+                    }
+                ]
+            });
+        }
+
         let payload = json!({
             "repo": did,
             "collection": "app.bsky.feed.post",
-            "record": {
-                "$type": "app.bsky.feed.post",
-                "text": content.text,
-                "createdAt": now
-            }
+            "record": record
         });
 
         let response = self.client.post(url)
-            .header(header::AUTHORIZATION, format!("Bearer {}", access_jwt))
+            .header(reqwest::header::AUTHORIZATION, format!("Bearer {}", access_jwt))
             .json(&payload)
             .send()
             .await?;
