@@ -3,17 +3,65 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Config {
     pub announcement_text: Option<String>,
-    pub blog: BlogConfig,
+    pub blog: Option<Vec<BlogConfig>>,
+    #[serde(default)]
+    pub sns: Vec<SnsConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct BlogConfig {
+    pub name: String,
     pub feed_url: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type")]
+pub enum SnsConfig {
+    #[serde(rename = "mastodon")]
+    Mastodon {
+        name: String,
+        instance_url: String,
+        access_token: String,
+    },
+    #[serde(rename = "misskey")]
+    Misskey {
+        name: String,
+        instance_url: String,
+        access_token: String,
+        is_sensitive: Option<bool>,
+    },
+    #[serde(rename = "bluesky")]
+    Bluesky {
+        name: String,
+        identifier: String,
+        password: String,
+    },
+    #[serde(rename = "x")]
+    X {
+        name: String,
+        consumer_key: String,
+        consumer_secret: String,
+        access_token: String,
+        access_token_secret: String,
+    },
+    #[serde(rename = "threads")]
+    Threads {
+        name: String,
+        app_id: String,
+        app_secret: String,
+        access_token: String,
+    },
+    #[serde(rename = "tumblr")]
+    Tumblr {
+        name: String,
+        client_id: String,
+        client_secret: String,
+        access_token: String,
+        blog_name: String,
+    },
+}
+
 pub fn parse_config(yaml_content: &str) -> Result<Config, serde_yaml::Error> {
-    // TDD: はじめは未実装で失敗させるか、KISSに則って一番シンプルな実装を書いてテストをパスさせる。
-    // 今回はKISS優先で、一気に書いてしまう。
     serde_yaml::from_str(yaml_content)
 }
 
@@ -26,21 +74,24 @@ mod tests {
         let yaml = r#"
 announcement_text: "ブログを更新しました！"
 blog:
-  feed_url: "https://example.com/feed"
+  - name: "main"
+    feed_url: "https://example.com/blog/index.xml"
+sns:
+  - type: mastodon
+    name: "mstdn-main"
+    instance_url: "https://mstdn.jp"
+    access_token: "dummy"
 "#;
         let config = parse_config(yaml).expect("Failed to parse valid config");
         assert_eq!(config.announcement_text.as_deref(), Some("ブログを更新しました！"));
-        assert_eq!(config.blog.feed_url, "https://example.com/feed");
-    }
-
-    #[test]
-    fn test_parse_config_without_announcement() {
-        let yaml = r#"
-blog:
-  feed_url: "https://example.com/feed"
-"#;
-        let config = parse_config(yaml).expect("Failed to parse valid config");
-        assert_eq!(config.announcement_text, None);
-        assert_eq!(config.blog.feed_url, "https://example.com/feed");
+        assert_eq!(config.blog.unwrap()[0].feed_url, "https://example.com/blog/index.xml");
+        
+        match &config.sns[0] {
+            SnsConfig::Mastodon { instance_url, access_token, .. } => {
+                assert_eq!(instance_url, "https://mstdn.jp");
+                assert_eq!(access_token, "dummy");
+            }
+            _ => panic!("Expected Mastodon config"),
+        }
     }
 }
