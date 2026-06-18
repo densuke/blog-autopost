@@ -8,6 +8,7 @@ anyhow = "1.0.102"
 async-trait = "0.1.89"
 chrono = "0.4.45"
 feed-rs = "2.3.1"
+reqwest = { version = "0.13.4", features = ["json", "rustls"], default-features = false }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_yaml = "0.9.34"
 tokio = { version = "1.52.3", features = ["full"] }
