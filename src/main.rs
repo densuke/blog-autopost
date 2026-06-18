@@ -1,3 +1,4 @@
+mod article;
 mod config;
 
 fn main() {
