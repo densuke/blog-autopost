@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blog Autopost RS - Dashboard</title>
+    <!-- Tailwind CSS & DaisyUI -->
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.10.2/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-slate-100 p-4 md:p-8">
+
+    <div class="max-w-4xl mx-auto space-y-8">
+        <!-- Header -->
+        <header class="text-center space-y-2">
+            <h1 class="text-4xl md:text-5xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-600">
+                AutoPost Dashboard
+            </h1>
+            <p id="blog-name" class="text-slate-400 text-lg">Loading config...</p>
+        </header>
+
+        <!-- Main Panel -->
+        <div class="card glass-panel shadow-2xl">
+            <div class="card-body">
+                <h2 class="card-title text-2xl mb-4">Manual Post</h2>
+                
+                <div class="form-control w-full">
+                    <label class="label">
+                        <span class="label-text text-slate-300">Connected SNS</span>
+                    </label>
+                    <div id="sns-badges" class="flex flex-wrap gap-2 mb-4">
+                        <span class="loading loading-spinner loading-sm"></span>
+                    </div>
+                </div>
+
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text text-slate-300">Post Content</span>
+                    </label>
+                    <textarea id="post-text" class="textarea textarea-bordered h-32 bg-slate-800/50 text-white placeholder-slate-400" placeholder="Hello from Web UI!"></textarea>
+                </div>
+
+                <div class="form-control mt-4">
+                    <label class="label">
+                        <span class="label-text text-slate-300">Image URL (Optional)</span>
+                    </label>
+                    <input type="text" id="image-url" placeholder="https://example.com/image.jpg" class="input input-bordered w-full bg-slate-800/50 text-white placeholder-slate-400" />
+                </div>
+
+                <div class="card-actions justify-end mt-6">
+                    <button id="post-btn" class="btn btn-primary bg-gradient-to-r from-purple-500 to-pink-500 border-none text-white font-bold w-full md:w-auto px-8" onclick="submitPost()">
+                        Post to All
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Result / Log Area -->
+        <div class="card glass-panel shadow-xl mt-8">
+            <div class="card-body">
+                <h3 class="font-bold text-lg">Log</h3>
+                <div id="log-area" class="bg-slate-950 rounded-lg p-4 h-48 overflow-y-auto font-mono text-sm text-green-400 space-y-2">
+                    <div>> Ready.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast toast-top toast-end" id="toast-container"></div>
+
+    <script>
+        // 設定をロードしてヘッダーに表示
+        async function loadConfig() {
+            try {
+                const res = await fetch('/api/config');
+                const data = await res.json();
+                
+                document.getElementById('blog-name').textContent = data.blog_name;
+                
+                const badgesContainer = document.getElementById('sns-badges');
+                badgesContainer.innerHTML = '';
+                
+                data.active_sns.forEach(sns => {
+                    const badge = document.createElement('div');
+                    badge.className = 'badge badge-outline badge-primary';
+                    badge.textContent = sns;
+                    badgesContainer.appendChild(badge);
+                });
+            } catch (err) {
+                console.error("Failed to load config", err);
+                showToast("Failed to load config", "alert-error");
+            }
+        }
+
+        function appendLog(message, isError = false) {
+            const logArea = document.getElementById('log-area');
+            const div = document.createElement('div');
+            const time = new Date().toLocaleTimeString();
+            div.textContent = `[${time}] ${message}`;
+            if (isError) {
+                div.className = 'text-red-400';
+            }
+            logArea.appendChild(div);
+            logArea.scrollTop = logArea.scrollHeight;
+        }
+
+        function showToast(message, type = "alert-info") {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `alert ${type} text-white font-semibold`;
+            toast.innerHTML = `<span>${message}</span>`;
+            
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        async function submitPost() {
+            const btn = document.getElementById('post-btn');
+            const text = document.getElementById('post-text').value.trim();
+            let imageUrl = document.getElementById('image-url').value.trim();
+            
+            if (!text) {
+                showToast("Please enter some text", "alert-warning");
+                return;
+            }
+
+            if (imageUrl === "") {
+                imageUrl = null;
+            }
+
+            btn.classList.add('loading');
+            btn.disabled = true;
+            appendLog("Sending post...");
+
+            try {
+                const res = await fetch('/api/post', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text, image_url: imageUrl })
+                });
+
+                const data = await res.json();
+                
+                if (data.success) {
+                    showToast("Successfully posted!", "alert-success");
+                    appendLog("Successfully posted to all targets.");
+                    document.getElementById('post-text').value = '';
+                } else {
+                    showToast("Posted with some errors", "alert-warning");
+                    appendLog("Some posts failed. Check results:", true);
+                    data.results.forEach((r, i) => {
+                        if (!r.success) {
+                            appendLog(`Target ${i}: ${r.error_message}`, true);
+                        }
+                    });
+                }
+            } catch (err) {
+                console.error(err);
+                showToast("Request failed", "alert-error");
+                appendLog(`Error: ${err.message}`, true);
+            } finally {
+                btn.classList.remove('loading');
+                btn.disabled = false;
+            }
+        }
+
+        // Initialize
+        loadConfig();
+    </script>
+</body>
+</html>

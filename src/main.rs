@@ -3,6 +3,7 @@ mod config;
 mod runner;
 mod sns;
 mod text;
+mod web;
 
 use std::fs;
 use clap::{Parser, Subcommand};
@@ -50,6 +51,11 @@ enum Commands {
     },
     /// 現在のRSSフィードを取得し、すべて「既読（投稿済み）」として記録する
     Touch,
+    /// Web UIを起動する
+    Serve {
+        #[arg(short, long, default_value_t = 8080)]
+        port: u16,
+    },
 }
 
 #[tokio::main]
@@ -251,6 +257,10 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 println!("SNS '{}' is not supported yet.", sns);
             }
+        }
+        Commands::Serve { port } => {
+            println!("Starting Web UI server on port {}...", port);
+            web::start_server(config_data, port).await?;
         }
     }
     
