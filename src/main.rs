@@ -48,6 +48,8 @@ enum Commands {
         #[arg(long, env = "SNS_TOKEN")]
         token: Option<String>,
     },
+    /// 現在のRSSフィードを取得し、すべて「既読（投稿済み）」として記録する
+    Touch,
 }
 
 #[tokio::main]
@@ -64,6 +66,26 @@ async fn main() -> anyhow::Result<()> {
     });
 
     match cli.command {
+        Commands::Touch => {
+            println!("Fetching current RSS feed and marking all as read...");
+            let blog_conf = config_data.blog.clone().and_then(|mut blogs| if blogs.is_empty() { None } else { Some(blogs.remove(0)) });
+            let feed_url = blog_conf.as_ref().map(|b| b.feed_url.clone()).unwrap_or_default();
+            let feed_name = blog_conf.as_ref().map(|b| b.name.clone()).unwrap_or_else(|| "default".to_string());
+
+            if feed_url.is_empty() {
+                println!("Warning: No feed_url configured. Cannot touch.");
+                return Ok(());
+            }
+
+            let fetcher = article::feed_fetcher::DefaultFeedFetcher::new();
+            let store = article::store::JsonArticleStore::new("data/articles.json");
+            std::fs::create_dir_all("data").ok();
+
+            use crate::article::traits::{FeedFetcher, ArticleStore};
+            let latest_articles = fetcher.fetch_articles(&feed_url, &feed_name).await?;
+            store.save_articles(&latest_articles).await?;
+            println!("Successfully marked {} articles as read.", latest_articles.len());
+        }
         Commands::Run { dry_run } => {
             println!("Starting blog-autopost-rs scheduler...");
             if dry_run {
