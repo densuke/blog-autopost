@@ -56,16 +56,88 @@ async fn main() -> anyhow::Result<()> {
         announcement_text: None,
         blog: None,
         sns: vec![],
+        templates: Default::default(),
     });
 
     match cli.command {
         Commands::Run => {
             println!("Starting blog-autopost-rs scheduler...");
+            
+            // SnsClient のリストを生成
+            let mut sns_clients: Vec<Box<dyn SnsClient + Send + Sync>> = Vec::new();
+            for sns_conf in &config_data.sns {
+                match sns_conf {
+                    SnsConfig::Mastodon { instance_url, access_token, name } => {
+                        if let Ok(client) = MastodonClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
+                            sns_clients.push(Box::new(client));
+                        }
+                    }
+                    SnsConfig::Misskey { instance_url, access_token, name, .. } => {
+                        if let Ok(client) = sns::misskey::MisskeyClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
+                            sns_clients.push(Box::new(client));
+                        }
+                    }
+                    SnsConfig::Bluesky { identifier, password, name } => {
+                        if let Ok(client) = sns::bluesky::BlueskyClient::new(identifier.clone(), password.clone(), name.clone()) {
+                            sns_clients.push(Box::new(client));
+                        }
+                    }
+                    _ => {
+                        println!("Warning: Unsupported SNS type found in config.");
+                    }
+                }
+            }
+
+            if sns_clients.is_empty() {
+                println!("Warning: No valid SNS clients configured.");
+            }
+            
+            // ブログ設定を取得（複数ある場合は最初の一つ。今後は複数対応も可能）
+            let blog_conf = config_data.blog.clone().and_then(|mut blogs| if blogs.is_empty() { None } else { Some(blogs.remove(0)) });
+            let feed_url = blog_conf.as_ref().map(|b| b.feed_url.clone()).unwrap_or_default();
+            let feed_name = blog_conf.as_ref().map(|b| b.name.clone()).unwrap_or_else(|| "default".to_string());
+
+            if feed_url.is_empty() {
+                println!("Warning: No feed_url configured. Runner will not fetch anything.");
+            }
+
+            // Runner の初期化
+            let fetcher = article::feed_fetcher::DefaultFeedFetcher::new();
+            let store = article::store::JsonArticleStore::new("data/articles.json");
+            let text_optimizer = text::optimizer::DefaultTextOptimizer::new();
+            
+            // dataディレクトリが無ければ作成する
+            std::fs::create_dir_all("data").ok();
+
+            let runner = std::sync::Arc::new(runner::Runner::new(
+                fetcher,
+                store,
+                text_optimizer,
+                sns_clients,
+                config_data,
+            ));
+
             let mut sched = tokio_cron_scheduler::JobScheduler::new().await?;
-            sched.add(tokio_cron_scheduler::Job::new_async("0 * * * * *", |uuid, _| {
+            
+            let runner_clone = std::sync::Arc::clone(&runner);
+            sched.add(tokio_cron_scheduler::Job::new_async("0 * * * * *", move |uuid, _| {
+                let r = std::sync::Arc::clone(&runner_clone);
+                let f_url = feed_url.clone();
+                let f_name = feed_name.clone();
                 Box::pin(async move {
-                    println!("Cron job triggered (UUID: {})", uuid);
-                    // TODO: runnerの実装を呼び出す
+                    println!("Cron job triggered (UUID: {}) - Fetching feed...", uuid);
+                    match r.run_once(&f_url, &f_name).await {
+                        Ok(articles) => {
+                            if articles.is_empty() {
+                                println!("No new articles found.");
+                            } else {
+                                println!("Processed {} new articles.", articles.len());
+                            }
+                        }
+                        Err(e) => {
+                            println!("Error during run_once: {:?}", e);
+                        }
+                    }
                 })
             })?).await?;
 
