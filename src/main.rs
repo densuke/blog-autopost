@@ -4,14 +4,20 @@ mod runner;
 mod sns;
 mod text;
 
+use std::fs;
 use clap::{Parser, Subcommand};
 use sns::models::PostContent;
 use sns::traits::SnsClient;
 use sns::mastodon::MastodonClient;
+use config::{parse_config, SnsConfig};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
+    /// 設定ファイルのパス
+    #[arg(short, long, default_value = "config.yml")]
+    config: String,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -26,16 +32,16 @@ enum Commands {
         #[arg(short, long)]
         text: String,
         
-        /// 投稿先のSNS (現状は 'mastodon')
+        /// 投稿先のSNS (例: 'mastodon', 'misskey')
         #[arg(short, long)]
         sns: String,
         
-        /// Mastodon インスタンスURL (環境変数 MASTODON_URL でも可)
-        #[arg(long, env = "MASTODON_URL")]
+        /// インスタンスURL (引数で上書きする場合)
+        #[arg(long, env = "SNS_URL")]
         instance_url: Option<String>,
         
-        /// Mastodon アクセストークン (環境変数 MASTODON_TOKEN でも可)
-        #[arg(long, env = "MASTODON_TOKEN")]
+        /// アクセストークン (引数で上書きする場合)
+        #[arg(long, env = "SNS_TOKEN")]
         token: Option<String>,
     },
 }
@@ -43,6 +49,14 @@ enum Commands {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+
+    // config.ymlの読み込み
+    let config_content = fs::read_to_string(&cli.config).unwrap_or_else(|_| "".to_string());
+    let config_data = parse_config(&config_content).unwrap_or_else(|_| config::Config {
+        announcement_text: None,
+        blog: None,
+        sns: vec![],
+    });
 
     match cli.command {
         Commands::Run => {
@@ -57,13 +71,20 @@ async fn main() -> anyhow::Result<()> {
 
             sched.start().await?;
             
-            // メインスレッドが終了しないように待機
             tokio::time::sleep(std::time::Duration::from_secs(60 * 60 * 24)).await;
         }
         Commands::Post { text, sns, instance_url, token } => {
             if sns == "mastodon" {
-                let url = instance_url.expect("instance_url or MASTODON_URL must be provided");
-                let t = token.expect("token or MASTODON_TOKEN must be provided");
+                // config.ymlから探す
+                let conf = config_data.sns.iter().find_map(|s| match s {
+                    SnsConfig::Mastodon { instance_url, access_token, .. } => Some((instance_url.clone(), access_token.clone())),
+                    _ => None,
+                });
+                
+                let url = instance_url.or_else(|| conf.as_ref().map(|c| c.0.clone()))
+                    .expect("instance_url must be provided via CLI or config.yml");
+                let t = token.or_else(|| conf.as_ref().map(|c| c.1.clone()))
+                    .expect("token must be provided via CLI or config.yml");
 
                 let client = MastodonClient::new(url, t, "CLI_User".to_string())?;
                 let content = PostContent { text, image_url: None };
@@ -77,8 +98,16 @@ async fn main() -> anyhow::Result<()> {
                     println!("Failed to post: {:?}", result.error_message);
                 }
             } else if sns == "misskey" {
-                let url = instance_url.expect("instance_url must be provided for misskey");
-                let t = token.expect("token must be provided for misskey");
+                // config.ymlから探す
+                let conf = config_data.sns.iter().find_map(|s| match s {
+                    SnsConfig::Misskey { instance_url, access_token, .. } => Some((instance_url.clone(), access_token.clone())),
+                    _ => None,
+                });
+
+                let url = instance_url.or_else(|| conf.as_ref().map(|c| c.0.clone()))
+                    .expect("instance_url must be provided via CLI or config.yml");
+                let t = token.or_else(|| conf.as_ref().map(|c| c.1.clone()))
+                    .expect("token must be provided via CLI or config.yml");
 
                 let client = sns::misskey::MisskeyClient::new(url, t, "CLI_User".to_string())?;
                 let content = PostContent { text, image_url: None };
