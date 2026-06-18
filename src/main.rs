@@ -120,6 +120,29 @@ async fn main() -> anyhow::Result<()> {
                 } else {
                     println!("Failed to post: {:?}", result.error_message);
                 }
+            } else if sns == "bluesky" {
+                // config.ymlから探す
+                let conf = config_data.sns.iter().find_map(|s| match s {
+                    SnsConfig::Bluesky { identifier, password, .. } => Some((identifier.clone(), password.clone())),
+                    _ => None,
+                });
+
+                let id = instance_url.or_else(|| conf.as_ref().map(|c| c.0.clone()))
+                    .expect("identifier must be provided (via --instance-url for now) or config.yml");
+                let pw = token.or_else(|| conf.as_ref().map(|c| c.1.clone()))
+                    .expect("password must be provided (via --token for now) or config.yml");
+
+                let client = sns::bluesky::BlueskyClient::new(id, pw, "CLI_User".to_string())?;
+                let content = PostContent { text, image_url: None };
+                
+                println!("Posting to Bluesky...");
+                let result = client.post(&content).await?;
+                
+                if result.success {
+                    println!("Successfully posted! URI: {:?}", result.post_id);
+                } else {
+                    println!("Failed to post: {:?}", result.error_message);
+                }
             } else {
                 println!("SNS '{}' is not supported yet.", sns);
             }
