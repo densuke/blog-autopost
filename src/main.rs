@@ -147,7 +147,7 @@ async fn main() -> anyhow::Result<()> {
                 dry_run,
             ));
 
-            let mut sched = tokio_cron_scheduler::JobScheduler::new().await?;
+            let sched = tokio_cron_scheduler::JobScheduler::new().await?;
             
             let runner_clone = std::sync::Arc::clone(&runner);
             sched.add(tokio_cron_scheduler::Job::new_async("0 * * * * *", move |uuid, _| {

@@ -15,6 +15,7 @@ pub trait TextOptimizer {
 }
 
 /// URLの短縮（is.gd等）を担うインターフェース
+#[allow(dead_code)]
 #[async_trait]
 pub trait UrlShortener {
     async fn shorten(&self, url: &str) -> anyhow::Result<String>;

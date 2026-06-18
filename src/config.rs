@@ -50,18 +50,20 @@ pub enum SnsConfig {
     #[serde(rename = "threads")]
     Threads {
         name: String,
-        app_id: String,
-        app_secret: String,
+        user_id: String,
         access_token: String,
     },
     #[serde(rename = "tumblr")]
     Tumblr {
         name: String,
-        client_id: String,
-        client_secret: String,
-        access_token: String,
-        blog_name: String,
+        consumer_key: String,
+        consumer_secret: String,
+        oauth_token: String,
+        oauth_secret: String,
+        blog_identifier: String,
     },
+    #[serde(other)]
+    Unknown,
 }
 
 pub fn parse_config(yaml_content: &str) -> Result<Config, serde_yaml::Error> {
