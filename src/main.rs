@@ -76,6 +76,21 @@ async fn main() -> anyhow::Result<()> {
                 } else {
                     println!("Failed to post: {:?}", result.error_message);
                 }
+            } else if sns == "misskey" {
+                let url = instance_url.expect("instance_url must be provided for misskey");
+                let t = token.expect("token must be provided for misskey");
+
+                let client = sns::misskey::MisskeyClient::new(url, t, "CLI_User".to_string())?;
+                let content = PostContent { text, image_url: None };
+                
+                println!("Posting to Misskey...");
+                let result = client.post(&content).await?;
+                
+                if result.success {
+                    println!("Successfully posted! Note ID: {:?}", result.post_id);
+                } else {
+                    println!("Failed to post: {:?}", result.error_message);
+                }
             } else {
                 println!("SNS '{}' is not supported yet.", sns);
             }
