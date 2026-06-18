@@ -18,6 +18,7 @@ pub trait ArticleStore {
 }
 
 /// 記事のURLや内容から代表画像（OGP等）を抽出するインターフェース
+#[allow(dead_code)]
 #[async_trait]
 pub trait ImageExtractor {
     async fn extract_image(&self, article_url: &str) -> anyhow::Result<Option<String>>;
