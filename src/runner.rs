@@ -11,6 +11,7 @@ pub struct Runner<F: FeedFetcher, S: ArticleStore, T: TextOptimizer> {
     text_optimizer: T,
     sns_clients: Vec<Box<dyn SnsClient + Send + Sync>>,
     config: Config,
+    dry_run: bool,
 }
 
 impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer> Runner<F, S, T> {
@@ -20,6 +21,7 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer> Runner<F, S, T> {
         text_optimizer: T,
         sns_clients: Vec<Box<dyn SnsClient + Send + Sync>>,
         config: Config,
+        dry_run: bool,
     ) -> Self {
         Self {
             fetcher,
@@ -27,6 +29,7 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer> Runner<F, S, T> {
             text_optimizer,
             sns_clients,
             config,
+            dry_run,
         }
     }
 
@@ -68,6 +71,12 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer> Runner<F, S, T> {
                     image_url: article.image_url.clone(),
                 };
 
+                if self.dry_run {
+                    println!("[DRY RUN] Would post to {} ({}):", client.name(), client.account_name());
+                    println!("[DRY RUN] Content: {}", content.text);
+                    continue;
+                }
+
                 println!("Posting to SNS ({} - {}): {}", client.name(), client.account_name(), article.title);
                 match client.post(&content).await {
                     Ok(result) => {
@@ -85,7 +94,11 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer> Runner<F, S, T> {
         }
 
         // 4. 処理が終わった（または投稿対象の）記事を永続化
-        self.store.save_articles(&new_articles).await?;
+        if self.dry_run {
+            println!("[DRY RUN] Skipping saving {} articles to datastore.", new_articles.len());
+        } else {
+            self.store.save_articles(&new_articles).await?;
+        }
 
         Ok(new_articles)
     }

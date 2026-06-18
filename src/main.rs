@@ -25,7 +25,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// デーモンとしてスケジューラを起動し、定期実行する
-    Run,
+    Run {
+        /// ドライランモード（実際のSNSへの投稿とDB保存を行わない）
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// 任意のテキストを指定したSNSへ手動投稿する
     Post {
         /// 投稿するテキスト
@@ -60,8 +64,11 @@ async fn main() -> anyhow::Result<()> {
     });
 
     match cli.command {
-        Commands::Run => {
+        Commands::Run { dry_run } => {
             println!("Starting blog-autopost-rs scheduler...");
+            if dry_run {
+                println!("*** DRY RUN MODE ENABLED ***");
+            }
             
             // SnsClient のリストを生成
             let mut sns_clients: Vec<Box<dyn SnsClient + Send + Sync>> = Vec::new();
@@ -115,6 +122,7 @@ async fn main() -> anyhow::Result<()> {
                 text_optimizer,
                 sns_clients,
                 config_data,
+                dry_run,
             ));
 
             let mut sched = tokio_cron_scheduler::JobScheduler::new().await?;
