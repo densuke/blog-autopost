@@ -130,10 +130,11 @@ async fn main() -> anyhow::Result<()> {
                 println!("Warning: No feed_url configured. Runner will not fetch anything.");
             }
 
-            // Runner の初期化
             let fetcher = article::feed_fetcher::DefaultFeedFetcher::new();
             let store = article::store::JsonArticleStore::new("data/articles.json");
             let text_optimizer = text::optimizer::DefaultTextOptimizer::new();
+            let image_extractor = article::image_extractor::OgpImageExtractor::new();
+            let url_shortener = text::shortener::IsGdUrlShortener::new();
             
             // dataディレクトリが無ければ作成する
             std::fs::create_dir_all("data").ok();
@@ -142,6 +143,8 @@ async fn main() -> anyhow::Result<()> {
                 fetcher,
                 store,
                 text_optimizer,
+                image_extractor,
+                url_shortener,
                 sns_clients,
                 config_data,
                 dry_run,
