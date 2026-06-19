@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::sns::models::{PostContent, PostResult};
 use crate::sns::traits::SnsClient;
 use crate::config::SnsConfig;
-use crate::sns::{mastodon::MastodonClient, misskey::MisskeyClient, bluesky::BlueskyClient};
+use crate::sns::{mastodon::MastodonClient, misskey::MisskeyClient, bluesky::BlueskyClient, x::XClient};
 use super::AppState;
 
 #[derive(Serialize)]
@@ -27,6 +27,7 @@ pub async fn get_config(State(state): State<Arc<AppState>>) -> Json<ConfigRespon
         SnsConfig::Mastodon { name, .. } => format!("Mastodon ({})", name),
         SnsConfig::Misskey { name, .. } => format!("Misskey ({})", name),
         SnsConfig::Bluesky { name, .. } => format!("Bluesky ({})", name),
+        SnsConfig::X { name, .. } => format!("X ({})", name),
         _ => "Unknown".to_string(),
     }).collect();
 
@@ -68,6 +69,11 @@ pub async fn manual_post(
             }
             SnsConfig::Bluesky { identifier, password, name, .. } => {
                 if let Ok(client) = BlueskyClient::new(identifier.clone(), password.clone(), name.clone()) {
+                    sns_clients.push(Box::new(client));
+                }
+            }
+            SnsConfig::X { consumer_key, consumer_secret, access_token, access_token_secret, name } => {
+                if let Ok(client) = XClient::new(consumer_key.clone(), consumer_secret.clone(), access_token.clone(), access_token_secret.clone(), name.clone()) {
                     sns_clients.push(Box::new(client));
                 }
             }

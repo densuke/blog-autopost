@@ -7,10 +7,12 @@ mod web;
 
 use std::fs;
 use clap::{Parser, Subcommand};
+use crate::config::parse_config;
+use crate::sns::{
+    bluesky::BlueskyClient, mastodon::MastodonClient, misskey::MisskeyClient, traits::SnsClient, x::XClient,
+};
 use sns::models::PostContent;
-use sns::traits::SnsClient;
-use sns::mastodon::MastodonClient;
-use config::{parse_config, SnsConfig};
+use config::SnsConfig;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -102,23 +104,28 @@ async fn main() -> anyhow::Result<()> {
             let mut sns_clients: Vec<Box<dyn SnsClient + Send + Sync>> = Vec::new();
             for sns_conf in &config_data.sns {
                 match sns_conf {
-                    SnsConfig::Mastodon { instance_url, access_token, name } => {
+                    config::SnsConfig::Mastodon { instance_url, access_token, name, .. } => {
                         if let Ok(client) = MastodonClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
                             sns_clients.push(Box::new(client));
                         }
                     }
-                    SnsConfig::Misskey { instance_url, access_token, name, .. } => {
-                        if let Ok(client) = sns::misskey::MisskeyClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
+                    config::SnsConfig::Misskey { instance_url, access_token, name, .. } => {
+                        if let Ok(client) = MisskeyClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
                             sns_clients.push(Box::new(client));
                         }
                     }
-                    SnsConfig::Bluesky { identifier, password, name } => {
-                        if let Ok(client) = sns::bluesky::BlueskyClient::new(identifier.clone(), password.clone(), name.clone()) {
+                    config::SnsConfig::Bluesky { identifier, password, name, .. } => {
+                        if let Ok(client) = BlueskyClient::new(identifier.clone(), password.clone(), name.clone()) {
+                            sns_clients.push(Box::new(client));
+                        }
+                    }
+                    config::SnsConfig::X { consumer_key, consumer_secret, access_token, access_token_secret, name } => {
+                        if let Ok(client) = XClient::new(consumer_key.clone(), consumer_secret.clone(), access_token.clone(), access_token_secret.clone(), name.clone()) {
                             sns_clients.push(Box::new(client));
                         }
                     }
                     _ => {
-                        println!("Warning: Unsupported SNS type found in config.");
+                        println!("Unknown or unsupported SNS configuration found.");
                     }
                 }
             }
