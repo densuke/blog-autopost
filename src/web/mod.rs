@@ -3,7 +3,7 @@ pub mod routes;
 use std::sync::Arc;
 use axum::{
     routing::{get, post, put},
-    extract::DefaultBodyLimit,
+    extract::{DefaultBodyLimit, State},
     Router,
 };
 use tower_http::services::ServeDir;
@@ -82,53 +82,6 @@ pub async fn start_server(config: Config, config_path: String, port: u16) -> any
     // CORS設定
     let cors = CorsLayer::permissive();
 
-    // 認証確認ミドルウェア
-    async fn auth_middleware(
-        State(state): State<Arc<AppState>>,
-        req: axum::http::Request<axum::body::Body>,
-        next: axum::middleware::Next,
-    ) -> Result<axum::response::Response, axum::http::StatusCode> {
-        let path = req.uri().path();
-        
-        if path == "/login" || path.starts_with("/static/") {
-            return Ok(next.run(req).await);
-        }
-        
-        let mut authenticated = false;
-        if let Some(cookie_header) = req.headers().get(axum::http::header::COOKIE) {
-            if let Ok(cookie_str) = cookie_header.to_str() {
-                for cookie in cookie_str.split(';') {
-                    let parts: Vec<&str> = cookie.trim().split('=').collect();
-                    if parts.len() == 2 && parts[0] == "session_id" {
-                        let session_id = parts[1];
-                        let sessions = state.sessions.read().await;
-                        if sessions.contains_key(session_id) {
-                            authenticated = true;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        
-        if authenticated {
-            Ok(next.run(req).await)
-        } else {
-            if path.starts_with("/api/") {
-                Err(axum::http::StatusCode::UNAUTHORIZED)
-            } else {
-                let response = axum::response::Response::builder()
-                    .status(axum::http::StatusCode::SEE_OTHER)
-                    .header(axum::http::header::LOCATION, "/login")
-                    .body(axum::body::Body::empty())
-                    .unwrap();
-                Ok(response)
-            }
-        }
-    }
-
-    use axum::extract::State;
-
     // ルーティング設定
     let api_routes = Router::new()
         .route("/config", get(routes::get_config))
@@ -157,4 +110,239 @@ pub async fn start_server(config: Config, config_path: String, port: u16) -> any
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+// 認証確認ミドルウェア
+async fn auth_middleware(
+    State(state): State<Arc<AppState>>,
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> Result<axum::response::Response, axum::http::StatusCode> {
+    let path = req.uri().path();
+    
+    if path == "/login" || path.starts_with("/static/") {
+        return Ok(next.run(req).await);
+    }
+    
+    let mut authenticated = false;
+
+    // 1. APIキー (Bearerトークン or X-Api-Key) による認証のチェック
+    if let Some(auth_header) = req.headers().get(axum::http::header::AUTHORIZATION) {
+        if let Ok(auth_str) = auth_header.to_str() {
+            if auth_str.starts_with("Bearer ") {
+                let token = &auth_str[7..];
+                if let Some(ref config_auth) = state.config.web_auth {
+                    if let Some(ref secret) = config_auth.secret_key {
+                        if token == secret {
+                            authenticated = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    if !authenticated {
+        if let Some(api_key_header) = req.headers().get("X-Api-Key") {
+            if let Ok(api_key) = api_key_header.to_str() {
+                if let Some(ref config_auth) = state.config.web_auth {
+                    if let Some(ref secret) = config_auth.secret_key {
+                        if api_key == secret {
+                            authenticated = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Cookieセッションによる認証のチェック
+    if !authenticated {
+        if let Some(cookie_header) = req.headers().get(axum::http::header::COOKIE) {
+            if let Ok(cookie_str) = cookie_header.to_str() {
+                for cookie in cookie_str.split(';') {
+                    let parts: Vec<&str> = cookie.trim().split('=').collect();
+                    if parts.len() == 2 && parts[0] == "session_id" {
+                        let session_id = parts[1];
+                        let sessions = state.sessions.read().await;
+                        if sessions.contains_key(session_id) {
+                            authenticated = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    if authenticated {
+        Ok(next.run(req).await)
+    } else {
+        if path.starts_with("/api/") {
+            Err(axum::http::StatusCode::UNAUTHORIZED)
+        } else {
+            let response = axum::response::Response::builder()
+                .status(axum::http::StatusCode::SEE_OTHER)
+                .header(axum::http::header::LOCATION, "/login")
+                .body(axum::body::Body::empty())
+                .unwrap();
+            Ok(response)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+        routing::get,
+        Router,
+    };
+    use tower::ServiceExt; // for oneshot
+    use crate::config::WebAuthConfig;
+
+    // ヘルパー: テスト用の AppState と Router を作成
+    async fn setup_test_router(secret_key: Option<String>) -> (Router, Arc<AppState>) {
+        let config = Config {
+            announcement_text: None,
+            blog: None,
+            sns: vec![],
+            templates: HashMap::new(),
+            default_allowed_timings: None,
+            allowed_timings_tolerance_minutes: None,
+            allowed_timings: None,
+            web_auth: Some(WebAuthConfig {
+                username: "admin".to_string(),
+                password: "hashed_password".to_string(),
+                secret_key,
+            }),
+            extra: HashMap::new(),
+        };
+
+        let timing_manager = TimingManager::new(&config);
+        let store = Arc::new(JsonScheduledPostStore::new("data/test_scheduled_posts.json"));
+        let sessions = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
+        
+        let state = Arc::new(AppState {
+            config,
+            timing_manager,
+            store,
+            config_path: "config.yaml".to_string(),
+            sessions,
+        });
+
+        // 認証付きAPIルートと未認証ルートを設定
+        let api_routes = Router::new()
+            .route("/config", get(|| async { "config data" }))
+            .layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware));
+
+        let app = Router::new()
+            .nest("/api", api_routes)
+            .route("/login", get(|| async { "login page" }))
+            .fallback(|| async { "fallback page" })
+            .layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware))
+            .with_state(state.clone());
+
+        (app, state)
+    }
+
+    #[tokio::test]
+    async fn test_auth_middleware_no_auth_api() {
+        let (app, _) = setup_test_router(Some("my-secret-token".to_string())).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/config")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_auth_middleware_no_auth_web_redirect() {
+        let (app, _) = setup_test_router(Some("my-secret-token".to_string())).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/some-page")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response.headers().get(axum::http::header::LOCATION).unwrap(),
+            "/login"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_auth_middleware_bearer_token_success() {
+        let (app, _) = setup_test_router(Some("my-secret-token".to_string())).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/config")
+                    .header(axum::http::header::AUTHORIZATION, "Bearer my-secret-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_auth_middleware_x_api_key_success() {
+        let (app, _) = setup_test_router(Some("my-secret-token".to_string())).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/config")
+                    .header("X-Api-Key", "my-secret-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_auth_middleware_cookie_session_success() {
+        let (app, state) = setup_test_router(Some("my-secret-token".to_string())).await;
+
+        // セッションを登録
+        {
+            let mut sessions = state.sessions.write().await;
+            sessions.insert("my-session-id".to_string(), "admin".to_string());
+        }
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/config")
+                    .header(axum::http::header::COOKIE, "session_id=my-session-id")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
 }

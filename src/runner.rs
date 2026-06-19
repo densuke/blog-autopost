@@ -170,3 +170,229 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor, U: Ur
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::article::models::Article;
+    use crate::article::traits::{ArticleStore, FeedFetcher, ImageExtractor};
+    use crate::text::traits::{TextOptimizer, UrlShortener};
+    use crate::sns::models::{PostContent, PostResult};
+    use crate::sns::traits::SnsClient;
+    use async_trait::async_trait;
+    use std::sync::{Arc, Mutex};
+    use std::collections::HashMap;
+
+    struct MockFeedFetcher {
+        articles: Vec<Article>,
+    }
+
+    #[async_trait]
+    impl FeedFetcher for MockFeedFetcher {
+        async fn fetch_articles(&self, _feed_url: &str, _feed_name: &str) -> anyhow::Result<Vec<Article>> {
+            Ok(self.articles.clone())
+        }
+    }
+
+    struct MockArticleStore {
+        saved: Arc<Mutex<Vec<Article>>>,
+    }
+
+    #[async_trait]
+    impl ArticleStore for MockArticleStore {
+        async fn get_new_articles(&self, latest_articles: Vec<Article>) -> anyhow::Result<Vec<Article>> {
+            Ok(latest_articles)
+        }
+        async fn save_articles(&self, articles: &[Article]) -> anyhow::Result<()> {
+            let mut guard = self.saved.lock().unwrap();
+            guard.extend_from_slice(articles);
+            Ok(())
+        }
+    }
+
+    struct MockImageExtractor;
+    #[async_trait]
+    impl ImageExtractor for MockImageExtractor {
+        async fn extract_image(&self, _article_url: &str) -> anyhow::Result<Option<String>> {
+            Ok(Some("http://example.com/extracted.jpg".to_string()))
+        }
+    }
+
+    struct MockTextOptimizer;
+    #[async_trait]
+    impl TextOptimizer for MockTextOptimizer {
+        async fn optimize(
+            &self,
+            article: &Article,
+            template: &str,
+            _max_length: usize,
+            _announcement: Option<&str>,
+        ) -> anyhow::Result<String> {
+            Ok(template.replace("{title}", &article.title).replace("{link}", &article.link))
+        }
+    }
+
+    struct MockUrlShortener;
+    #[async_trait]
+    impl UrlShortener for MockUrlShortener {
+        async fn shorten(&self, url: &str) -> anyhow::Result<String> {
+            Ok(format!("http://short.en/{}", url.len()))
+        }
+    }
+
+    struct MockSnsClient {
+        name: String,
+        posted: Arc<Mutex<Vec<PostContent>>>,
+    }
+
+    #[async_trait]
+    impl SnsClient for MockSnsClient {
+        fn name(&self) -> &str {
+            &self.name
+        }
+        fn account_name(&self) -> &str {
+            "mock-account"
+        }
+        async fn post(&self, content: &PostContent) -> anyhow::Result<PostResult> {
+            let mut guard = self.posted.lock().unwrap();
+            guard.push(content.clone());
+            Ok(PostResult {
+                success: true,
+                post_id: Some("mock-post-123".to_string()),
+                error_message: None,
+            })
+        }
+        fn max_characters(&self) -> usize {
+            280
+        }
+    }
+
+    #[tokio::test]
+    async fn test_runner_run_once_normal() {
+        let saved_articles = Arc::new(Mutex::new(Vec::new()));
+        let posted_contents = Arc::new(Mutex::new(Vec::new()));
+
+        let fetcher = MockFeedFetcher {
+            articles: vec![
+                Article {
+                    title: "Test Article 1".to_string(),
+                    link: "http://example.com/1".to_string(),
+                    published_parsed: chrono::Utc::now(),
+                    image_url: None,
+                    feed_name: "test-feed".to_string(),
+                }
+            ],
+        };
+        let store = MockArticleStore { saved: saved_articles.clone() };
+        let text_optimizer = MockTextOptimizer;
+        let image_extractor = MockImageExtractor;
+        let url_shortener = MockUrlShortener;
+
+        let sns_client = Arc::new(MockSnsClient {
+            name: "mastodon".to_string(),
+            posted: posted_contents.clone(),
+        });
+
+        let mut config = Config {
+            announcement_text: None,
+            blog: None,
+            sns: vec![],
+            templates: HashMap::new(),
+            default_allowed_timings: None,
+            allowed_timings_tolerance_minutes: None,
+            allowed_timings: None,
+            web_auth: None,
+            extra: HashMap::new(),
+        };
+        config.templates.insert("default".to_string(), "{title} {link}".to_string());
+
+        let runner = Runner::new(
+            fetcher,
+            store,
+            text_optimizer,
+            image_extractor,
+            url_shortener,
+            vec![sns_client],
+            config,
+            false, // dry_run
+            None,  // limit
+            true,  // debug
+        );
+
+        let result = runner.run_once("http://feed.url", "test-feed").await.unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].title, "Test Article 1");
+        assert_eq!(result[0].image_url, Some("http://example.com/extracted.jpg".to_string()));
+
+        // 保存された件数
+        let saved = saved_articles.lock().unwrap();
+        assert_eq!(saved.len(), 1);
+
+        // 投稿された件数と内容
+        let posted = posted_contents.lock().unwrap();
+        assert_eq!(posted.len(), 1);
+        assert_eq!(posted[0].text, "Test Article 1 http://short.en/20");
+    }
+
+    #[tokio::test]
+    async fn test_runner_run_once_limit() {
+        let saved_articles = Arc::new(Mutex::new(Vec::new()));
+        let posted_contents = Arc::new(Mutex::new(Vec::new()));
+
+        let fetcher = MockFeedFetcher {
+            articles: vec![
+                Article {
+                    title: "Test 1".to_string(),
+                    link: "http://example.com/1".to_string(),
+                    published_parsed: chrono::Utc::now(),
+                    image_url: None,
+                    feed_name: "test-feed".to_string(),
+                },
+                Article {
+                    title: "Test 2".to_string(),
+                    link: "http://example.com/2".to_string(),
+                    published_parsed: chrono::Utc::now(),
+                    image_url: None,
+                    feed_name: "test-feed".to_string(),
+                }
+            ],
+        };
+        let store = MockArticleStore { saved: saved_articles.clone() };
+        let text_optimizer = MockTextOptimizer;
+        let image_extractor = MockImageExtractor;
+        let url_shortener = MockUrlShortener;
+
+        let sns_client = Arc::new(MockSnsClient {
+            name: "mastodon".to_string(),
+            posted: posted_contents.clone(),
+        });
+
+        let runner = Runner::new(
+            fetcher,
+            store,
+            text_optimizer,
+            image_extractor,
+            url_shortener,
+            vec![sns_client],
+            Config {
+                announcement_text: None,
+                blog: None,
+                sns: vec![],
+                templates: HashMap::new(),
+                default_allowed_timings: None,
+                allowed_timings_tolerance_minutes: None,
+                allowed_timings: None,
+                web_auth: None,
+                extra: HashMap::new(),
+            },
+            false,      // dry_run
+            Some(1),    // limit = 1
+            false,      // debug
+        );
+
+        let result = runner.run_once("http://feed.url", "test-feed").await.unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].title, "Test 1");
+    }
+}
+

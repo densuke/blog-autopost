@@ -39,3 +39,78 @@ impl ImageExtractor for OgpImageExtractor {
         Ok(None)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::{MockServer, Mock, ResponseTemplate};
+    use wiremock::matchers::{method, path};
+
+    #[tokio::test]
+    async fn test_extract_image_success() {
+        let mock_server = MockServer::start().await;
+        let html_content = r#"
+            <html>
+            <head>
+                <title>Test Page</title>
+                <meta property="og:image" content="https://example.com/images/thumb.jpg" />
+            </head>
+            <body>Content</body>
+            </html>
+        "#;
+
+        Mock::given(method("GET"))
+            .and(path("/article"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(html_content))
+            .mount(&mock_server)
+            .await;
+
+        let extractor = OgpImageExtractor::new();
+        let article_url = format!("{}/article", mock_server.uri());
+        let result = extractor.extract_image(&article_url).await.unwrap();
+
+        assert_eq!(result, Some("https://example.com/images/thumb.jpg".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_extract_image_no_og_image() {
+        let mock_server = MockServer::start().await;
+        let html_content = r#"
+            <html>
+            <head>
+                <title>Test Page</title>
+            </head>
+            <body>Content</body>
+            </html>
+        "#;
+
+        Mock::given(method("GET"))
+            .and(path("/article"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(html_content))
+            .mount(&mock_server)
+            .await;
+
+        let extractor = OgpImageExtractor::new();
+        let article_url = format!("{}/article", mock_server.uri());
+        let result = extractor.extract_image(&article_url).await.unwrap();
+
+        assert_eq!(result, None);
+    }
+
+    #[tokio::test]
+    async fn test_extract_image_http_error() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/article"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&mock_server)
+            .await;
+
+        let extractor = OgpImageExtractor::new();
+        let article_url = format!("{}/article", mock_server.uri());
+        let result = extractor.extract_image(&article_url).await.unwrap();
+
+        assert_eq!(result, None);
+    }
+}
