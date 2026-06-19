@@ -141,14 +141,19 @@ impl SnsClient for BlueskyClient {
                     None
                 };
 
+                let mut external = json!({
+                    "uri": link_url,
+                    "title": ogp.title.unwrap_or_else(|| "ブログ記事".to_string()),
+                    "description": ogp.description.unwrap_or_default(),
+                });
+
+                if let Some(blob) = thumb_blob {
+                    external["thumb"] = blob;
+                }
+
                 embed_external = Some(json!({
                     "$type": "app.bsky.embed.external",
-                    "external": {
-                        "uri": link_url,
-                        "title": ogp.title.unwrap_or_else(|| "ブログ記事".to_string()),
-                        "description": ogp.description.unwrap_or_default(),
-                        "thumb": thumb_blob
-                    }
+                    "external": external
                 }));
             }
         }

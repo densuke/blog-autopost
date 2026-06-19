@@ -48,12 +48,24 @@ impl ScheduledPostExecutor {
                 let client = self.sns_clients.iter().find(|c| c.account_name() == target);
                 match client {
                     Some(client) => {
-                        let image_url = post.media_files.first().cloned();
+                        let mut image_url = None;
+                        let mut media_paths = Vec::new();
+                        for file in &post.media_files {
+                            if file.starts_with("http://") || file.starts_with("https://") {
+                                if image_url.is_none() {
+                                    image_url = Some(file.clone());
+                                }
+                            } else {
+                                media_paths.push(file.clone());
+                            }
+                        }
+                        let media_paths_opt = if media_paths.is_empty() { None } else { Some(media_paths) };
+
                         let content = PostContent {
                             text: post.content.clone(),
                             image_url,
-                            media_paths: None,
-                            link_url: None,
+                            media_paths: media_paths_opt,
+                            link_url: post.link_url.clone(),
                         };
 
                         if self.dry_run {
