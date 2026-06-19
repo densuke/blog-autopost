@@ -1,48 +1,45 @@
-# blog-autopost用justfile
+# blog-autopost用justfile (Rust Port)
 
 # ブログ更新チェックと自動投稿
 blog-check *args='':
-    uv run -m src.main {{args}}
+    cargo run -- run {{args}}
 
 # テキストの直接投稿
 post-text text *args='':
-    uv run -m src.main --text "{{text}}" {{args}}
+    cargo run -- post --text "{{text}}" {{args}}
 
 # 利用可能なSNS設定名の一覧表示
 list-sns:
-    uv run -m src.main --list-sns
+    cargo run -- --list-sns
 
 # 登録されているフィードの一覧表示
 list-feeds:
-    uv run -m src.main --list-feeds
+    cargo run -- --list-feeds
 
 # ドライラン（テスト実行）
 dry-run *args='':
-    uv run -m src.main --dry-run {{args}}
+    cargo run -- run --dry-run {{args}}
 
-# デバッグ付きドライラン
+# デバッグ付きドライラン (Rust版は現在 --debug 未実装のため run-dry-run と同様)
 debug-dry-run *args='':
-    uv run -m src.main --debug --dry-run {{args}}
+    cargo run -- run --dry-run {{args}}
 
 # テスト実行
 test:
-    uv run pytest
-
-# カバレッジ付きテスト実行  
-test-cov:
-    uv run pytest --cov=src
+    cargo test
 
 # 依存関係の同期
 sync:
-    uv sync
+    cargo fetch
 
 # Webサーバーの起動
 run-web:
-    uv run -m src.web.runner
+    cargo run -- serve
 
 # メンテナンスコマンド
 touch-rss-posted *args='':
-    uv run -m src.main touch-rss-posted {{args}}
+    cargo run -- touch {{args}}
+
 
 # 使用例とヘルプ
 help:
