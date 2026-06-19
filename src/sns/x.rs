@@ -172,8 +172,12 @@ impl SnsClient for XClient {
         let tweet_url = "https://api.twitter.com/2/tweets";
         let auth_header = self.generate_post_auth_header(tweet_url);
 
+        let mut post_text = content.text.clone();
+        if let Some(link_url) = &content.link_url {
+            post_text = format!("{} {}", post_text, link_url);
+        }
         let mut payload = json!({
-            "text": content.text,
+            "text": post_text,
         });
 
         if !media_ids.is_empty() {

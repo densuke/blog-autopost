@@ -126,6 +126,33 @@ impl SnsClient for BlueskyClient {
             }
         }
 
+        let mut embed_external = None;
+        if embed_blobs.is_empty() {
+            if let Some(link_url) = &content.link_url {
+                let ogp = fetch_ogp(&self.client, link_url).await;
+                let thumb_blob = if let Some(thumb_url) = ogp.image_url {
+                    match super::download_image(&self.client, &thumb_url).await {
+                        Ok((bytes, mime)) => {
+                            self.upload_blob_data(bytes, &mime, &access_jwt).await.ok()
+                        }
+                        Err(_) => None,
+                    }
+                } else {
+                    None
+                };
+
+                embed_external = Some(json!({
+                    "$type": "app.bsky.embed.external",
+                    "external": {
+                        "uri": link_url,
+                        "title": ogp.title.unwrap_or_else(|| "ブログ記事".to_string()),
+                        "description": ogp.description.unwrap_or_default(),
+                        "thumb": thumb_blob
+                    }
+                }));
+            }
+        }
+
         // 3. レコードを作成して投稿
         let url = "https://bsky.social/xrpc/com.atproto.repo.createRecord";
         let now = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
@@ -148,6 +175,8 @@ impl SnsClient for BlueskyClient {
                 "$type": "app.bsky.embed.images",
                 "images": images_json
             });
+        } else if let Some(ext) = embed_external {
+            record["embed"] = ext;
         }
 
         let payload = json!({
@@ -184,4 +213,42 @@ impl SnsClient for BlueskyClient {
     fn max_characters(&self) -> usize {
         300
     }
+}
+
+struct OgpMetadata {
+    title: Option<String>,
+    description: Option<String>,
+    image_url: Option<String>,
+}
+
+async fn fetch_ogp(client: &reqwest::Client, url: &str) -> OgpMetadata {
+    let mut meta = OgpMetadata { title: None, description: None, image_url: None };
+    let response = match client.get(url)
+        .header(reqwest::header::USER_AGENT, "Mozilla/5.0 (compatible; Blog-AutoPost/1.0)")
+        .send().await {
+            Ok(resp) => resp,
+            Err(_) => return meta,
+        };
+    
+    if !response.status().is_success() {
+        return meta;
+    }
+    
+    let html = response.text().await.unwrap_or_default();
+    
+    let re_title = regex::Regex::new(r#"<meta\s+[^>]*property=["']og:title["']\s+[^>]*content=["']([^"']*)["']"#).ok();
+    let re_desc = regex::Regex::new(r#"<meta\s+[^>]*property=["']og:description["']\s+[^>]*content=["']([^"']*)["']"#).ok();
+    let re_image = regex::Regex::new(r#"<meta\s+[^>]*property=["']og:image["']\s+[^>]*content=["']([^"']*)["']"#).ok();
+    let re_meta_desc = regex::Regex::new(r#"<meta\s+[^>]*name=["']description["']\s+[^>]*content=["']([^"']*)["']"#).ok();
+    let re_html_title = regex::Regex::new(r#"<title[^>]*>([^<]*)</title>"#).ok();
+
+    meta.title = re_title.and_then(|r| r.captures(&html)).map(|c| c[1].to_string())
+        .or_else(|| re_html_title.and_then(|r| r.captures(&html)).map(|c| c[1].trim().to_string()));
+    
+    meta.description = re_desc.and_then(|r| r.captures(&html)).map(|c| c[1].to_string())
+        .or_else(|| re_meta_desc.and_then(|r| r.captures(&html)).map(|c| c[1].to_string()));
+    
+    meta.image_url = re_image.and_then(|r| r.captures(&html)).map(|c| c[1].to_string());
+
+    meta
 }

@@ -107,6 +107,7 @@ pub async fn manual_post(
             text: payload.text,
             image_url: payload.image_url,
             media_paths: None,
+            link_url: None,
         };
 
         let mut results = Vec::new();

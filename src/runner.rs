@@ -94,6 +94,7 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor, U: Ur
                     text: optimized_text,
                     image_url: article.image_url.clone(),
                     media_paths: None,
+                    link_url: None,
                 };
 
                 if self.dry_run {

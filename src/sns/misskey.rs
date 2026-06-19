@@ -99,9 +99,13 @@ impl SnsClient for MisskeyClient {
         }
 
         let url = format!("{}/api/notes/create", self.base_url);
+        let mut post_text = content.text.clone();
+        if let Some(link_url) = &content.link_url {
+            post_text = format!("{} {}", post_text, link_url);
+        }
         let mut payload = json!({
             "i": self.access_token,
-            "text": content.text,
+            "text": post_text,
         });
 
         if !file_ids.is_empty() {
