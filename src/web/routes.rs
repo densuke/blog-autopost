@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::collections::HashMap;
 use axum::{
-    extract::State,
+    extract::{State, Path},
     Json,
     http::StatusCode,
 };
@@ -302,4 +302,88 @@ pub async fn get_next_slots(
     }
 
     Ok(Json(NextSlotResponse { slots }))
+}
+
+// GET /api/schedules
+pub async fn get_schedules(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<crate::scheduled::ScheduledPost>>, StatusCode> {
+    state.store.get_all_posts().await
+        .map(Json)
+        .map_err(|e| {
+            println!("Failed to get schedules: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })
+}
+
+#[derive(Deserialize)]
+pub struct UpdateScheduleRequest {
+    pub content: String,
+    pub scheduled_at: String,
+    pub target_sns: Vec<String>,
+    pub status: String,
+    pub media_files: Option<Vec<String>>,
+}
+
+// PUT /api/schedules/:id
+pub async fn update_schedule(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(payload): Json<UpdateScheduleRequest>,
+) -> Result<Json<crate::scheduled::ScheduledPost>, StatusCode> {
+    let scheduled_time = match chrono::DateTime::parse_from_rfc3339(&payload.scheduled_at) {
+        Ok(dt) => dt.with_timezone(&chrono::Local),
+        Err(e) => {
+            println!("Invalid datetime format {}: {:?}", payload.scheduled_at, e);
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    };
+
+    let existing = state.store.get_post_by_id(&id).await
+        .map_err(|e| {
+            println!("Failed to find schedule {}: {:?}", id, e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let Some(mut post) = existing else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+
+    post.content = payload.content;
+    post.scheduled_at = scheduled_time;
+    post.target_sns = payload.target_sns;
+    post.status = payload.status;
+    if let Some(media) = payload.media_files {
+        post.media_files = media;
+    }
+    post.updated_at = chrono::Local::now();
+
+    let updated = state.store.update_post(&id, post).await
+        .map_err(|e| {
+            println!("Failed to update schedule {}: {:?}", id, e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    match updated {
+        Some(p) => Ok(Json(p)),
+        None => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+// DELETE /api/schedules/:id
+pub async fn delete_schedule(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, StatusCode> {
+    let success = state.store.delete_post(&id).await
+        .map_err(|e| {
+            println!("Failed to delete schedule {}: {:?}", id, e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    if success {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
 }
