@@ -34,9 +34,9 @@
                 
                 <div class="form-control w-full">
                     <label class="label">
-                        <span class="label-text text-slate-300">Connected SNS</span>
+                        <span class="label-text text-slate-300">Select Target SNS</span>
                     </label>
-                    <div id="sns-badges" class="flex flex-wrap gap-2 mb-4">
+                    <div id="sns-checkboxes" class="flex flex-wrap gap-4 mb-4 bg-slate-800/30 p-3 rounded-lg border border-slate-700/50">
                         <span class="loading loading-spinner loading-sm"></span>
                     </div>
                 </div>
@@ -57,7 +57,7 @@
 
                 <div class="card-actions justify-end mt-6">
                     <button id="post-btn" class="btn btn-primary bg-gradient-to-r from-purple-500 to-pink-500 border-none text-white font-bold w-full md:w-auto px-8" onclick="submitPost()">
-                        Post to All
+                        Post
                     </button>
                 </div>
             </div>
@@ -86,14 +86,32 @@
                 
                 document.getElementById('blog-name').textContent = data.blog_name;
                 
-                const badgesContainer = document.getElementById('sns-badges');
-                badgesContainer.innerHTML = '';
+                const container = document.getElementById('sns-checkboxes');
+                container.innerHTML = '';
+                
+                if (data.active_sns.length === 0) {
+                    container.innerHTML = '<span class="text-slate-500 text-sm">No connected SNS found in config.yml</span>';
+                    return;
+                }
                 
                 data.active_sns.forEach(sns => {
-                    const badge = document.createElement('div');
-                    badge.className = 'badge badge-outline badge-primary';
-                    badge.textContent = sns;
-                    badgesContainer.appendChild(badge);
+                    const label = document.createElement('label');
+                    label.className = 'label cursor-pointer justify-start gap-3 bg-slate-800/50 hover:bg-slate-700/50 p-2 rounded-lg border border-slate-700/50 transition-colors flex-1 min-w-[200px]';
+                    
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.name = 'sns-target';
+                    checkbox.value = sns;
+                    checkbox.checked = true;
+                    checkbox.className = 'checkbox checkbox-primary checkbox-sm';
+                    
+                    const span = document.createElement('span');
+                    span.className = 'label-text text-slate-200 font-medium';
+                    span.textContent = sns;
+                    
+                    label.appendChild(checkbox);
+                    label.appendChild(span);
+                    container.appendChild(label);
                 });
             } catch (err) {
                 console.error("Failed to load config", err);
@@ -132,8 +150,15 @@
             const text = document.getElementById('post-text').value.trim();
             let imageUrl = document.getElementById('image-url').value.trim();
             
+            const checkedTargets = Array.from(document.querySelectorAll('input[name="sns-target"]:checked')).map(el => el.value);
+            
             if (!text) {
                 showToast("Please enter some text", "alert-warning");
+                return;
+            }
+
+            if (checkedTargets.length === 0) {
+                showToast("Please select at least one SNS target", "alert-warning");
                 return;
             }
 
@@ -143,13 +168,13 @@
 
             btn.classList.add('loading');
             btn.disabled = true;
-            appendLog("Sending post...");
+            appendLog(`Sending post to ${checkedTargets.join(', ')}...`);
 
             try {
                 const res = await fetch('/api/post', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text, image_url: imageUrl })
+                    body: JSON.stringify({ text, image_url: imageUrl, targets: checkedTargets })
                 });
 
                 const data = await res.json();
