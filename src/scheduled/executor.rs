@@ -28,13 +28,7 @@ impl ScheduledPostExecutor {
         let now = Local::now();
         let posts = self.store.get_all_posts().await?;
 
-        println!("[DEBUG_POSTS] Checking pending posts. Current time: {}", now);
-        for p in &posts {
-            println!(
-                "[DEBUG_POSTS] Post ID: {}, Status: {}, ScheduledAt: {}, IsDue: {}",
-                p.id, p.status, p.scheduled_at, p.scheduled_at <= now
-            );
-        }
+
 
         // 実行対象の投稿をフィルタリング
         // "予約済み" かつ scheduled_at <= now
