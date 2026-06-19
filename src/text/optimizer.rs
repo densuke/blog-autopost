@@ -56,8 +56,8 @@ mod tests {
     use super::*;
     use chrono::Utc;
 
-    #[test]
-    fn test_optimize_short_text() {
+    #[tokio::test]
+    async fn test_optimize_short_text() {
         let optimizer = DefaultTextOptimizer::new();
         let article = Article {
             title: "短いタイトル".into(),
@@ -67,12 +67,12 @@ mod tests {
             feed_name: "test".into(),
         };
 
-        let result = optimizer.optimize(&article, "{title} {link}", 100, Some("更新しました！"));
+        let result = optimizer.optimize(&article, "{title} {link}", 100, Some("更新しました！")).await.unwrap();
         assert_eq!(result, "更新しました！\n\n短いタイトル http://example.com/1");
     }
 
-    #[test]
-    fn test_optimize_long_text() {
+    #[tokio::test]
+    async fn test_optimize_long_text() {
         let optimizer = DefaultTextOptimizer::new();
         let article = Article {
             title: "あいうえおかきくけこさしすせそたちつてと".into(), // 20 chars
@@ -88,12 +88,12 @@ mod tests {
         // space = 1 chars
         // reserved = 25 chars.
         // title allowed = 50 - 25 - 3("...") = 22.  titleは20なのでそのまま入る。
-        let result = optimizer.optimize(&article, "{title} {link}", 50, Some("更新"));
+        let result = optimizer.optimize(&article, "{title} {link}", 50, Some("更新")).await.unwrap();
         assert_eq!(result, "更新\n\nあいうえおかきくけこさしすせそたちつてと http://example.com/1");
 
         // max=35 とする。
         // title allowed = 35 - 25 - 3 = 7
-        let result2 = optimizer.optimize(&article, "{title} {link}", 35, Some("更新"));
+        let result2 = optimizer.optimize(&article, "{title} {link}", 35, Some("更新")).await.unwrap();
         assert_eq!(result2, "更新\n\nあいうえおかき... http://example.com/1");
     }
 }

@@ -71,6 +71,9 @@ async fn main() -> anyhow::Result<()> {
         blog: None,
         sns: vec![],
         templates: Default::default(),
+        default_allowed_timings: None,
+        allowed_timings_tolerance_minutes: None,
+        allowed_timings: None,
     });
 
     match cli.command {
