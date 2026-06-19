@@ -92,6 +92,8 @@ async fn main() -> anyhow::Result<()> {
         default_allowed_timings: None,
         allowed_timings_tolerance_minutes: None,
         allowed_timings: None,
+        web_auth: None,
+        extra: Default::default(),
     });
 
     if cli.list_sns {
@@ -449,7 +451,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Serve { port } => {
             println!("Starting Web UI server on port {}...", port);
-            web::start_server(config_data, port).await?;
+            web::start_server(config_data, cli.config.clone(), port).await?;
         }
     }
     

@@ -20,7 +20,10 @@
 
     <div class="max-w-4xl mx-auto space-y-8">
         <!-- Header -->
-        <header class="text-center space-y-2">
+        <header class="relative text-center space-y-2">
+            <div class="absolute right-0 top-0">
+                <a href="/logout" class="btn btn-sm btn-outline btn-error">Logout</a>
+            </div>
             <h1 class="text-4xl md:text-5xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-600">
                 AutoPost Dashboard
             </h1>
@@ -50,9 +53,30 @@
 
                 <div class="form-control mt-4">
                     <label class="label">
-                        <span class="label-text text-slate-300">Image URL (Optional)</span>
+                        <span class="label-text text-slate-300 font-semibold">Link URL (Optional)</span>
                     </label>
-                    <input type="text" id="image-url" placeholder="https://example.com/image.jpg" class="input input-bordered w-full bg-slate-800/50 text-white placeholder-slate-400" />
+                    <input type="text" id="link-url" placeholder="https://example.com/my-post (リンクカードになります)" class="input input-bordered w-full bg-slate-800/50 text-white placeholder-slate-500 border-slate-700 focus:border-purple-500 transition-colors" />
+                </div>
+
+                <div class="form-control mt-4">
+                    <label class="label">
+                        <span class="label-text text-slate-300 font-semibold">Media Attachment (Optional)</span>
+                    </label>
+                    
+                    <div id="drop-zone" class="border-2 border-dashed border-slate-700 hover:border-purple-500 bg-slate-800/20 hover:bg-slate-800/40 rounded-xl p-6 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2 group">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-slate-400 group-hover:text-purple-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 00-2 2z" />
+                        </svg>
+                        <div class="text-sm text-slate-200">
+                            <span class="font-bold text-purple-400">Click to upload</span> or drag and drop files here
+                        </div>
+                        <div class="text-xs text-slate-500">
+                            Supports PNG, JPEG, GIF, WEBP, MP4 (Max 10MB). Clipboard paste (Ctrl+V) also works!
+                        </div>
+                        <input type="file" id="media-upload" accept="image/*,video/*" multiple class="hidden" onchange="handleFileSelect(event)" />
+                    </div>
+
+                    <div id="image-preview-container" class="flex flex-wrap gap-3 mt-4"></div>
                 </div>
 
                 <div class="form-control mt-4">
@@ -158,6 +182,13 @@
                 <input type="datetime-local" id="edit-scheduled-at" class="input input-bordered bg-slate-800 text-white border-slate-700" />
             </div>
             
+            <div class="form-control mb-4">
+                <label class="label">
+                    <span class="label-text text-slate-300">Link URL (Optional)</span>
+                </label>
+                <input type="text" id="edit-link-url" class="input input-bordered bg-slate-800 text-white border-slate-700" placeholder="https://example.com" />
+            </div>
+
             <div class="form-control mb-4">
                 <label class="label">
                     <span class="label-text text-slate-300">Target SNS</span>
@@ -270,10 +301,187 @@
             }
         }
 
+        let attachedMedia = []; // 添付されたファイルの管理配列
+
+        function addFiles(files) {
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                
+                if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
+                    showToast(`Unsupported file type: ${file.name}`, "alert-warning");
+                    continue;
+                }
+
+                const max_size = 10 * 1024 * 1024;
+                if (file.size > max_size) {
+                    showToast(`File too large (Max 10MB): ${file.name}`, "alert-warning");
+                    continue;
+                }
+
+                const mediaId = `media-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                const localUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
+
+                const mediaObj = {
+                    id: mediaId,
+                    name: file.name,
+                    type: file.type,
+                    localUrl: localUrl,
+                    status: 'uploading',
+                    path: null,
+                    error: null
+                };
+
+                attachedMedia.push(mediaObj);
+                uploadSingleFile(file, mediaId);
+            }
+            renderPreviews();
+        }
+
+        async function uploadSingleFile(file, mediaId) {
+            const formData = new FormData();
+            formData.append('files', file);
+
+            try {
+                const res = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!res.ok) {
+                    throw new Error(`Upload failed (Status ${res.status})`);
+                }
+
+                const data = await res.json();
+                if (!data.success) {
+                    throw new Error(data.error || "Upload failed");
+                }
+
+                const idx = attachedMedia.findIndex(m => m.id === mediaId);
+                if (idx !== -1) {
+                    attachedMedia[idx].status = 'success';
+                    attachedMedia[idx].path = data.paths[0];
+                    renderPreviews();
+                }
+            } catch (err) {
+                console.error("Upload error for " + file.name, err);
+                const idx = attachedMedia.findIndex(m => m.id === mediaId);
+                if (idx !== -1) {
+                    attachedMedia[idx].status = 'error';
+                    attachedMedia[idx].error = err.message || "Upload failed";
+                    renderPreviews();
+                    showToast(`Failed to upload ${file.name}: ${err.message}`, "alert-error");
+                }
+            }
+        }
+
+        function renderPreviews() {
+            const container = document.getElementById('image-preview-container');
+            container.innerHTML = '';
+
+            attachedMedia.forEach(media => {
+                const div = document.createElement('div');
+                div.className = 'relative w-24 h-24 border rounded-xl overflow-hidden bg-slate-950 flex items-center justify-center group shadow-md transition-all ' +
+                    (media.status === 'error' ? 'border-red-500' : 'border-slate-800 hover:border-slate-700');
+
+                if (media.type.startsWith('image/')) {
+                    div.innerHTML = `<img src="${media.localUrl}" class="object-cover w-full h-full" />`;
+                } else {
+                    div.innerHTML = `<div class="text-xs text-slate-400 font-bold text-center p-1 truncate max-w-full">${media.name}</div>`;
+                }
+
+                if (media.status === 'uploading') {
+                    const overlay = document.createElement('div');
+                    overlay.className = 'absolute inset-0 bg-slate-900/70 flex items-center justify-center';
+                    overlay.innerHTML = '<span class="loading loading-spinner loading-md text-primary"></span>';
+                    div.appendChild(overlay);
+                }
+
+                if (media.status === 'error') {
+                    const overlay = document.createElement('div');
+                    overlay.className = 'absolute inset-0 bg-red-900/40 flex items-center justify-center';
+                    overlay.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>';
+                    div.appendChild(overlay);
+                    div.title = media.error;
+                }
+
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'absolute top-1 right-1 btn btn-circle btn-xs btn-error bg-red-600/90 border-none text-white hover:bg-red-500 shadow-md';
+                deleteBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12" /></svg>';
+                deleteBtn.onclick = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    removeMedia(media.id);
+                };
+                div.appendChild(deleteBtn);
+
+                container.appendChild(div);
+            });
+        }
+
+        function removeMedia(mediaId) {
+            const idx = attachedMedia.findIndex(m => m.id === mediaId);
+            if (idx !== -1) {
+                if (attachedMedia[idx].localUrl) {
+                    URL.revokeObjectURL(attachedMedia[idx].localUrl);
+                }
+                attachedMedia.splice(idx, 1);
+                renderPreviews();
+            }
+        }
+
+        function handleFileSelect(e) {
+            if (e.target.files.length > 0) {
+                addFiles(e.target.files);
+                e.target.value = '';
+            }
+        }
+
+        function setupMediaDropAndPaste() {
+            const dropZone = document.getElementById('drop-zone');
+            if (dropZone) {
+                dropZone.onclick = () => document.getElementById('media-upload').click();
+
+                dropZone.ondragover = (e) => {
+                    e.preventDefault();
+                    dropZone.classList.add('border-purple-500', 'bg-slate-800/40');
+                };
+
+                dropZone.ondragleave = () => {
+                    dropZone.classList.remove('border-purple-500', 'bg-slate-800/40');
+                };
+
+                dropZone.ondrop = (e) => {
+                    e.preventDefault();
+                    dropZone.classList.remove('border-purple-500', 'bg-slate-800/40');
+                    if (e.dataTransfer.files.length > 0) {
+                        addFiles(e.dataTransfer.files);
+                    }
+                };
+            }
+
+            document.addEventListener('paste', (e) => {
+                const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+                const files = [];
+                for (let i = 0; i < items.length; i++) {
+                    if (items[i].type.indexOf('image') !== -1 || items[i].type.indexOf('video') !== -1) {
+                        const file = items[i].getAsFile();
+                        if (file) {
+                            files.push(file);
+                        }
+                    }
+                }
+                if (files.length > 0) {
+                    e.preventDefault();
+                    addFiles(files);
+                    appendLog(`Pasted ${files.length} file(s) from clipboard.`);
+                }
+            });
+        }
+
         async function submitPost() {
             const btn = document.getElementById('post-btn');
             const text = document.getElementById('post-text').value.trim();
-            let imageUrl = document.getElementById('image-url').value.trim();
+            let linkUrl = document.getElementById('link-url').value.trim();
             
             const checkedTargets = Array.from(document.querySelectorAll('input[name="sns-target"]:checked')).map(el => el.value);
             const scheduleType = document.querySelector('input[name="schedule-type"]:checked').value;
@@ -298,26 +506,38 @@
                 scheduledAt = new Date(dateVal).toISOString();
             }
 
-            if (imageUrl === "") {
-                imageUrl = null;
+            if (linkUrl === "") {
+                linkUrl = null;
             }
+
+            // まだアップロード中のファイルがあるか確認
+            if (attachedMedia.some(m => m.status === 'uploading')) {
+                showToast("Please wait for images to finish uploading", "alert-warning");
+                return;
+            }
+
+            const mediaPaths = attachedMedia
+                .filter(m => m.status === 'success')
+                .map(m => m.path);
 
             btn.classList.add('loading');
             btn.disabled = true;
 
-            if (scheduleType === "now") {
-                appendLog(`Sending post to ${checkedTargets.join(', ')}...`);
-            } else {
-                appendLog(`Scheduling post for ${checkedTargets.join(', ')} (${scheduleType === 'next' ? 'Next Slot' : scheduledAt})...`);
-            }
-
             try {
+                if (scheduleType === "now") {
+                    appendLog(`Sending post to ${checkedTargets.join(', ')}...`);
+                } else {
+                    appendLog(`Scheduling post for ${checkedTargets.join(', ')} (${scheduleType === 'next' ? 'Next Slot' : scheduledAt})...`);
+                }
+
                 const res = await fetch('/api/post', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         text,
-                        image_url: imageUrl,
+                        image_url: null,
+                        media_paths: mediaPaths.length > 0 ? mediaPaths : null,
+                        link_url: linkUrl,
                         targets: checkedTargets,
                         schedule_type: scheduleType,
                         scheduled_at: scheduledAt
@@ -330,7 +550,16 @@
                     const actionText = scheduleType === "now" ? "posted" : "scheduled";
                     showToast(`Successfully ${actionText}!`, "alert-success");
                     appendLog(`Successfully ${actionText} to all targets.`);
+                    
+                    // フォームをクリア
                     document.getElementById('post-text').value = '';
+                    if (document.getElementById('link-url')) document.getElementById('link-url').value = '';
+                    attachedMedia.forEach(m => {
+                        if (m.localUrl) URL.revokeObjectURL(m.localUrl);
+                    });
+                    attachedMedia = [];
+                    renderPreviews();
+                    
                     loadSchedules();
                 } else {
                     showToast("Failed with some errors", "alert-warning");
@@ -343,7 +572,7 @@
                 }
             } catch (err) {
                 console.error(err);
-                showToast("Request failed", "alert-error");
+                showToast(err.message || "Request failed", "alert-error");
                 appendLog(`Error: ${err.message}`, true);
             } finally {
                 btn.classList.remove('loading');
@@ -389,10 +618,17 @@
                     
                     // ステータスバッジ
                     let statusClass = 'badge-info';
-                    if (post.status === '投稿済み') statusClass = 'badge-success';
-                    if (post.status === '失敗') statusClass = 'badge-error';
+                    let statusIcon = '';
+                    let statusTitle = '';
+                    if (post.status === '投稿済み') {
+                        statusClass = 'badge-success';
+                    } else if (post.status === '失敗') {
+                        statusClass = 'badge-error';
+                        statusIcon = '⚠️ ';
+                        statusTitle = post.error_message ? `title="${post.error_message.replace(/"/g, '&quot;')}"` : 'title="送信に失敗しました"';
+                    }
                     
-                    const statusBadge = `<span class="badge ${statusClass} badge-sm font-semibold">${post.status}</span>`;
+                    const statusBadge = `<span class="badge ${statusClass} badge-sm font-semibold" ${statusTitle} style="cursor: ${post.status === '失敗' ? 'help' : 'default'}">${statusIcon}${post.status}</span>`;
                     
                     // 本文プレビュー
                     const contentPreview = post.content.length > 50 
@@ -400,8 +636,18 @@
                         : post.content;
                     
                     // アクションボタン
+                    const canPostNow = post.status !== '投稿済み';
+                    const postNowBtn = canPostNow ? `
+                        <button class="btn btn-xs btn-circle btn-ghost text-emerald-400 hover:bg-emerald-500/20" onclick="postNow('${post.id}')" title="Post Now">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                            </svg>
+                        </button>
+                    ` : '';
+
                     const actions = `
                         <div class="flex justify-end gap-2">
+                            ${postNowBtn}
                             <button class="btn btn-xs btn-circle btn-ghost text-sky-400 hover:bg-sky-500/20" onclick="editPost('${post.id}')" title="Edit">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                             </button>
@@ -423,6 +669,41 @@
             } catch (err) {
                 console.error(err);
                 tbody.innerHTML = '<tr><td colspan="5" class="text-center text-red-400 py-8">Failed to load scheduled posts.</td></tr>';
+            }
+        }
+
+        async function postNow(id) {
+            if (!confirm("Are you sure you want to post this schedule now?")) return;
+            
+            appendLog(`Triggering immediate post for schedule: ${id}...`);
+            
+            try {
+                const res = await fetch(`/api/schedules/${id}/post-now`, {
+                    method: 'POST'
+                });
+                
+                if (!res.ok) {
+                    throw new Error(`Server returned status ${res.status}`);
+                }
+                
+                const data = await res.json();
+                if (data.success) {
+                    showToast("Successfully posted!", "alert-success");
+                    appendLog(`Successfully posted schedule ${id} to all targets.`);
+                } else {
+                    showToast("Failed with some errors", "alert-warning");
+                    appendLog(`Failed to post schedule ${id}. Check logs.`, true);
+                    data.results.forEach((r, i) => {
+                        if (!r.success) {
+                            appendLog(`Target ${i}: ${r.error_message}`, true);
+                        }
+                    });
+                }
+                loadSchedules();
+            } catch (err) {
+                console.error(err);
+                showToast("Request failed", "alert-error");
+                appendLog(`Error triggering post: ${err.message}`, true);
             }
         }
 
@@ -450,6 +731,7 @@
             document.getElementById('edit-post-id').value = post.id;
             document.getElementById('edit-post-text').value = post.content;
             document.getElementById('edit-status').value = post.status;
+            document.getElementById('edit-link-url').value = post.link_url || '';
             
             // ISO-8601 時刻を YYYY-MM-DDTHH:MM に変換する (ローカルタイム基準)
             const dt = new Date(post.scheduled_at);
@@ -499,6 +781,10 @@
                 return val.match(/\(([^)]+)\)/)?.[1] || val;
             });
             
+            const linkUrl = document.getElementById('edit-link-url').value.trim();
+            const post = schedulesData.find(p => p.id === id);
+            const initialMedia = post ? post.media_files : [];
+
             if (!text) {
                 showToast("Content cannot be empty", "alert-warning");
                 return;
@@ -523,7 +809,8 @@
                         scheduled_at: scheduledAt,
                         target_sns: checkedTargets,
                         status: status,
-                        media_files: null
+                        media_files: initialMedia,
+                        link_url: linkUrl === "" ? null : linkUrl
                     })
                 });
                 
@@ -571,6 +858,7 @@
         // Initialize
         loadConfig();
         loadSchedules();
+        setupMediaDropAndPaste();
     </script>
 </body>
 </html>

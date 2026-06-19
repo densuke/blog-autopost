@@ -12,12 +12,24 @@ pub struct Config {
     pub default_allowed_timings: Option<Vec<(String, Vec<String>)>>,
     pub allowed_timings_tolerance_minutes: Option<i64>,
     pub allowed_timings: Option<HashMap<String, Vec<(String, Vec<String>)>>>,
+    pub web_auth: Option<WebAuthConfig>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_yaml::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct WebAuthConfig {
+    pub username: String,
+    pub password: String,
+    pub secret_key: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct BlogConfig {
     pub name: String,
     pub feed_url: String,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_yaml::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]

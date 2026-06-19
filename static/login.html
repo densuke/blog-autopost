@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blog Autopost RS - Login</title>
+    <!-- Tailwind CSS & DaisyUI -->
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.10.2/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-slate-100 flex items-center justify-center p-4">
+
+    <div class="card glass-panel w-full max-w-md shadow-2xl">
+        <div class="card-body">
+            <div class="text-center mb-6">
+                <h1 class="text-3xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-600 mb-2">
+                    AutoPost Login
+                </h1>
+                <p class="text-slate-400 text-sm">認証情報を入力してダッシュボードにアクセスしてください</p>
+            </div>
+
+            <form action="/login" method="post" class="space-y-4">
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text text-slate-300 font-medium">ユーザー名</span>
+                    </label>
+                    <input type="text" id="username" name="username" required placeholder="username" 
+                           class="input input-bordered w-full bg-slate-800/50 text-white placeholder-slate-500 border-slate-700 focus:border-purple-500 focus:outline-none transition-colors" />
+                </div>
+
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text text-slate-300 font-medium">パスワード</span>
+                    </label>
+                    <input type="password" id="password" name="password" required placeholder="••••••••" 
+                           class="input input-bordered w-full bg-slate-800/50 text-white placeholder-slate-500 border-slate-700 focus:border-purple-500 focus:outline-none transition-colors" />
+                </div>
+
+                <div class="form-control mt-6">
+                    <button type="submit" class="btn btn-primary bg-gradient-to-r from-purple-500 to-pink-500 border-none text-white font-bold w-full shadow-lg hover:shadow-purple-500/20 transition-all">
+                        ログイン
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+</body>
+</html>
