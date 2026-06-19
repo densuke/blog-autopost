@@ -1,20 +1,11 @@
-mod article;
-mod config;
-mod image_resizer;
-mod runner;
-mod scheduled;
-mod sns;
-mod text;
-mod timing;
-mod web;
-
 use std::fs;
 use clap::{Parser, Subcommand};
-use crate::config::parse_config;
-use crate::sns::{
+use blog_autopost_rs::config::{self, parse_config};
+use blog_autopost_rs::sns::{
     bluesky::BlueskyClient, mastodon::MastodonClient, misskey::MisskeyClient, traits::SnsClient, x::XClient,
+    models::PostContent,
 };
-use sns::models::PostContent;
+use blog_autopost_rs::{article, runner, scheduled, text, web, timing};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
