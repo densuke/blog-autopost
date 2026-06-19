@@ -5,6 +5,7 @@ pub struct PostContent {
     pub text: String,
     pub image_url: Option<String>,
     pub media_paths: Option<Vec<String>>,
+    pub link_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

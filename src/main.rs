@@ -64,6 +64,10 @@ enum Commands {
         /// 添付するローカルの画像ファイルパス（複数指定可）
         #[arg(short, long)]
         media: Option<Vec<String>>,
+
+        /// 添付するリンクURL
+        #[arg(short, long)]
+        link: Option<String>,
     },
     /// 現在のRSSフィードを取得し、すべて「既読（投稿済み）」として記録する
     Touch,
@@ -248,7 +252,7 @@ async fn main() -> anyhow::Result<()> {
             
             tokio::time::sleep(std::time::Duration::from_secs(60 * 60 * 24)).await;
         }
-        Commands::Post { text, sns, instance_url, token, media } => {
+        Commands::Post { text, sns, instance_url, token, media, link } => {
             let mut sns_clients: Vec<std::sync::Arc<dyn SnsClient + Send + Sync>> = Vec::new();
             
             // フィルタ条件の構築
@@ -357,9 +361,77 @@ async fn main() -> anyhow::Result<()> {
                 return Ok(());
             }
 
-            // 3. 選択されたすべてのSNSへ投稿する
-            let content = PostContent { text, image_url: None, media_paths: media.clone() };
-            for client in sns_clients {
+            // 3. 送信前チェックとURL短縮の適用
+            use crate::text::traits::UrlShortener;
+            let shortener = crate::text::shortener::IsGdUrlShortener::new();
+
+            let mut client_post_contents = Vec::new();
+            let mut length_errors = Vec::new();
+
+            for client in &sns_clients {
+                let max_len = client.max_characters();
+                
+                let final_text = text.clone();
+                let mut final_link = link.clone();
+
+                let is_link_card_sns = client.name() == "bluesky";
+                
+                let mut current_len = final_text.chars().count();
+                if !is_link_card_sns {
+                    if let Some(ref l) = final_link {
+                        current_len += 1 + l.chars().count(); // +1 for space
+                    }
+                }
+
+                if current_len > max_len {
+                    if let Some(ref l) = final_link {
+                        println!("URL is too long for {} (limit: {} chars). Trying to shorten...", client.name(), max_len);
+                        match shortener.shorten(l).await {
+                            Ok(short_url) => {
+                                final_link = Some(short_url.clone());
+                                current_len = final_text.chars().count();
+                                if !is_link_card_sns {
+                                    current_len += 1 + short_url.chars().count();
+                                }
+                            }
+                            Err(e) => {
+                                println!("Warning: Failed to shorten URL for {}: {:?}", client.name(), e);
+                            }
+                        }
+                    }
+                }
+
+                if current_len > max_len {
+                    length_errors.push(format!(
+                        "{} ({}) - 制限: {}文字, 予定: {}文字",
+                        client.name(),
+                        client.account_name(),
+                        max_len,
+                        current_len
+                    ));
+                } else {
+                    client_post_contents.push((
+                        client.clone(),
+                        PostContent {
+                            text: final_text,
+                            image_url: None,
+                            media_paths: media.clone(),
+                            link_url: final_link,
+                        }
+                    ));
+                }
+            }
+
+            if !length_errors.is_empty() {
+                println!("Error: 送信テキストがSNSの文字数上限を超えています。送信を中止しました。");
+                for err in length_errors {
+                    println!("  - {}", err);
+                }
+                return Ok(());
+            }
+
+            // 4. 選択されたすべてのSNSへ投稿する
+            for (client, content) in client_post_contents {
                 println!("Posting to {} ({})...", client.name(), client.account_name());
                 match client.post(&content).await {
                     Ok(result) => {

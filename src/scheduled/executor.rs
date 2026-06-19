@@ -53,6 +53,7 @@ impl ScheduledPostExecutor {
                             text: post.content.clone(),
                             image_url,
                             media_paths: None,
+                            link_url: None,
                         };
 
                         if self.dry_run {
