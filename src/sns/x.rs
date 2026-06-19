@@ -1,0 +1,191 @@
+use async_trait::async_trait;
+use reqwest::Client;
+use serde::Deserialize;
+use serde_json::json;
+use reqwest::header::AUTHORIZATION;
+use anyhow::{Result, Context, anyhow};
+
+#[derive(oauth1_request::Request)]
+struct EmptyRequest {}
+
+use super::traits::SnsClient;
+use super::models::{PostContent, PostResult};
+
+pub struct XClient {
+    client: Client,
+    consumer_key: String,
+    consumer_secret: String,
+    access_token: String,
+    access_token_secret: String,
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct MediaUploadResponse {
+    media_id_string: String,
+}
+
+#[derive(Deserialize)]
+struct TweetResponseData {
+    id: String,
+}
+
+#[derive(Deserialize)]
+#[allow(dead_code)]
+struct TweetResponse {
+    data: Option<TweetResponseData>,
+    detail: Option<String>,
+}
+
+impl XClient {
+    pub fn new(
+        consumer_key: String,
+        consumer_secret: String,
+        access_token: String,
+        access_token_secret: String,
+        name: String,
+    ) -> Result<Self> {
+        let client = Client::builder()
+            .build()
+            .context("Failed to build HTTP client for X")?;
+
+        Ok(Self {
+            client,
+            consumer_key,
+            consumer_secret,
+            access_token,
+            access_token_secret,
+            name,
+        })
+    }
+
+    /// 画像をダウンロードするヘルパー
+    async fn download_image(&self, url: &str) -> Result<Vec<u8>> {
+        let resp = self.client.get(url).send().await?;
+        if !resp.status().is_success() {
+            return Err(anyhow::anyhow!("Failed to download image: HTTP {}", resp.status()));
+        }
+        let bytes = resp.bytes().await?;
+        Ok(bytes.to_vec())
+    }
+
+    /// OAuth 1.0a Authorizationヘッダを生成する (POST用)
+    fn generate_post_auth_header(&self, url: &str) -> String {
+        let token = oauth1_request::Token::from_parts(
+            &self.consumer_key,
+            &self.consumer_secret,
+            &self.access_token,
+            &self.access_token_secret,
+        );
+        oauth1_request::post(url, &EmptyRequest {}, &token, oauth1_request::HMAC_SHA1)
+    }
+
+    /// 画像をアップロードして media_id_string を取得する
+    async fn upload_media(&self, image_data: Vec<u8>) -> Result<String> {
+        let upload_url = "https://upload.twitter.com/1.1/media/upload.json";
+        
+        let auth_header = self.generate_post_auth_header(upload_url);
+        
+        let part = reqwest::multipart::Part::bytes(image_data)
+            .file_name("image.jpg")
+            .mime_str("image/jpeg")?; // 適当にjpegとする。API側で判別されることが多い
+
+        let form = reqwest::multipart::Form::new().part("media", part);
+
+        let res = self.client.post(upload_url)
+            .header(AUTHORIZATION, auth_header)
+            .multipart(form)
+            .send()
+            .await?;
+
+        let status = res.status();
+        let body = res.text().await?;
+
+        if !status.is_success() {
+            return Err(anyhow!("Failed to upload media to X: HTTP {}, body: {}", status, body));
+        }
+
+        let upload_res: MediaUploadResponse = serde_json::from_str(&body)
+            .context("Failed to parse media upload response from X")?;
+
+        Ok(upload_res.media_id_string)
+    }
+}
+
+#[async_trait]
+impl SnsClient for XClient {
+    fn name(&self) -> &str {
+        "x"
+    }
+
+    fn account_name(&self) -> &str {
+        &self.name
+    }
+
+    fn max_characters(&self) -> usize {
+        280
+    }
+
+    async fn post(&self, content: &PostContent) -> Result<PostResult, anyhow::Error> {
+        let mut media_ids = Vec::new();
+
+        // 1. 画像がある場合はアップロード
+        if let Some(url) = &content.image_url {
+            match self.download_image(url).await {
+                Ok(bytes) => {
+                    match self.upload_media(bytes).await {
+                        Ok(media_id) => media_ids.push(media_id),
+                        Err(e) => {
+                            println!("[X] Warning: Failed to upload image: {}", e);
+                            // 画像アップロードに失敗してもテキスト投稿は続行する方針（好みによる）
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("[X] Warning: Failed to download image: {}", e);
+                }
+            }
+        }
+
+        // 2. ツイート投稿
+        let tweet_url = "https://api.twitter.com/2/tweets";
+        let auth_header = self.generate_post_auth_header(tweet_url);
+
+        let mut payload = json!({
+            "text": content.text,
+        });
+
+        if !media_ids.is_empty() {
+            payload["media"] = json!({
+                "media_ids": media_ids
+            });
+        }
+
+        let res = self.client.post(tweet_url)
+            .header(AUTHORIZATION, auth_header)
+            .json(&payload)
+            .send()
+            .await?;
+
+        let status = res.status();
+        let body = res.text().await?;
+
+        if !status.is_success() {
+            return Ok(PostResult {
+                success: false,
+                post_id: None,
+                error_message: Some(format!("HTTP {}: {}", status, body)),
+            });
+        }
+
+        let tweet_res: TweetResponse = serde_json::from_str(&body).unwrap_or(TweetResponse { data: None, detail: None });
+
+        let post_id = tweet_res.data.map(|d| d.id);
+
+        Ok(PostResult {
+            success: true,
+            post_id,
+            error_message: None,
+        })
+    }
+}

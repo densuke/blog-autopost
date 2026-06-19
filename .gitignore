@@ -20,3 +20,9 @@ config.yml
 .coverage
 .claude
 config_backup.yml
+
+# Rust
+target/
+Cargo.lock.lock
+**/*.rs.bk
+

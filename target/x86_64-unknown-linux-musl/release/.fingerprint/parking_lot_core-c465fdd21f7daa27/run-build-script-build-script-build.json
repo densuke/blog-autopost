@@ -1,1 +1,0 @@
-{"rustc":17467972547956852243,"features":"","declared_features":"","target":0,"profile":0,"path":0,"deps":[[6545091685033313457,"build_script_build",false,14875409628961068669]],"local":[{"RerunIfChanged":{"output":"x86_64-unknown-linux-musl/release/build/parking_lot_core-c465fdd21f7daa27/output","paths":["build.rs"]}}],"rustflags":[],"config":0,"compile_kind":0}
