@@ -24,14 +24,15 @@ impl MastodonClient {
         })
     }
 
-    async fn upload_media(&self, image_url: &str) -> anyhow::Result<String> {
-        let (bytes, mime) = super::download_image(&self.client, image_url).await?;
-        
+    async fn upload_media_data(&self, bytes: Vec<u8>, mime: &str) -> anyhow::Result<String> {
+        let resizer = crate::image_resizer::ImageResizer::new(false);
+        let resized_bytes = resizer.resize_image_data(&bytes, "mastodon")?;
+
         let url = format!("{}/api/v2/media", self.base_url);
         
-        let part = reqwest::multipart::Part::bytes(bytes)
-            .file_name("image.jpg") // ダミー名でOK
-            .mime_str(&mime)?;
+        let part = reqwest::multipart::Part::bytes(resized_bytes)
+            .file_name("image.jpg")
+            .mime_str(mime)?;
             
         let form = reqwest::multipart::Form::new().part("file", part);
         
@@ -66,10 +67,33 @@ impl SnsClient for MastodonClient {
     async fn post(&self, content: &PostContent) -> anyhow::Result<PostResult> {
         let mut media_ids = Vec::new();
         
+        // 1. image_urlの処理
         if let Some(img_url) = &content.image_url {
-            match self.upload_media(img_url).await {
-                Ok(id) => media_ids.push(id),
-                Err(e) => println!("Warning: Failed to upload media to Mastodon: {}", e),
+            match super::download_image(&self.client, img_url).await {
+                Ok((bytes, mime)) => {
+                    let upload_mime = if mime == "image/png" || mime == "image/jpeg" { mime } else { "image/jpeg".to_string() };
+                    match self.upload_media_data(bytes, &upload_mime).await {
+                        Ok(id) => media_ids.push(id),
+                        Err(e) => println!("Warning: Failed to upload media to Mastodon: {}", e),
+                    }
+                }
+                Err(e) => println!("Warning: Failed to download image for Mastodon: {}", e),
+            }
+        }
+
+        // 2. media_pathsの処理
+        if let Some(paths) = &content.media_paths {
+            for path in paths {
+                match std::fs::read(path) {
+                    Ok(bytes) => {
+                        let mime = if path.ends_with(".png") { "image/png" } else { "image/jpeg" };
+                        match self.upload_media_data(bytes, mime).await {
+                            Ok(id) => media_ids.push(id),
+                            Err(e) => println!("Warning: Failed to upload local media to Mastodon: {}", e),
+                        }
+                    }
+                    Err(e) => println!("Warning: Failed to read local media file {}: {}", path, e),
+                }
             }
         }
 

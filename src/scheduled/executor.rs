@@ -52,6 +52,7 @@ impl ScheduledPostExecutor {
                         let content = PostContent {
                             text: post.content.clone(),
                             image_url,
+                            media_paths: None,
                         };
 
                         if self.dry_run {

@@ -93,6 +93,7 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor, U: Ur
                 let content = PostContent {
                     text: optimized_text,
                     image_url: article.image_url.clone(),
+                    media_paths: None,
                 };
 
                 if self.dry_run {

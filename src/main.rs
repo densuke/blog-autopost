@@ -1,5 +1,6 @@
 mod article;
 mod config;
+mod image_resizer;
 mod runner;
 mod scheduled;
 mod sns;
@@ -60,6 +61,10 @@ enum Commands {
         /// アクセストークン (引数で上書きする場合)
         #[arg(long, env = "SNS_TOKEN")]
         token: Option<String>,
+
+        /// 添付するローカルの画像ファイルパス（複数指定可）
+        #[arg(short, long)]
+        media: Option<Vec<String>>,
     },
     /// 現在のRSSフィードを取得し、すべて「既読（投稿済み）」として記録する
     Touch,
@@ -244,7 +249,7 @@ async fn main() -> anyhow::Result<()> {
             
             tokio::time::sleep(std::time::Duration::from_secs(60 * 60 * 24)).await;
         }
-        Commands::Post { text, sns, instance_url, token } => {
+        Commands::Post { text, sns, instance_url, token, media } => {
             if sns == "mastodon" {
                 // config.ymlから探す
                 let conf = config_data.sns.iter().find_map(|s| match s {
@@ -258,7 +263,7 @@ async fn main() -> anyhow::Result<()> {
                     .expect("token must be provided via CLI or config.yml");
 
                 let client = MastodonClient::new(url, t, "CLI_User".to_string())?;
-                let content = PostContent { text, image_url: None };
+                let content = PostContent { text, image_url: None, media_paths: media.clone() };
                 
                 println!("Posting to Mastodon...");
                 let result = client.post(&content).await?;
@@ -281,7 +286,7 @@ async fn main() -> anyhow::Result<()> {
                     .expect("token must be provided via CLI or config.yml");
 
                 let client = sns::misskey::MisskeyClient::new(url, t, "CLI_User".to_string())?;
-                let content = PostContent { text, image_url: None };
+                let content = PostContent { text, image_url: None, media_paths: media.clone() };
                 
                 println!("Posting to Misskey...");
                 let result = client.post(&content).await?;
@@ -304,7 +309,7 @@ async fn main() -> anyhow::Result<()> {
                     .expect("password must be provided (via --token for now) or config.yml");
 
                 let client = sns::bluesky::BlueskyClient::new(id, pw, "CLI_User".to_string())?;
-                let content = PostContent { text, image_url: None };
+                let content = PostContent { text, image_url: None, media_paths: media.clone() };
                 
                 println!("Posting to Bluesky...");
                 let result = client.post(&content).await?;
@@ -326,7 +331,7 @@ async fn main() -> anyhow::Result<()> {
                 let (ck, cs, at, ats) = conf.expect("X (Twitter) configuration must be provided in config.yml");
 
                 let client = sns::x::XClient::new(ck, cs, at, ats, "CLI_User".to_string())?;
-                let content = PostContent { text, image_url: None };
+                let content = PostContent { text, image_url: None, media_paths: media.clone() };
                 
                 println!("Posting to X (Twitter)...");
                 let result = client.post(&content).await?;

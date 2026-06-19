@@ -48,15 +48,16 @@ impl BlueskyClient {
 
         Ok((did.to_string(), access_jwt.to_string()))
     }
-    async fn upload_blob(&self, image_url: &str, access_jwt: &str) -> anyhow::Result<serde_json::Value> {
-        let (bytes, mime) = super::download_image(&self.client, image_url).await?;
-        
+    async fn upload_blob_data(&self, bytes: Vec<u8>, mime: &str, access_jwt: &str) -> anyhow::Result<serde_json::Value> {
+        let resizer = crate::image_resizer::ImageResizer::new(false);
+        let resized_bytes = resizer.resize_image_data(&bytes, "bluesky")?;
+
         let url = "https://bsky.social/xrpc/com.atproto.repo.uploadBlob";
         
         let response = self.client.post(url)
             .header(reqwest::header::AUTHORIZATION, format!("Bearer {}", access_jwt))
-            .header(reqwest::header::CONTENT_TYPE, mime)
-            .body(bytes)
+            .header(reqwest::header::CONTENT_TYPE, mime.to_string())
+            .body(resized_bytes)
             .send()
             .await?;
 
@@ -66,7 +67,6 @@ impl BlueskyClient {
         }
 
         let res_json: serde_json::Value = response.json().await?;
-        // {"blob": { ... }} という形式で返ってくるので "blob" を抽出する
         let blob = res_json.get("blob").cloned().ok_or_else(|| anyhow::anyhow!("No blob object in response"))?;
         
         Ok(blob)
@@ -94,15 +94,39 @@ impl SnsClient for BlueskyClient {
             })
         };
 
-        let mut embed_blob = None;
+        let mut embed_blobs = Vec::new();
+        
+        // 1. image_urlの処理
         if let Some(img_url) = &content.image_url {
-            match self.upload_blob(img_url, &access_jwt).await {
-                Ok(blob) => embed_blob = Some(blob),
-                Err(e) => println!("Warning: Failed to upload blob to Bluesky: {}", e),
+            match super::download_image(&self.client, img_url).await {
+                Ok((bytes, mime)) => {
+                    let upload_mime = if mime == "image/png" || mime == "image/jpeg" { mime } else { "image/jpeg".to_string() };
+                    match self.upload_blob_data(bytes, &upload_mime, &access_jwt).await {
+                        Ok(blob) => embed_blobs.push(blob),
+                        Err(e) => println!("Warning: Failed to upload blob to Bluesky: {}", e),
+                    }
+                }
+                Err(e) => println!("Warning: Failed to download image for Bluesky: {}", e),
             }
         }
 
-        // 2. レコードを作成して投稿
+        // 2. media_pathsの処理
+        if let Some(paths) = &content.media_paths {
+            for path in paths {
+                match std::fs::read(path) {
+                    Ok(bytes) => {
+                        let mime = if path.ends_with(".png") { "image/png" } else { "image/jpeg" };
+                        match self.upload_blob_data(bytes, mime, &access_jwt).await {
+                            Ok(blob) => embed_blobs.push(blob),
+                            Err(e) => println!("Warning: Failed to upload local media to Bluesky: {}", e),
+                        }
+                    }
+                    Err(e) => println!("Warning: Failed to read local media file {}: {}", path, e),
+                }
+            }
+        }
+
+        // 3. レコードを作成して投稿
         let url = "https://bsky.social/xrpc/com.atproto.repo.createRecord";
         let now = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         
@@ -112,15 +136,17 @@ impl SnsClient for BlueskyClient {
             "createdAt": now
         });
 
-        if let Some(blob) = embed_blob {
+        if !embed_blobs.is_empty() {
+            let images_json: Vec<serde_json::Value> = embed_blobs.into_iter().map(|blob| {
+                json!({
+                    "alt": "",
+                    "image": blob
+                })
+            }).collect();
+
             record["embed"] = json!({
                 "$type": "app.bsky.embed.images",
-                "images": [
-                    {
-                        "alt": "",
-                        "image": blob
-                    }
-                ]
+                "images": images_json
             });
         }
 

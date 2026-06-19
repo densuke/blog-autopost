@@ -82,13 +82,16 @@ impl XClient {
 
     /// 画像をアップロードして media_id_string を取得する
     async fn upload_media(&self, image_data: Vec<u8>) -> Result<String> {
+        let resizer = crate::image_resizer::ImageResizer::new(false);
+        let resized_bytes = resizer.resize_image_data(&image_data, "x")?;
+
         let upload_url = "https://upload.twitter.com/1.1/media/upload.json";
         
         let auth_header = self.generate_post_auth_header(upload_url);
         
-        let part = reqwest::multipart::Part::bytes(image_data)
+        let part = reqwest::multipart::Part::bytes(resized_bytes)
             .file_name("image.jpg")
-            .mime_str("image/jpeg")?; // 適当にjpegとする。API側で判別されることが多い
+            .mime_str("image/jpeg")?; 
 
         let form = reqwest::multipart::Form::new().part("media", part);
 
@@ -129,7 +132,7 @@ impl SnsClient for XClient {
     async fn post(&self, content: &PostContent) -> Result<PostResult, anyhow::Error> {
         let mut media_ids = Vec::new();
 
-        // 1. 画像がある場合はアップロード
+        // 1. image_urlの処理
         if let Some(url) = &content.image_url {
             match self.download_image(url).await {
                 Ok(bytes) => {
@@ -137,12 +140,30 @@ impl SnsClient for XClient {
                         Ok(media_id) => media_ids.push(media_id),
                         Err(e) => {
                             println!("[X] Warning: Failed to upload image: {}", e);
-                            // 画像アップロードに失敗してもテキスト投稿は続行する方針（好みによる）
                         }
                     }
                 }
                 Err(e) => {
                     println!("[X] Warning: Failed to download image: {}", e);
+                }
+            }
+        }
+
+        // 2. media_pathsの処理
+        if let Some(paths) = &content.media_paths {
+            for path in paths {
+                match std::fs::read(path) {
+                    Ok(bytes) => {
+                        match self.upload_media(bytes).await {
+                            Ok(media_id) => media_ids.push(media_id),
+                            Err(e) => {
+                                println!("[X] Warning: Failed to upload local media: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("[X] Warning: Failed to read local media file {}: {}", path, e);
+                    }
                 }
             }
         }
