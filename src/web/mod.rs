@@ -8,15 +8,20 @@ use axum::{
 use tower_http::services::ServeDir;
 use tower_http::cors::CorsLayer;
 use crate::config::Config;
+use crate::timing::TimingManager;
+use crate::scheduled::JsonScheduledPostStore;
 
 // アプリケーション全体で共有する状態
 pub struct AppState {
     pub config: Config,
-    // 必要に応じて SNSクライアントのファクトリやDB接続などを持たせる
+    pub timing_manager: TimingManager,
+    pub store: JsonScheduledPostStore,
 }
 
 pub async fn start_server(config: Config, port: u16) -> anyhow::Result<()> {
-    let state = Arc::new(AppState { config });
+    let timing_manager = TimingManager::new(&config);
+    let store = JsonScheduledPostStore::new("data/scheduled_posts.json");
+    let state = Arc::new(AppState { config, timing_manager, store });
 
     // CORS設定
     let cors = CorsLayer::permissive();
@@ -25,6 +30,7 @@ pub async fn start_server(config: Config, port: u16) -> anyhow::Result<()> {
     let api_routes = Router::new()
         .route("/config", get(routes::get_config))
         .route("/post", post(routes::manual_post))
+        .route("/next-slots", get(routes::get_next_slots))
         .with_state(state);
 
     let app = Router::new()

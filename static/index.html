@@ -55,6 +55,33 @@
                     <input type="text" id="image-url" placeholder="https://example.com/image.jpg" class="input input-bordered w-full bg-slate-800/50 text-white placeholder-slate-400" />
                 </div>
 
+                <div class="form-control mt-4">
+                    <label class="label">
+                        <span class="label-text text-slate-300">Schedule</span>
+                    </label>
+                    <div class="flex flex-col md:flex-row gap-4 bg-slate-800/30 p-3 rounded-lg border border-slate-700/50">
+                        <label class="label cursor-pointer justify-start gap-2 flex-1">
+                            <input type="radio" name="schedule-type" value="now" checked class="radio radio-primary radio-sm" onclick="toggleCustomDate(false)" />
+                            <span class="label-text text-slate-200">Post Now</span>
+                        </label>
+                        <label class="label cursor-pointer justify-start gap-2 flex-1">
+                            <input type="radio" name="schedule-type" value="next" class="radio radio-primary radio-sm" onclick="toggleCustomDate(false)" />
+                            <span class="label-text text-slate-200">Next Available Slot</span>
+                        </label>
+                        <label class="label cursor-pointer justify-start gap-2 flex-1">
+                            <input type="radio" name="schedule-type" value="custom" class="radio radio-primary radio-sm" onclick="toggleCustomDate(true)" />
+                            <span class="label-text text-slate-200">Custom Date</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-control mt-4 hidden" id="custom-date-container">
+                    <label class="label">
+                        <span class="label-text text-slate-300">Scheduled At</span>
+                    </label>
+                    <input type="datetime-local" id="scheduled-at" class="input input-bordered w-full bg-slate-800/50 text-white" />
+                </div>
+
                 <div class="card-actions justify-end mt-6">
                     <button id="post-btn" class="btn btn-primary bg-gradient-to-r from-purple-500 to-pink-500 border-none text-white font-bold w-full md:w-auto px-8" onclick="submitPost()">
                         Post
@@ -145,13 +172,32 @@
             }, 3000);
         }
 
+        function toggleCustomDate(show) {
+            const container = document.getElementById('custom-date-container');
+            if (show) {
+                container.classList.remove('hidden');
+                // デフォルトとして現在時刻の1時間後を設定
+                const now = new Date();
+                now.setHours(now.getHours() + 1);
+                now.setSeconds(0, 0);
+                // datetime-local フォーマット YYYY-MM-DDTHH:MM
+                const offset = now.getTimezoneOffset() * 60000;
+                const localISOTime = (new Date(now - offset)).toISOString().slice(0, 16);
+                document.getElementById('scheduled-at').value = localISOTime;
+            } else {
+                container.classList.add('hidden');
+            }
+        }
+
         async function submitPost() {
             const btn = document.getElementById('post-btn');
             const text = document.getElementById('post-text').value.trim();
             let imageUrl = document.getElementById('image-url').value.trim();
             
             const checkedTargets = Array.from(document.querySelectorAll('input[name="sns-target"]:checked')).map(el => el.value);
-            
+            const scheduleType = document.querySelector('input[name="schedule-type"]:checked').value;
+            let scheduledAt = null;
+
             if (!text) {
                 showToast("Please enter some text", "alert-warning");
                 return;
@@ -162,30 +208,51 @@
                 return;
             }
 
+            if (scheduleType === "custom") {
+                const dateVal = document.getElementById('scheduled-at').value;
+                if (!dateVal) {
+                    showToast("Please select a scheduled time", "alert-warning");
+                    return;
+                }
+                scheduledAt = new Date(dateVal).toISOString();
+            }
+
             if (imageUrl === "") {
                 imageUrl = null;
             }
 
             btn.classList.add('loading');
             btn.disabled = true;
-            appendLog(`Sending post to ${checkedTargets.join(', ')}...`);
+
+            if (scheduleType === "now") {
+                appendLog(`Sending post to ${checkedTargets.join(', ')}...`);
+            } else {
+                appendLog(`Scheduling post for ${checkedTargets.join(', ')} (${scheduleType === 'next' ? 'Next Slot' : scheduledAt})...`);
+            }
 
             try {
                 const res = await fetch('/api/post', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text, image_url: imageUrl, targets: checkedTargets })
+                    body: JSON.stringify({
+                        text,
+                        image_url: imageUrl,
+                        targets: checkedTargets,
+                        schedule_type: scheduleType,
+                        scheduled_at: scheduledAt
+                    })
                 });
 
                 const data = await res.json();
                 
                 if (data.success) {
-                    showToast("Successfully posted!", "alert-success");
-                    appendLog("Successfully posted to all targets.");
+                    const actionText = scheduleType === "now" ? "posted" : "scheduled";
+                    showToast(`Successfully ${actionText}!`, "alert-success");
+                    appendLog(`Successfully ${actionText} to all targets.`);
                     document.getElementById('post-text').value = '';
                 } else {
-                    showToast("Posted with some errors", "alert-warning");
-                    appendLog("Some posts failed. Check results:", true);
+                    showToast("Failed with some errors", "alert-warning");
+                    appendLog("Operation failed. Check results:", true);
                     data.results.forEach((r, i) => {
                         if (!r.success) {
                             appendLog(`Target ${i}: ${r.error_message}`, true);

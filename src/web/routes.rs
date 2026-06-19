@@ -1,7 +1,9 @@
 use std::sync::Arc;
+use std::collections::HashMap;
 use axum::{
     extract::State,
     Json,
+    http::StatusCode,
 };
 use serde::{Deserialize, Serialize};
 
@@ -42,6 +44,8 @@ pub struct ManualPostRequest {
     pub text: String,
     pub image_url: Option<String>,
     pub targets: Option<Vec<String>>,
+    pub schedule_type: Option<String>,
+    pub scheduled_at: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -96,35 +100,206 @@ pub async fn manual_post(
         }
     }
 
-    let post_content = PostContent {
-        text: payload.text,
-        image_url: payload.image_url,
-    };
+    let schedule_type = payload.schedule_type.clone().unwrap_or_else(|| "now".to_string());
 
-    let mut results = Vec::new();
-    let mut all_success = true;
+    if schedule_type == "now" {
+        let post_content = PostContent {
+            text: payload.text,
+            image_url: payload.image_url,
+        };
 
-    for client in sns_clients {
-        match client.post(&post_content).await {
-            Ok(result) => {
-                if !result.success {
-                    all_success = false;
+        let mut results = Vec::new();
+        let mut all_success = true;
+
+        for client in sns_clients {
+            match client.post(&post_content).await {
+                Ok(result) => {
+                    if !result.success {
+                        all_success = false;
+                    }
+                    results.push(result);
                 }
-                results.push(result);
+                Err(e) => {
+                    all_success = false;
+                    results.push(PostResult {
+                        success: false,
+                        post_id: None,
+                        error_message: Some(e.to_string()),
+                    });
+                }
             }
-            Err(e) => {
+        }
+
+        Json(ManualPostResponse {
+            success: all_success,
+            results,
+        })
+    } else {
+        use crate::scheduled::ScheduledPost;
+        use crate::timing::SlotFinder;
+
+        let targets = payload.targets.clone().unwrap_or_default();
+        if targets.is_empty() {
+            return Json(ManualPostResponse {
+                success: false,
+                results: vec![PostResult {
+                    success: false,
+                    post_id: None,
+                    error_message: Some("No target SNS selected for scheduling".to_string()),
+                }],
+            });
+        }
+
+        let finder = SlotFinder::new(&state.timing_manager, &state.store, 5);
+        let mut results = Vec::new();
+        let mut all_success = true;
+
+        for target in &targets {
+            let sns_name = state.config.sns.iter().find_map(|s| {
+                let name = match s {
+                    SnsConfig::Mastodon { name, .. } => name,
+                    SnsConfig::Misskey { name, .. } => name,
+                    SnsConfig::Bluesky { name, .. } => name,
+                    SnsConfig::X { name, .. } => name,
+                    SnsConfig::Threads { name, .. } => name,
+                    SnsConfig::Tumblr { name, .. } => name,
+                    _ => return None,
+                };
+                let formatted = match s {
+                    SnsConfig::Mastodon { .. } => format!("Mastodon ({})", name),
+                    SnsConfig::Misskey { .. } => format!("Misskey ({})", name),
+                    SnsConfig::Bluesky { .. } => format!("Bluesky ({})", name),
+                    SnsConfig::X { .. } => format!("X ({})", name),
+                    SnsConfig::Threads { .. } => format!("Threads ({})", name),
+                    SnsConfig::Tumblr { .. } => format!("Tumblr ({})", name),
+                    _ => return None,
+                };
+                if formatted == *target {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            });
+
+            let Some(sns_name) = sns_name else {
                 all_success = false;
                 results.push(PostResult {
                     success: false,
                     post_id: None,
-                    error_message: Some(e.to_string()),
+                    error_message: Some(format!("Unknown SNS target: {}", target)),
                 });
+                continue;
+            };
+
+            let scheduled_time = if schedule_type == "next" {
+                match finder.find_next_available_slot(&sns_name, None, 7).await {
+                    Ok(Some(dt)) => dt,
+                    Ok(None) => {
+                        all_success = false;
+                        results.push(PostResult {
+                            success: false,
+                            post_id: None,
+                            error_message: Some(format!("No available slot found for {}", target)),
+                        });
+                        continue;
+                    }
+                    Err(e) => {
+                        all_success = false;
+                        results.push(PostResult {
+                            success: false,
+                            post_id: None,
+                            error_message: Some(format!("Failed to calculate slot for {}: {}", target, e)),
+                        });
+                        continue;
+                    }
+                }
+            } else {
+                let Some(at_str) = &payload.scheduled_at else {
+                    all_success = false;
+                    results.push(PostResult {
+                        success: false,
+                        post_id: None,
+                        error_message: Some("Missing scheduled_at time for custom schedule".to_string()),
+                    });
+                    continue;
+                };
+                match chrono::DateTime::parse_from_rfc3339(at_str) {
+                    Ok(dt) => dt.with_timezone(&chrono::Local),
+                    Err(e) => {
+                        all_success = false;
+                        results.push(PostResult {
+                            success: false,
+                            post_id: None,
+                            error_message: Some(format!("Invalid custom datetime format: {}", e)),
+                        });
+                        continue;
+                    }
+                }
+            };
+
+            let media_files = payload.image_url.clone().map(|url| vec![url]).unwrap_or_default();
+            let post = ScheduledPost::new(
+                payload.text.clone(),
+                scheduled_time,
+                media_files,
+                vec![sns_name.clone()],
+            );
+
+            match state.store.create_post(post).await {
+                Ok(_) => {
+                    results.push(PostResult {
+                        success: true,
+                        post_id: Some(format!("scheduled at {}", scheduled_time.to_rfc3339())),
+                        error_message: None,
+                    });
+                }
+                Err(e) => {
+                    all_success = false;
+                    results.push(PostResult {
+                        success: false,
+                        post_id: None,
+                        error_message: Some(format!("Failed to save schedule: {}", e)),
+                    });
+                }
             }
         }
+
+        Json(ManualPostResponse {
+            success: all_success,
+            results,
+        })
+    }
+}
+
+#[derive(Serialize)]
+pub struct NextSlotResponse {
+    pub slots: HashMap<String, Option<String>>,
+}
+
+pub async fn get_next_slots(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<NextSlotResponse>, StatusCode> {
+    use crate::timing::SlotFinder;
+
+    let finder = SlotFinder::new(&state.timing_manager, &state.store, 5);
+    let mut slots = HashMap::new();
+
+    for sns_conf in &state.config.sns {
+        let name = match sns_conf {
+            SnsConfig::Mastodon { name, .. } => name,
+            SnsConfig::Misskey { name, .. } => name,
+            SnsConfig::Bluesky { name, .. } => name,
+            SnsConfig::X { name, .. } => name,
+            SnsConfig::Threads { name, .. } => name,
+            SnsConfig::Tumblr { name, .. } => name,
+            _ => continue,
+        };
+
+        let slot = finder.find_next_available_slot(name, None, 7).await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        slots.insert(name.clone(), slot.map(|dt| dt.to_rfc3339()));
     }
 
-    Json(ManualPostResponse {
-        success: all_success,
-        results,
-    })
+    Ok(Json(NextSlotResponse { slots }))
 }
