@@ -2,7 +2,7 @@ pub mod routes;
 
 use std::sync::Arc;
 use axum::{
-    routing::{get, post},
+    routing::{get, post, put},
     Router,
 };
 use tower_http::services::ServeDir;
@@ -31,6 +31,8 @@ pub async fn start_server(config: Config, port: u16) -> anyhow::Result<()> {
         .route("/config", get(routes::get_config))
         .route("/post", post(routes::manual_post))
         .route("/next-slots", get(routes::get_next_slots))
+        .route("/schedules", get(routes::get_schedules))
+        .route("/schedules/:id", put(routes::update_schedule).delete(routes::delete_schedule))
         .with_state(state);
 
     let app = Router::new()

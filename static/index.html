@@ -90,6 +90,40 @@
             </div>
         </div>
 
+        <!-- Scheduled Posts Panel -->
+        <div class="card glass-panel shadow-2xl">
+            <div class="card-body">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="card-title text-2xl">Scheduled Posts</h2>
+                    <div class="flex gap-2">
+                        <button class="btn btn-sm btn-outline btn-accent" onclick="cleanupFinished()">Cleanup Posted</button>
+                        <button class="btn btn-sm btn-outline btn-primary" onclick="loadSchedules()">Refresh</button>
+                    </div>
+                </div>
+                
+                <div class="overflow-x-auto">
+                    <table class="table w-full text-slate-200">
+                        <thead>
+                            <tr class="text-slate-400 border-b border-slate-700">
+                                <th>Scheduled Time</th>
+                                <th>SNS</th>
+                                <th>Content</th>
+                                <th>Status</th>
+                                <th class="text-right flex-shrink-0 w-20">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="schedules-tbody">
+                            <tr>
+                                <td colspan="5" class="text-center text-slate-500 py-8">
+                                    <span class="loading loading-spinner loading-md"></span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <!-- Result / Log Area -->
         <div class="card glass-panel shadow-xl mt-8">
             <div class="card-body">
@@ -103,6 +137,53 @@
 
     <!-- Toast Container -->
     <div class="toast toast-top toast-end" id="toast-container"></div>
+
+    <!-- Edit Modal -->
+    <dialog id="edit-modal" class="modal">
+        <div class="modal-box glass-panel bg-slate-900 border border-slate-700 text-slate-100">
+            <h3 class="font-bold text-xl mb-4 bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-500">Edit Scheduled Post</h3>
+            <input type="hidden" id="edit-post-id" />
+            
+            <div class="form-control mb-4">
+                <label class="label">
+                    <span class="label-text text-slate-300">Content</span>
+                </label>
+                <textarea id="edit-post-text" class="textarea textarea-bordered h-28 bg-slate-800 text-white border-slate-700" placeholder="Post content"></textarea>
+            </div>
+            
+            <div class="form-control mb-4">
+                <label class="label">
+                    <span class="label-text text-slate-300">Scheduled At</span>
+                </label>
+                <input type="datetime-local" id="edit-scheduled-at" class="input input-bordered bg-slate-800 text-white border-slate-700" />
+            </div>
+            
+            <div class="form-control mb-4">
+                <label class="label">
+                    <span class="label-text text-slate-300">Target SNS</span>
+                </label>
+                <div id="edit-sns-checkboxes" class="flex flex-wrap gap-2 p-3 bg-slate-800/50 rounded-lg border border-slate-700/50">
+                    <!-- Dynamic checkboxes -->
+                </div>
+            </div>
+            
+            <div class="form-control mb-6">
+                <label class="label">
+                    <span class="label-text text-slate-300">Status</span>
+                </label>
+                <select id="edit-status" class="select select-bordered bg-slate-800 text-white border-slate-700">
+                    <option value="予約済み">予約済み</option>
+                    <option value="投稿済み">投稿済み</option>
+                    <option value="失敗">失敗</option>
+                </select>
+            </div>
+            
+            <div class="modal-action">
+                <button class="btn btn-ghost text-slate-300 border-none hover:bg-slate-800" onclick="document.getElementById('edit-modal').close()">Cancel</button>
+                <button class="btn btn-primary bg-gradient-to-r from-purple-500 to-pink-500 border-none text-white font-bold" onclick="saveEdit()">Save Changes</button>
+            </div>
+        </div>
+    </dialog>
 
     <script>
         // 設定をロードしてヘッダーに表示
@@ -250,6 +331,7 @@
                     showToast(`Successfully ${actionText}!`, "alert-success");
                     appendLog(`Successfully ${actionText} to all targets.`);
                     document.getElementById('post-text').value = '';
+                    loadSchedules();
                 } else {
                     showToast("Failed with some errors", "alert-warning");
                     appendLog("Operation failed. Check results:", true);
@@ -269,8 +351,226 @@
             }
         }
 
+        let schedulesData = []; // 現在のスケジュールデータを保持
+
+        async function loadSchedules() {
+            const tbody = document.getElementById('schedules-tbody');
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center py-8"><span class="loading loading-spinner loading-md"></span></td></tr>';
+            
+            try {
+                const res = await fetch('/api/schedules');
+                if (!res.ok) throw new Error("Failed to load schedules");
+                schedulesData = await res.json();
+                
+                tbody.innerHTML = '';
+                if (schedulesData.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-slate-500 py-8">No scheduled posts found.</td></tr>';
+                    return;
+                }
+                
+                // 日時順にソート (昇順)
+                schedulesData.sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+                
+                schedulesData.forEach(post => {
+                    const tr = document.createElement('tr');
+                    tr.className = 'border-b border-slate-800/50 hover:bg-slate-800/20';
+                    
+                    // 日時の整形
+                    const dt = new Date(post.scheduled_at);
+                    const dtStr = dt.toLocaleString('ja-JP', {
+                        year: 'numeric', month: '2-digit', day: '2-digit',
+                        hour: '2-digit', minute: '2-digit'
+                    });
+                    
+                    // SNSバッジ
+                    const snsBadges = post.target_sns.map(sns => 
+                        `<span class="badge badge-outline badge-secondary text-xs mr-1">${sns}</span>`
+                    ).join('');
+                    
+                    // ステータスバッジ
+                    let statusClass = 'badge-info';
+                    if (post.status === '投稿済み') statusClass = 'badge-success';
+                    if (post.status === '失敗') statusClass = 'badge-error';
+                    
+                    const statusBadge = `<span class="badge ${statusClass} badge-sm font-semibold">${post.status}</span>`;
+                    
+                    // 本文プレビュー
+                    const contentPreview = post.content.length > 50 
+                        ? post.content.slice(0, 50) + '...' 
+                        : post.content;
+                    
+                    // アクションボタン
+                    const actions = `
+                        <div class="flex justify-end gap-2">
+                            <button class="btn btn-xs btn-circle btn-ghost text-sky-400 hover:bg-sky-500/20" onclick="editPost('${post.id}')" title="Edit">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                            </button>
+                            <button class="btn btn-xs btn-circle btn-ghost text-red-400 hover:bg-red-500/20" onclick="deletePost('${post.id}')" title="Delete">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            </button>
+                        </div>
+                    `;
+                    
+                    tr.innerHTML = `
+                        <td class="font-medium text-slate-300 text-sm whitespace-nowrap">${dtStr}</td>
+                        <td><div class="flex flex-wrap gap-1">${snsBadges}</div></td>
+                        <td class="max-w-[200px] truncate text-slate-300 text-sm" title="${post.content}">${contentPreview}</td>
+                        <td>${statusBadge}</td>
+                        <td>${actions}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (err) {
+                console.error(err);
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-red-400 py-8">Failed to load scheduled posts.</td></tr>';
+            }
+        }
+
+        async function deletePost(id) {
+            if (!confirm("Are you sure you want to delete this scheduled post?")) return;
+            try {
+                const res = await fetch(`/api/schedules/${id}`, { method: 'DELETE' });
+                if (res.status === 204) {
+                    showToast("Successfully deleted schedule", "alert-success");
+                    appendLog(`Deleted scheduled post: ${id}`);
+                    loadSchedules();
+                } else {
+                    throw new Error(`Failed with status ${res.status}`);
+                }
+            } catch (err) {
+                console.error(err);
+                showToast("Failed to delete schedule", "alert-error");
+            }
+        }
+
+        function editPost(id) {
+            const post = schedulesData.find(p => p.id === id);
+            if (!post) return;
+            
+            document.getElementById('edit-post-id').value = post.id;
+            document.getElementById('edit-post-text').value = post.content;
+            document.getElementById('edit-status').value = post.status;
+            
+            // ISO-8601 時刻を YYYY-MM-DDTHH:MM に変換する (ローカルタイム基準)
+            const dt = new Date(post.scheduled_at);
+            const offset = dt.getTimezoneOffset() * 60000;
+            const localISOTime = (new Date(dt - offset)).toISOString().slice(0, 16);
+            document.getElementById('edit-scheduled-at').value = localISOTime;
+            
+            // 対象 SNS チェックボックスの生成
+            const container = document.getElementById('edit-sns-checkboxes');
+            container.innerHTML = '';
+            
+            // 現在アクティブな全SNSを取得する
+            const allSns = Array.from(document.querySelectorAll('input[name="sns-target"]')).map(el => el.value);
+            allSns.forEach(sns => {
+                const label = document.createElement('label');
+                label.className = 'label cursor-pointer justify-start gap-2 bg-slate-700/30 hover:bg-slate-700/50 p-2 rounded-lg border border-slate-600/30 flex-1 min-w-[120px]';
+                
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.name = 'edit-sns-target';
+                checkbox.value = sns;
+                
+                const snsName = sns.match(/\(([^)]+)\)/)?.[1] || sns;
+                checkbox.checked = post.target_sns.includes(snsName);
+                checkbox.className = 'checkbox checkbox-primary checkbox-sm';
+                
+                const span = document.createElement('span');
+                span.className = 'label-text text-slate-200 text-xs font-semibold';
+                span.textContent = sns;
+                
+                label.appendChild(checkbox);
+                label.appendChild(span);
+                container.appendChild(label);
+            });
+            
+            document.getElementById('edit-modal').showModal();
+        }
+
+        async function saveEdit() {
+            const id = document.getElementById('edit-post-id').value;
+            const text = document.getElementById('edit-post-text').value.trim();
+            const dateVal = document.getElementById('edit-scheduled-at').value;
+            const status = document.getElementById('edit-status').value;
+            
+            const checkedTargets = Array.from(document.querySelectorAll('input[name="edit-sns-target"]:checked')).map(el => {
+                const val = el.value;
+                return val.match(/\(([^)]+)\)/)?.[1] || val;
+            });
+            
+            if (!text) {
+                showToast("Content cannot be empty", "alert-warning");
+                return;
+            }
+            if (!dateVal) {
+                showToast("Please select scheduled time", "alert-warning");
+                return;
+            }
+            if (checkedTargets.length === 0) {
+                showToast("Please select at least one SNS target", "alert-warning");
+                return;
+            }
+            
+            const scheduledAt = new Date(dateVal).toISOString();
+            
+            try {
+                const res = await fetch(`/api/schedules/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        content: text,
+                        scheduled_at: scheduledAt,
+                        target_sns: checkedTargets,
+                        status: status,
+                        media_files: null
+                    })
+                });
+                
+                if (res.ok) {
+                    showToast("Successfully updated schedule", "alert-success");
+                    appendLog(`Updated scheduled post: ${id}`);
+                    document.getElementById('edit-modal').close();
+                    loadSchedules();
+                } else {
+                    throw new Error(`Failed to update: ${res.status}`);
+                }
+            } catch (err) {
+                console.error(err);
+                showToast("Failed to update schedule", "alert-error");
+            }
+        }
+
+        async function cleanupFinished() {
+            const toDelete = schedulesData.filter(p => p.status === '投稿済み');
+            if (toDelete.length === 0) {
+                showToast("No posted schedules to cleanup", "alert-info");
+                return;
+            }
+            if (!confirm(`Are you sure you want to cleanup ${toDelete.length} posted schedules?`)) return;
+            
+            appendLog(`Starting cleanup of ${toDelete.length} posted schedules...`);
+            let successCount = 0;
+            
+            for (const post of toDelete) {
+                try {
+                    const res = await fetch(`/api/schedules/${post.id}`, { method: 'DELETE' });
+                    if (res.status === 204) {
+                        successCount++;
+                    }
+                } catch (err) {
+                    console.error("Cleanup failed for " + post.id, err);
+                }
+            }
+            
+            showToast(`Cleaned up ${successCount} schedules`, "alert-success");
+            appendLog(`Cleanup finished: Removed ${successCount} schedules.`);
+            loadSchedules();
+        }
+
         // Initialize
         loadConfig();
+        loadSchedules();
     </script>
 </body>
 </html>
