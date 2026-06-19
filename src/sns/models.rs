@@ -4,6 +4,7 @@ use serde::Serialize;
 pub struct PostContent {
     pub text: String,
     pub image_url: Option<String>,
+    pub media_paths: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
