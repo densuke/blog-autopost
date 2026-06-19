@@ -261,6 +261,28 @@ async fn main() -> anyhow::Result<()> {
                 } else {
                     println!("Failed to post: {:?}", result.error_message);
                 }
+            } else if sns == "x" {
+                // config.ymlから探す
+                let conf = config_data.sns.iter().find_map(|s| match s {
+                    SnsConfig::X { consumer_key, consumer_secret, access_token, access_token_secret, .. } => {
+                        Some((consumer_key.clone(), consumer_secret.clone(), access_token.clone(), access_token_secret.clone()))
+                    }
+                    _ => None,
+                });
+
+                let (ck, cs, at, ats) = conf.expect("X (Twitter) configuration must be provided in config.yml");
+
+                let client = sns::x::XClient::new(ck, cs, at, ats, "CLI_User".to_string())?;
+                let content = PostContent { text, image_url: None };
+                
+                println!("Posting to X (Twitter)...");
+                let result = client.post(&content).await?;
+                
+                if result.success {
+                    println!("Successfully posted! Tweet ID: {:?}", result.post_id);
+                } else {
+                    println!("Failed to post: {:?}", result.error_message);
+                }
             } else {
                 println!("SNS '{}' is not supported yet.", sns);
             }
