@@ -41,6 +41,7 @@ pub async fn get_config(State(state): State<Arc<AppState>>) -> Json<ConfigRespon
 pub struct ManualPostRequest {
     pub text: String,
     pub image_url: Option<String>,
+    pub targets: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]
@@ -56,6 +57,20 @@ pub async fn manual_post(
     // リクエストごとに SnsClient を組み立てる (KISS実装)
     let mut sns_clients: Vec<Box<dyn SnsClient + Send + Sync>> = Vec::new();
     for sns_conf in &state.config.sns {
+        let target_name = match sns_conf {
+            SnsConfig::Mastodon { name, .. } => format!("Mastodon ({})", name),
+            SnsConfig::Misskey { name, .. } => format!("Misskey ({})", name),
+            SnsConfig::Bluesky { name, .. } => format!("Bluesky ({})", name),
+            SnsConfig::X { name, .. } => format!("X ({})", name),
+            _ => continue,
+        };
+
+        if let Some(ref selected) = payload.targets {
+            if !selected.contains(&target_name) {
+                continue;
+            }
+        }
+
         match sns_conf {
             SnsConfig::Mastodon { instance_url, access_token, name, .. } => {
                 if let Ok(client) = MastodonClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
