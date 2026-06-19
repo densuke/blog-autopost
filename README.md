@@ -1,5 +1,10 @@
 # Blog AutoPost CLI
 
+> [!IMPORTANT]
+> **Rust移植版 (blog-autopost-rs) が利用可能です！**
+> メモリ効率の向上、高速化、Web UIのセキュリティ強化、およびクロスコンパイル対応（シングルバイナリ化）が行われたRust版が実装されています。
+> Rust版のセットアップや使用方法については、[README_RS.md](file:///Users/densuke/Documents/projects/blog-autopost-rs/README_RS.md) をご覧ください。
+
 Blog AutoPost CLIは、指定したブログの更新を定期的にチェックし、新しい記事が投稿された場合に各種SNS（X、Bluesky、Threads、Misskey、Mastodon）へ自動的にポストするコマンドラインツールです。
 
 ## 概要

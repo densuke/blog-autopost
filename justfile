@@ -20,9 +20,9 @@ list-feeds:
 dry-run *args='':
     cargo run -- run --dry-run {{args}}
 
-# デバッグ付きドライラン (Rust版は現在 --debug 未実装のため run-dry-run と同様)
+# デバッグ付きドライラン (詳細ログ付きシミュレーション)
 debug-dry-run *args='':
-    cargo run -- run --dry-run {{args}}
+    cargo run -- run --dry-run --debug {{args}}
 
 # テスト実行
 test:
@@ -39,6 +39,10 @@ run-web:
 # メンテナンスコマンド
 touch-rss-posted *args='':
     cargo run -- touch {{args}}
+
+# カバレッジ付きテスト (cargo-tarpaulinによるHTMLレポート生成)
+test-cov:
+    cargo tarpaulin --out Html
 
 
 # 使用例とヘルプ
