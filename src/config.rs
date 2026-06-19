@@ -9,6 +9,9 @@ pub struct Config {
     pub sns: Vec<SnsConfig>,
     #[serde(default)]
     pub templates: HashMap<String, String>,
+    pub default_allowed_timings: Option<Vec<(String, Vec<String>)>>,
+    pub allowed_timings_tolerance_minutes: Option<i64>,
+    pub allowed_timings: Option<HashMap<String, Vec<(String, Vec<String>)>>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -86,6 +89,12 @@ sns:
     name: "mstdn-main"
     instance_url: "https://mstdn.jp"
     access_token: "dummy"
+default_allowed_timings:
+  - ["*", ["09:00", "12:00"]]
+allowed_timings_tolerance_minutes: 5
+allowed_timings:
+  mstdn-main:
+    - ["Weekday", ["08:00", "17:00"]]
 "#;
         let config = parse_config(yaml).expect("Failed to parse valid config");
         assert_eq!(config.announcement_text.as_deref(), Some("ブログを更新しました！"));
@@ -98,5 +107,18 @@ sns:
             }
             _ => panic!("Expected Mastodon config"),
         }
+
+        assert_eq!(
+            config.default_allowed_timings,
+            Some(vec![("*".to_string(), vec!["09:00".to_string(), "12:00".to_string()])])
+        );
+        assert_eq!(config.allowed_timings_tolerance_minutes, Some(5));
+        
+        let allowed_timings = config.allowed_timings.unwrap();
+        assert!(allowed_timings.contains_key("mstdn-main"));
+        assert_eq!(
+            allowed_timings.get("mstdn-main").unwrap(),
+            &vec![("Weekday".to_string(), vec!["08:00".to_string(), "17:00".to_string()])]
+        );
     }
 }
