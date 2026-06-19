@@ -247,6 +247,8 @@ mod tests {
                 );
                 map
             }),
+            web_auth: None,
+            extra: Default::default(),
         }
     }
 

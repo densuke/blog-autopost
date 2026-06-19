@@ -15,6 +15,8 @@ pub struct Runner<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExt
     sns_clients: Vec<Arc<dyn SnsClient + Send + Sync>>,
     config: Config,
     dry_run: bool,
+    limit: Option<usize>,
+    debug: bool,
 }
 
 impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor, U: UrlShortener> Runner<F, S, T, I, U> {
@@ -27,6 +29,8 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor, U: Ur
         sns_clients: Vec<Arc<dyn SnsClient + Send + Sync>>,
         config: Config,
         dry_run: bool,
+        limit: Option<usize>,
+        debug: bool,
     ) -> Self {
         Self {
             fetcher,
@@ -37,16 +41,39 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor, U: Ur
             sns_clients,
             config,
             dry_run,
+            limit,
+            debug,
         }
     }
 
     /// 1回分のフィードチェックと処理を実行する
     pub async fn run_once(&self, feed_url: &str, feed_name: &str) -> anyhow::Result<Vec<Article>> {
         // 1. 最新記事の取得
+        if self.debug {
+            println!("[DEBUG] Fetching RSS feed from: {}", feed_url);
+        }
         let latest_articles = self.fetcher.fetch_articles(feed_url, feed_name).await?;
+        if self.debug {
+            println!("[DEBUG] Fetched {} articles from feed.", latest_articles.len());
+            for (i, art) in latest_articles.iter().enumerate() {
+                println!("[DEBUG]   [{}] Title: {}, Link: {}", i, art.title, art.link);
+            }
+        }
 
         // 2. 未保存の新着記事のみを抽出
         let mut new_articles = self.store.get_new_articles(latest_articles).await?;
+        if self.debug {
+            println!("[DEBUG] Found {} new (unposted) articles.", new_articles.len());
+        }
+
+        if let Some(limit) = self.limit {
+            if new_articles.len() > limit {
+                if self.debug {
+                    println!("[DEBUG] Limiting new articles to {} (original: {}).", limit, new_articles.len());
+                }
+                new_articles.truncate(limit);
+            }
+        }
 
         if new_articles.is_empty() {
             return Ok(Vec::new());
@@ -64,7 +91,12 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor, U: Ur
             // URLの短縮
             let mut final_link = article.link.clone();
             if let Ok(short_url) = self.url_shortener.shorten(&article.link).await {
+                if self.debug {
+                    println!("[DEBUG] Shortened URL from '{}' to '{}'", article.link, short_url);
+                }
                 final_link = short_url;
+            } else if self.debug {
+                println!("[DEBUG] Failed to shorten URL for: {}", article.link);
             }
 
             // 差し替え用にクローンを作って書き換える
@@ -79,6 +111,10 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor, U: Ur
                     .map(|s| s.as_str())
                     .unwrap_or("{title} {link}");
 
+                if self.debug {
+                    println!("[DEBUG] Using template for {}: '{}'", client.name(), template);
+                }
+
                 // テキスト整形
                 let optimized_text = self.text_optimizer.optimize(
                     &display_article,
@@ -89,6 +125,10 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor, U: Ur
                     println!("Failed to optimize text: {}", e);
                     display_article.title.clone()
                 });
+
+                if self.debug {
+                    println!("[DEBUG] Optimized text ({} chars, max {}): '{}'", optimized_text.chars().count(), client.max_characters(), optimized_text);
+                }
 
                 let content = PostContent {
                     text: optimized_text,

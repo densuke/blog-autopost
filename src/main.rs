@@ -23,6 +23,14 @@ struct Cli {
     #[arg(short, long, default_value = "config.yml")]
     config: String,
 
+    /// 新着記事のチェック時に処理する記事数を制限
+    #[arg(short, long)]
+    limit: Option<usize>,
+
+    /// 詳細なデバッグログを表示
+    #[arg(long)]
+    debug: bool,
+
     /// 登録されているSNSアカウントの一覧を表示します
     #[arg(long)]
     list_sns: bool,
@@ -204,6 +212,8 @@ async fn main() -> anyhow::Result<()> {
                 sns_clients.clone(),
                 config_data,
                 dry_run,
+                cli.limit,
+                cli.debug,
             ));
 
             let scheduled_store = std::sync::Arc::new(scheduled::JsonScheduledPostStore::new("data/scheduled_posts.json"));
