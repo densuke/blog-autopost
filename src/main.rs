@@ -15,7 +15,6 @@ use crate::sns::{
     bluesky::BlueskyClient, mastodon::MastodonClient, misskey::MisskeyClient, traits::SnsClient, x::XClient,
 };
 use sns::models::PostContent;
-use config::SnsConfig;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -50,9 +49,9 @@ enum Commands {
         #[arg(short, long)]
         text: String,
         
-        /// 投稿先のSNS (例: 'mastodon', 'misskey')
+        /// 投稿先のSNS (例: 'mastodon', 'misskey')。省略または'all'指定時は全SNSが対象
         #[arg(short, long)]
-        sns: String,
+        sns: Option<String>,
         
         /// インスタンスURL (引数で上書きする場合)
         #[arg(long, env = "SNS_URL")]
@@ -250,99 +249,130 @@ async fn main() -> anyhow::Result<()> {
             tokio::time::sleep(std::time::Duration::from_secs(60 * 60 * 24)).await;
         }
         Commands::Post { text, sns, instance_url, token, media } => {
-            if sns == "mastodon" {
-                // config.ymlから探す
-                let conf = config_data.sns.iter().find_map(|s| match s {
-                    SnsConfig::Mastodon { instance_url, access_token, .. } => Some((instance_url.clone(), access_token.clone())),
-                    _ => None,
-                });
-                
-                let url = instance_url.or_else(|| conf.as_ref().map(|c| c.0.clone()))
-                    .expect("instance_url must be provided via CLI or config.yml");
-                let t = token.or_else(|| conf.as_ref().map(|c| c.1.clone()))
-                    .expect("token must be provided via CLI or config.yml");
+            let mut sns_clients: Vec<std::sync::Arc<dyn SnsClient + Send + Sync>> = Vec::new();
+            
+            // フィルタ条件の構築
+            let mut included = std::collections::HashSet::new();
+            let mut excluded = std::collections::HashSet::new();
+            let mut has_all = false;
 
-                let client = MastodonClient::new(url, t, "CLI_User".to_string())?;
-                let content = PostContent { text, image_url: None, media_paths: media.clone() };
-                
-                println!("Posting to Mastodon...");
-                let result = client.post(&content).await?;
-                
-                if result.success {
-                    println!("Successfully posted! URL: {:?}", result.post_id);
-                } else {
-                    println!("Failed to post: {:?}", result.error_message);
-                }
-            } else if sns == "misskey" {
-                // config.ymlから探す
-                let conf = config_data.sns.iter().find_map(|s| match s {
-                    SnsConfig::Misskey { instance_url, access_token, .. } => Some((instance_url.clone(), access_token.clone())),
-                    _ => None,
-                });
-
-                let url = instance_url.or_else(|| conf.as_ref().map(|c| c.0.clone()))
-                    .expect("instance_url must be provided via CLI or config.yml");
-                let t = token.or_else(|| conf.as_ref().map(|c| c.1.clone()))
-                    .expect("token must be provided via CLI or config.yml");
-
-                let client = sns::misskey::MisskeyClient::new(url, t, "CLI_User".to_string())?;
-                let content = PostContent { text, image_url: None, media_paths: media.clone() };
-                
-                println!("Posting to Misskey...");
-                let result = client.post(&content).await?;
-                
-                if result.success {
-                    println!("Successfully posted! Note ID: {:?}", result.post_id);
-                } else {
-                    println!("Failed to post: {:?}", result.error_message);
-                }
-            } else if sns == "bluesky" {
-                // config.ymlから探す
-                let conf = config_data.sns.iter().find_map(|s| match s {
-                    SnsConfig::Bluesky { identifier, password, .. } => Some((identifier.clone(), password.clone())),
-                    _ => None,
-                });
-
-                let id = instance_url.or_else(|| conf.as_ref().map(|c| c.0.clone()))
-                    .expect("identifier must be provided (via --instance-url for now) or config.yml");
-                let pw = token.or_else(|| conf.as_ref().map(|c| c.1.clone()))
-                    .expect("password must be provided (via --token for now) or config.yml");
-
-                let client = sns::bluesky::BlueskyClient::new(id, pw, "CLI_User".to_string())?;
-                let content = PostContent { text, image_url: None, media_paths: media.clone() };
-                
-                println!("Posting to Bluesky...");
-                let result = client.post(&content).await?;
-                
-                if result.success {
-                    println!("Successfully posted! URI: {:?}", result.post_id);
-                } else {
-                    println!("Failed to post: {:?}", result.error_message);
-                }
-            } else if sns == "x" {
-                // config.ymlから探す
-                let conf = config_data.sns.iter().find_map(|s| match s {
-                    SnsConfig::X { consumer_key, consumer_secret, access_token, access_token_secret, .. } => {
-                        Some((consumer_key.clone(), consumer_secret.clone(), access_token.clone(), access_token_secret.clone()))
+            if let Some(sns_arg) = &sns {
+                for part in sns_arg.split(',') {
+                    let part = part.trim().to_lowercase();
+                    if part.is_empty() {
+                        continue;
                     }
-                    _ => None,
-                });
-
-                let (ck, cs, at, ats) = conf.expect("X (Twitter) configuration must be provided in config.yml");
-
-                let client = sns::x::XClient::new(ck, cs, at, ats, "CLI_User".to_string())?;
-                let content = PostContent { text, image_url: None, media_paths: media.clone() };
-                
-                println!("Posting to X (Twitter)...");
-                let result = client.post(&content).await?;
-                
-                if result.success {
-                    println!("Successfully posted! Tweet ID: {:?}", result.post_id);
-                } else {
-                    println!("Failed to post: {:?}", result.error_message);
+                    if part.starts_with('-') {
+                        excluded.insert(part[1..].to_string());
+                    } else if part == "all" {
+                        has_all = true;
+                    } else {
+                        included.insert(part);
+                    }
                 }
-            } else {
-                println!("SNS '{}' is not supported yet.", sns);
+            }
+
+            let is_implicit_all = sns.is_none() || (included.is_empty() && !has_all);
+
+            // 1. config.ymlの設定をパースしてフィルタリング
+            for sns_conf in &config_data.sns {
+                match sns_conf {
+                    config::SnsConfig::Mastodon { instance_url: conf_url, access_token: conf_token, name, .. } => {
+                        let lower_name = name.to_lowercase();
+                        let is_targeted = is_implicit_all || has_all || included.contains("mastodon") || included.contains(&lower_name);
+                        let is_excluded = excluded.contains("mastodon") || excluded.contains(&lower_name);
+                        if is_targeted && !is_excluded {
+                            let url = instance_url.clone().unwrap_or_else(|| conf_url.clone());
+                            let tok = token.clone().unwrap_or_else(|| conf_token.clone());
+                            if let Ok(client) = MastodonClient::new(url, tok, name.clone()) {
+                                sns_clients.push(std::sync::Arc::new(client));
+                            }
+                        }
+                    }
+                    config::SnsConfig::Misskey { instance_url: conf_url, access_token: conf_token, name, .. } => {
+                        let lower_name = name.to_lowercase();
+                        let is_targeted = is_implicit_all || has_all || included.contains("misskey") || included.contains(&lower_name);
+                        let is_excluded = excluded.contains("misskey") || excluded.contains(&lower_name);
+                        if is_targeted && !is_excluded {
+                            let url = instance_url.clone().unwrap_or_else(|| conf_url.clone());
+                            let tok = token.clone().unwrap_or_else(|| conf_token.clone());
+                            if let Ok(client) = MisskeyClient::new(url, tok, name.clone()) {
+                                sns_clients.push(std::sync::Arc::new(client));
+                            }
+                        }
+                    }
+                    config::SnsConfig::Bluesky { identifier: conf_id, password: conf_pw, name, .. } => {
+                        let lower_name = name.to_lowercase();
+                        let is_targeted = is_implicit_all || has_all || included.contains("bluesky") || included.contains(&lower_name);
+                        let is_excluded = excluded.contains("bluesky") || excluded.contains(&lower_name);
+                        if is_targeted && !is_excluded {
+                            let id = instance_url.clone().unwrap_or_else(|| conf_id.clone());
+                            let pw = token.clone().unwrap_or_else(|| conf_pw.clone());
+                            if let Ok(client) = BlueskyClient::new(id, pw, name.clone()) {
+                                sns_clients.push(std::sync::Arc::new(client));
+                            }
+                        }
+                    }
+                    config::SnsConfig::X { consumer_key, consumer_secret, access_token, access_token_secret, name } => {
+                        let lower_name = name.to_lowercase();
+                        let is_targeted = is_implicit_all || has_all || included.contains("x") || included.contains(&lower_name);
+                        let is_excluded = excluded.contains("x") || excluded.contains(&lower_name);
+                        if is_targeted && !is_excluded {
+                            if let Ok(client) = XClient::new(consumer_key.clone(), consumer_secret.clone(), access_token.clone(), access_token_secret.clone(), name.clone()) {
+                                sns_clients.push(std::sync::Arc::new(client));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            // 2. config.ymlにマッチするものがなかった場合、CLI引数からの直接指定でフォールバック
+            if sns_clients.is_empty() {
+                if let Some(ref sns_val) = sns {
+                    let first_sns = sns_val.split(',').next().unwrap_or("").trim();
+                    if first_sns == "mastodon" {
+                        let url = instance_url.clone().expect("instance_url must be provided via CLI or config.yml");
+                        let tok = token.clone().expect("token must be provided via CLI or config.yml");
+                        let client = MastodonClient::new(url, tok, "CLI_User".to_string())?;
+                        sns_clients.push(std::sync::Arc::new(client));
+                    } else if first_sns == "misskey" {
+                        let url = instance_url.clone().expect("instance_url must be provided via CLI or config.yml");
+                        let tok = token.clone().expect("token must be provided via CLI or config.yml");
+                        let client = MisskeyClient::new(url, tok, "CLI_User".to_string())?;
+                        sns_clients.push(std::sync::Arc::new(client));
+                    } else if first_sns == "bluesky" {
+                        let id = instance_url.clone().expect("identifier must be provided via CLI (instance_url) or config.yml");
+                        let pw = token.clone().expect("password must be provided via CLI (token) or config.yml");
+                        let client = BlueskyClient::new(id, pw, "CLI_User".to_string())?;
+                        sns_clients.push(std::sync::Arc::new(client));
+                    } else if first_sns == "x" {
+                        println!("X (Twitter) requires consumer credentials in config.yml. Cannot post without configuration.");
+                    }
+                }
+            }
+
+            if sns_clients.is_empty() {
+                println!("Error: No valid SNS target configured or specified.");
+                return Ok(());
+            }
+
+            // 3. 選択されたすべてのSNSへ投稿する
+            let content = PostContent { text, image_url: None, media_paths: media.clone() };
+            for client in sns_clients {
+                println!("Posting to {} ({})...", client.name(), client.account_name());
+                match client.post(&content).await {
+                    Ok(result) => {
+                        if result.success {
+                            println!("Successfully posted to {}! ID: {:?}", client.name(), result.post_id);
+                        } else {
+                            println!("Failed to post to {}: {:?}", client.name(), result.error_message);
+                        }
+                    }
+                    Err(e) => {
+                        println!("Error posting to {}: {:?}", client.name(), e);
+                    }
+                }
             }
         }
         Commands::Serve { port } => {
