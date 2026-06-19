@@ -29,8 +29,8 @@ pub async fn start_server(config: Config, port: u16) -> anyhow::Result<()> {
 
     let app = Router::new()
         .nest("/api", api_routes)
-        // staticディレクトリ以下の静的ファイルを配信
-        .fallback_service(ServeDir::new("static"))
+        // ルートからアクセスされた場合はstatic以下を配信する
+        .fallback_service(ServeDir::new("static").append_index_html_on_directories(true))
         .layer(cors);
 
     let addr = format!("0.0.0.0:{}", port);
