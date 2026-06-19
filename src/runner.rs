@@ -1,5 +1,6 @@
 use crate::article::models::Article;
 use crate::article::traits::{ArticleStore, FeedFetcher, ImageExtractor};
+use std::sync::Arc;
 use crate::config::Config;
 use crate::sns::traits::SnsClient;
 use crate::sns::models::PostContent;
@@ -11,7 +12,7 @@ pub struct Runner<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExt
     text_optimizer: T,
     image_extractor: I,
     url_shortener: U,
-    sns_clients: Vec<Box<dyn SnsClient + Send + Sync>>,
+    sns_clients: Vec<Arc<dyn SnsClient + Send + Sync>>,
     config: Config,
     dry_run: bool,
 }
@@ -23,7 +24,7 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor, U: Ur
         text_optimizer: T,
         image_extractor: I,
         url_shortener: U,
-        sns_clients: Vec<Box<dyn SnsClient + Send + Sync>>,
+        sns_clients: Vec<Arc<dyn SnsClient + Send + Sync>>,
         config: Config,
         dry_run: bool,
     ) -> Self {

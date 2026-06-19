@@ -1,8 +1,10 @@
 mod article;
 mod config;
 mod runner;
+mod scheduled;
 mod sns;
 mod text;
+mod timing;
 mod web;
 
 use std::fs;
@@ -104,27 +106,27 @@ async fn main() -> anyhow::Result<()> {
             }
             
             // SnsClient のリストを生成
-            let mut sns_clients: Vec<Box<dyn SnsClient + Send + Sync>> = Vec::new();
+            let mut sns_clients: Vec<std::sync::Arc<dyn SnsClient + Send + Sync>> = Vec::new();
             for sns_conf in &config_data.sns {
                 match sns_conf {
                     config::SnsConfig::Mastodon { instance_url, access_token, name, .. } => {
                         if let Ok(client) = MastodonClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
-                            sns_clients.push(Box::new(client));
+                            sns_clients.push(std::sync::Arc::new(client));
                         }
                     }
                     config::SnsConfig::Misskey { instance_url, access_token, name, .. } => {
                         if let Ok(client) = MisskeyClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
-                            sns_clients.push(Box::new(client));
+                            sns_clients.push(std::sync::Arc::new(client));
                         }
                     }
                     config::SnsConfig::Bluesky { identifier, password, name, .. } => {
                         if let Ok(client) = BlueskyClient::new(identifier.clone(), password.clone(), name.clone()) {
-                            sns_clients.push(Box::new(client));
+                            sns_clients.push(std::sync::Arc::new(client));
                         }
                     }
                     config::SnsConfig::X { consumer_key, consumer_secret, access_token, access_token_secret, name } => {
                         if let Ok(client) = XClient::new(consumer_key.clone(), consumer_secret.clone(), access_token.clone(), access_token_secret.clone(), name.clone()) {
-                            sns_clients.push(Box::new(client));
+                            sns_clients.push(std::sync::Arc::new(client));
                         }
                     }
                     _ => {
@@ -161,13 +163,21 @@ async fn main() -> anyhow::Result<()> {
                 text_optimizer,
                 image_extractor,
                 url_shortener,
-                sns_clients,
+                sns_clients.clone(),
                 config_data,
+                dry_run,
+            ));
+
+            let scheduled_store = std::sync::Arc::new(scheduled::JsonScheduledPostStore::new("data/scheduled_posts.json"));
+            let executor = std::sync::Arc::new(scheduled::ScheduledPostExecutor::new(
+                scheduled_store,
+                sns_clients,
                 dry_run,
             ));
 
             let sched = tokio_cron_scheduler::JobScheduler::new().await?;
             
+            // 1. RSS フィードの定期監視ジョブ
             let runner_clone = std::sync::Arc::clone(&runner);
             sched.add(tokio_cron_scheduler::Job::new_async("0 * * * * *", move |uuid, _| {
                 let r = std::sync::Arc::clone(&runner_clone);
@@ -186,6 +196,18 @@ async fn main() -> anyhow::Result<()> {
                         Err(e) => {
                             println!("Error during run_once: {:?}", e);
                         }
+                    }
+                })
+            })?).await?;
+
+            // 2. 予約投稿の定期実行ジョブ
+            let executor_clone = std::sync::Arc::clone(&executor);
+            sched.add(tokio_cron_scheduler::Job::new_async("0 * * * * *", move |uuid, _| {
+                let exec = std::sync::Arc::clone(&executor_clone);
+                Box::pin(async move {
+                    println!("Cron job triggered (UUID: {}) - Checking scheduled posts...", uuid);
+                    if let Err(e) = exec.execute_pending_posts().await {
+                        println!("Error executing scheduled posts: {:?}", e);
                     }
                 })
             })?).await?;
