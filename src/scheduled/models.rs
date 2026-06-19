@@ -10,6 +10,8 @@ pub struct ScheduledPost {
     pub media_files: Vec<String>,
     #[serde(default)]
     pub target_sns: Vec<String>,
+    #[serde(default)]
+    pub link_url: Option<String>,
     pub status: String, // "予約済み" (pending), "投稿済み" (posted), "失敗" (failed)
     pub error_message: Option<String>,
     pub created_at: DateTime<Local>,
@@ -31,6 +33,7 @@ impl ScheduledPost {
             scheduled_at,
             media_files,
             target_sns,
+            link_url: None,
             status: "予約済み".to_string(),
             error_message: None,
             created_at: now,
