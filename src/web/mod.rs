@@ -32,7 +32,7 @@ pub async fn start_server(config: Config, port: u16) -> anyhow::Result<()> {
         .route("/post", post(routes::manual_post))
         .route("/next-slots", get(routes::get_next_slots))
         .route("/schedules", get(routes::get_schedules))
-        .route("/schedules/:id", put(routes::update_schedule).delete(routes::delete_schedule))
+        .route("/schedules/{id}", put(routes::update_schedule).delete(routes::delete_schedule))
         .with_state(state);
 
     let app = Router::new()
