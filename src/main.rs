@@ -570,7 +570,7 @@ async fn main() -> anyhow::Result<()> {
                             }
                         }
                     } else {
-                        // 省略時は config.yml 内の全 SNS を取得
+                        // 省略時は config.yml 内 of 全 SNS を取得
                         for sns_conf in &config_data.sns {
                             let name = match sns_conf {
                                 config::SnsConfig::Mastodon { name, .. } => name,
@@ -590,6 +590,42 @@ async fn main() -> anyhow::Result<()> {
                         return Ok(());
                     }
 
+                    // 画像ファイルのコピー（退避）処理
+                    let mut processed_media = Vec::new();
+                    if let Some(ref media_list) = media {
+                        if let Err(e) = std::fs::create_dir_all("data/uploads") {
+                            println!("Error: Failed to create uploads directory: {:?}", e);
+                            return Ok(());
+                        }
+                        for file_path in media_list {
+                            let path = std::path::Path::new(file_path);
+                            if !path.exists() {
+                                println!("Error: Media file not found: {}", file_path);
+                                return Ok(());
+                            }
+                            
+                            let file_name = path.file_name()
+                                .and_then(|f| f.to_str())
+                                .unwrap_or("image.png");
+                                
+                            let sanitized_name: String = file_name
+                                .chars()
+                                .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+                                .collect();
+                                
+                            let timestamp = chrono::Utc::now().timestamp_micros();
+                            let unique_name = format!("{}_{}", timestamp, sanitized_name);
+                            let save_path = format!("data/uploads/{}", unique_name);
+                            
+                            if let Err(e) = std::fs::copy(file_path, &save_path) {
+                                println!("Error: Failed to copy media file {} to {}: {:?}", file_path, save_path, e);
+                                return Ok(());
+                            }
+                            
+                            processed_media.push(save_path);
+                        }
+                    }
+
                     // 時刻の決定
                     use chrono::TimeZone;
                     let scheduled_time = if auto_slot {
@@ -603,7 +639,7 @@ async fn main() -> anyhow::Result<()> {
                                     let mut post = scheduled::ScheduledPost::new(
                                         text.clone(),
                                         dt,
-                                        media.clone().unwrap_or_default(),
+                                        processed_media.clone(),
                                         vec![sns_name.clone()],
                                     );
                                     post.link_url = link.clone();
@@ -649,7 +685,7 @@ async fn main() -> anyhow::Result<()> {
                     let mut post = scheduled::ScheduledPost::new(
                         text,
                         scheduled_time,
-                        media.unwrap_or_default(),
+                        processed_media,
                         target_sns,
                     );
                     post.link_url = link;
