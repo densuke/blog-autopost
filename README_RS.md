@@ -68,6 +68,25 @@ default_allowed_timings:
   - ["*", ["09:00", "12:00", "18:00"]]
 ```
 
+### 🔑 外部APIキー認証
+外部のスクリプトやツールから直接 Web API を操作して予約投稿を管理する場合、`web_auth` 内の `secret_key` を APIキーとして利用できます。
+
+```yaml
+web_auth:
+  username: "admin"
+  password: "changeme"
+  secret_key: "your-api-secret-token" # 外部連携用のAPIキー
+```
+
+HTTPリクエストのヘッダーに以下を付与することで、セッションCookieなしで認証を通過できます。
+* `Authorization: Bearer your-api-secret-token`
+* または `X-Api-Key: your-api-secret-token`
+
+例:
+```bash
+curl -H "Authorization: Bearer your-api-secret-token" http://localhost:8080/api/schedules
+```
+
 ---
 
 ## 💻 CLIコマンドの使い方
@@ -109,6 +128,52 @@ cargo run -- serve --port 9080
 # 現在のフィード記事をすべて「投稿済み（既読）」としてマーク
 cargo run -- touch
 ```
+
+### 5. `schedule` (予約投稿のCLI管理)
+ブラウザやWeb UIを使わずに、CLIから直接予約投稿の一覧、追加、削除、変更を行えます。
+```bash
+# 予約投稿の一覧を表示（予定時刻順）
+cargo run -- schedule list
+
+# 投稿ステータス（予約済み, 投稿済み, 失敗）でフィルタして表示
+cargo run -- schedule list --status "予約済み"
+
+# 特定の日時に予約を追加（添付画像・リンク対応）
+cargo run -- schedule add --text "テスト投稿" --at "2026-06-20T18:00:00+09:00" --sns "bluesky" --media "/path/to/img.png" --link "https://example.com"
+
+# 次の投稿可能空き枠（タイミング設定）を自動計算して予約を追加
+cargo run -- schedule add --text "自動枠予約のテスト" --auto-slot --sns "mastodon"
+
+# IDを指定して予約投稿を変更（テキスト、予定時間、ステータス等）
+cargo run -- schedule update post-1234567890 --text "変更後のテキスト" --status "予約済み"
+
+# IDを指定して予約投稿を削除
+cargo run -- schedule delete post-1234567890
+```
+*(※ `--media` オプションでローカルの画像を予約に添付した際、元のファイルが削除されても送信時にエラーにならないよう、自動的に `data/uploads/` ディレクトリへ安全にコピー退避されます)*
+
+---
+
+## 🔄 Python版からのデータ移行（移行マニュアル）
+
+既存の Python 版 `blog-autopost` からデータ（既読記事データ・予約投稿データ・添付メディア）を Rust版へ一括で移行するためのスクリプト `scripts/migrate.py` が用意されています。
+
+### 移行手順
+
+1. **Python版のプロセス（デーモ等）を停止する**
+   移行中の書き込み競合を防ぐため、稼働中の Python 版スケジューラを停止してください。
+2. **移行スクリプトを実行する**
+   Rust版プロジェクトのルートディレクトリで、`python3` を使用して移行スクリプトを実行します。
+   ```bash
+   # --python-dir に Python版のプロジェクトディレクトリパスを指定します（デフォルト: ../blog-autopost）
+   python3 scripts/migrate.py --python-dir ../blog-autopost
+   ```
+3. **移行されるデータ**
+   * **既読記事データ**: Python版の複数の JSON ファイル（`data/articles_*.json`）から読み込まれ、自動的に重複排除の上で `data/articles.json` にマージされます。
+   * **予約投稿データ**: SQLite データベース（`data/scheduled_posts.db`）からすべての予約（履歴を含む）が読み込まれ、Rust版の `data/scheduled_posts.json` に変換されます。
+   * **添付メディア**: 予約に添付されている画像ファイル（`data/scheduled_media/` 内）は、自動的に Rust版の `data/uploads/` にコピー退避され、データベース内の参照パスも自動的に書き換わります。
+4. **Rust版の起動**
+   移行完了後、Rust版を起動し、Web UI または CLI (`cargo run -- schedule list`) でデータが正常に表示されるか確認してください。
 
 ---
 
