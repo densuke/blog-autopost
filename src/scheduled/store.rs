@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::fs;
 use tokio::sync::Mutex;
 use anyhow::{Result, Context};
 use crate::scheduled::models::ScheduledPost;
@@ -18,13 +17,23 @@ impl JsonScheduledPostStore {
         }
     }
 
-    // 内部用ヘルパー：ファイルを読み込む（ロックなし）
+    // 内部用ヘルパー：ファイルを読み込む（プロセス間共有ロック）
     fn read_all_unlocked(&self) -> Result<Vec<ScheduledPost>> {
         if !self.file_path.exists() {
             return Ok(Vec::new());
         }
-        let content = fs::read_to_string(&self.file_path)
-            .context("Failed to read scheduled posts file")?;
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .open(&self.file_path)
+            .context("Failed to open scheduled posts file for reading")?;
+        
+        let lock = fd_lock::RwLock::new(file);
+        let read_guard = lock.read().context("Failed to acquire read lock on scheduled posts file")?;
+        
+        use std::io::Read;
+        let mut content = String::new();
+        (&*read_guard).read_to_string(&mut content).context("Failed to read scheduled posts file content")?;
+        
         if content.trim().is_empty() {
             return Ok(Vec::new());
         }
@@ -33,15 +42,27 @@ impl JsonScheduledPostStore {
         Ok(posts)
     }
 
-    // 内部用ヘルパー：ファイルに書き込む（ロックなし）
+    // 内部用ヘルパー：ファイルに書き込む（プロセス間排他ロック）
     fn write_all_unlocked(&self, posts: &[ScheduledPost]) -> Result<()> {
         if let Some(parent) = self.file_path.parent() {
-            fs::create_dir_all(parent).ok();
+            std::fs::create_dir_all(parent).ok();
         }
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&self.file_path)
+            .context("Failed to open scheduled posts file for writing")?;
+        
+        let mut lock = fd_lock::RwLock::new(file);
+        let mut write_guard = lock.write().context("Failed to acquire write lock on scheduled posts file")?;
+        
         let content = serde_json::to_string_pretty(posts)
             .context("Failed to serialize scheduled posts to JSON")?;
-        fs::write(&self.file_path, content)
-            .context("Failed to write scheduled posts file")?;
+        
+        use std::io::Write;
+        write_guard.write_all(content.as_bytes()).context("Failed to write scheduled posts file content")?;
+        write_guard.flush().context("Failed to flush scheduled posts file")?;
         Ok(())
     }
 
