@@ -2,7 +2,6 @@ use crate::article::models::Article;
 use crate::article::traits::ArticleStore;
 use async_trait::async_trait;
 use serde_json;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 pub struct JsonArticleStore {
@@ -20,7 +19,17 @@ impl JsonArticleStore {
         if !self.file_path.exists() {
             return Ok(Vec::new());
         }
-        let content = fs::read_to_string(&self.file_path)?;
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .open(&self.file_path)?;
+        
+        let lock = fd_lock::RwLock::new(file);
+        let read_guard = lock.read()?;
+        
+        use std::io::Read;
+        let mut content = String::new();
+        (&*read_guard).read_to_string(&mut content)?;
+        
         if content.trim().is_empty() {
             return Ok(Vec::new());
         }
@@ -55,8 +64,23 @@ impl ArticleStore for JsonArticleStore {
             }
         }
         
+        if let Some(parent) = self.file_path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&self.file_path)?;
+        
+        let mut lock = fd_lock::RwLock::new(file);
+        let mut write_guard = lock.write()?;
+        
         let content = serde_json::to_string_pretty(&saved_articles)?;
-        fs::write(&self.file_path, content)?;
+        
+        use std::io::Write;
+        write_guard.write_all(content.as_bytes())?;
+        write_guard.flush()?;
         
         Ok(())
     }
