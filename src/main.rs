@@ -75,6 +75,77 @@ enum Commands {
         #[arg(short, long, default_value_t = 8080)]
         port: u16,
     },
+    /// 予約投稿を管理する（一覧、追加、削除、変更）
+    Schedule {
+        #[command(subcommand)]
+        action: ScheduleAction,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone)]
+enum ScheduleAction {
+    /// 予約一覧を表示する
+    List {
+        /// 特定のステータスでフィルタリングする（例: '予約済み', '投稿済み', '失敗'）
+        #[arg(short, long)]
+        status: Option<String>,
+    },
+    /// 新しい予約投稿を追加する
+    Add {
+        /// 投稿するテキスト
+        #[arg(short, long)]
+        text: String,
+
+        /// 投稿予定時刻 (RFC3339形式。例: '2026-06-20T15:00:00+09:00' もしくは 'YYYY-MM-DD HH:MM')
+        #[arg(short, long)]
+        at: Option<String>,
+
+        /// 自動で空いている次の投稿枠を検索して設定する
+        #[arg(long)]
+        auto_slot: bool,
+
+        /// 投稿先のSNS (例: 'mastodon', 'misskey')。カンマ区切りで複数指定可。省略時は全SNS
+        #[arg(short, long)]
+        sns: Option<String>,
+
+        /// 添付するローカルの画像ファイルパス（複数指定可）
+        #[arg(short, long)]
+        media: Option<Vec<String>>,
+
+        /// 添付するリンクURL
+        #[arg(short, long)]
+        link: Option<String>,
+    },
+    /// 予約投稿を削除する
+    Delete {
+        /// 削除する予約投稿 of ID
+        id: String,
+    },
+    /// 予約投稿を変更する
+    Update {
+        /// 変更する予約投稿のID
+        id: String,
+
+        /// 変更後のテキスト
+        #[arg(short, long)]
+        text: Option<String>,
+
+        /// 変更後の投稿予定時刻 (RFC3339形式)
+        #[arg(short, long)]
+        at: Option<String>,
+
+        /// 変更後のSNS（カンマ区切り。例: 'mastodon,bluesky'）
+        #[arg(short, long)]
+        sns: Option<String>,
+
+        /// 変更後のステータス（'予約済み', '投稿済み', '失敗'）
+        #[arg(long)]
+        status: Option<String>,
+
+        /// 変更後のリンクURL
+        #[arg(short, long)]
+        link: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -453,6 +524,204 @@ async fn main() -> anyhow::Result<()> {
         Commands::Serve { port } => {
             println!("Starting Web UI server on port {}...", port);
             web::start_server(config_data, cli.config.clone(), port).await?;
+        }
+        Commands::Schedule { action } => {
+            let scheduled_store = scheduled::JsonScheduledPostStore::new("data/scheduled_posts.json");
+            std::fs::create_dir_all("data").ok();
+
+            match action {
+                ScheduleAction::List { status } => {
+                    let posts = scheduled_store.get_all_posts().await?;
+                    let mut filtered_posts = posts;
+                    if let Some(status_filter) = status {
+                        filtered_posts.retain(|p| p.status == status_filter);
+                    }
+
+                    // 予定時間順にソート
+                    filtered_posts.sort_by_key(|p| p.scheduled_at);
+
+                    println!("{:<25} {:<20} {:<20} {:<10} {}", "ID", "Scheduled At", "SNS", "Status", "Content Preview");
+                    println!("{}", "-".repeat(100));
+                    for post in filtered_posts {
+                        let content_preview = if post.content.chars().count() > 30 {
+                            format!("{}...", post.content.chars().take(27).collect::<String>())
+                        } else {
+                            post.content.clone()
+                        };
+                        let sns_str = post.target_sns.join(",");
+                        println!(
+                            "{:<25} {:<20} {:<20} {:<10} {}",
+                            post.id,
+                            post.scheduled_at.format("%Y-%m-%d %H:%M:%S"),
+                            sns_str,
+                            post.status,
+                            content_preview
+                        );
+                    }
+                }
+                ScheduleAction::Add { text, at, auto_slot, sns, media, link } => {
+                    // SNS ターゲットの決定
+                    let mut target_sns = Vec::new();
+                    if let Some(sns_arg) = sns {
+                        for part in sns_arg.split(',') {
+                            let part = part.trim();
+                            if !part.is_empty() {
+                                target_sns.push(part.to_string());
+                            }
+                        }
+                    } else {
+                        // 省略時は config.yml 内の全 SNS を取得
+                        for sns_conf in &config_data.sns {
+                            let name = match sns_conf {
+                                config::SnsConfig::Mastodon { name, .. } => name,
+                                config::SnsConfig::Misskey { name, .. } => name,
+                                config::SnsConfig::Bluesky { name, .. } => name,
+                                config::SnsConfig::X { name, .. } => name,
+                                config::SnsConfig::Threads { name, .. } => name,
+                                config::SnsConfig::Tumblr { name, .. } => name,
+                                _ => continue,
+                            };
+                            target_sns.push(name.clone());
+                        }
+                    }
+
+                    if target_sns.is_empty() {
+                        println!("Error: No target SNS configured or specified.");
+                        return Ok(());
+                    }
+
+                    // 時刻の決定
+                    use chrono::TimeZone;
+                    let scheduled_time = if auto_slot {
+                        let timing_manager = timing::TimingManager::new(&config_data);
+                        let finder = timing::SlotFinder::new(&timing_manager, &scheduled_store, 5);
+                        
+                        let mut created_posts = Vec::new();
+                        for sns_name in &target_sns {
+                            match finder.find_next_available_slot(sns_name, None, 7).await {
+                                Ok(Some(dt)) => {
+                                    let mut post = scheduled::ScheduledPost::new(
+                                        text.clone(),
+                                        dt,
+                                        media.clone().unwrap_or_default(),
+                                        vec![sns_name.clone()],
+                                    );
+                                    post.link_url = link.clone();
+                                    let created = scheduled_store.create_post(post).await?;
+                                    created_posts.push(created);
+                                }
+                                Ok(None) => {
+                                    println!("Warning: No available slot found for SNS: {}", sns_name);
+                                }
+                                Err(e) => {
+                                    println!("Error calculating slot for SNS {}: {:?}", sns_name, e);
+                                }
+                            }
+                        }
+
+                        if created_posts.is_empty() {
+                            println!("Error: Failed to schedule post on any SNS via auto-slot.");
+                            return Ok(());
+                        }
+
+                        println!("Successfully scheduled {} posts via auto-slot:", created_posts.len());
+                        for p in created_posts {
+                            println!("  - ID: {} | Time: {} | SNS: {:?}", p.id, p.scheduled_at.format("%Y-%m-%d %H:%M:%S"), p.target_sns);
+                        }
+                        return Ok(());
+                    } else if let Some(at_str) = at {
+                        let parsed_time = if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&at_str) {
+                            dt.with_timezone(&chrono::Local)
+                        } else if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&at_str, "%Y-%m-%d %H:%M:%S") {
+                            chrono::Local.from_local_datetime(&dt).unwrap()
+                        } else if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&at_str, "%Y-%m-%d %H:%M") {
+                            chrono::Local.from_local_datetime(&dt).unwrap()
+                        } else {
+                            println!("Error: Invalid datetime format. Use RFC3339 (e.g., 2026-06-20T15:00:00+09:00) or 'YYYY-MM-DD HH:MM:SS'");
+                            return Ok(());
+                        };
+                        parsed_time
+                    } else {
+                        println!("Error: Either --at or --auto-slot must be specified.");
+                        return Ok(());
+                    };
+
+                    let mut post = scheduled::ScheduledPost::new(
+                        text,
+                        scheduled_time,
+                        media.unwrap_or_default(),
+                        target_sns,
+                    );
+                    post.link_url = link;
+
+                    let created = scheduled_store.create_post(post).await?;
+                    println!("Successfully scheduled post:");
+                    println!("  ID: {}", created.id);
+                    println!("  Time: {}", created.scheduled_at.format("%Y-%m-%d %H:%M:%S"));
+                    println!("  SNS: {:?}", created.target_sns);
+                }
+                ScheduleAction::Delete { id } => {
+                    let success = scheduled_store.delete_post(&id).await?;
+                    if success {
+                        println!("Successfully deleted scheduled post: {}", id);
+                    } else {
+                        println!("Error: Scheduled post not found: {}", id);
+                    }
+                }
+                ScheduleAction::Update { id, text, at, sns, status, link } => {
+                    let opt_post = scheduled_store.get_post_by_id(&id).await?;
+                    let Some(mut post) = opt_post else {
+                        println!("Error: Scheduled post not found: {}", id);
+                        return Ok(());
+                    };
+
+                    if let Some(t) = text {
+                        post.content = t;
+                    }
+                    use chrono::TimeZone;
+                    if let Some(at_str) = at {
+                        let parsed_time = if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&at_str) {
+                            dt.with_timezone(&chrono::Local)
+                        } else if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&at_str, "%Y-%m-%d %H:%M:%S") {
+                            chrono::Local.from_local_datetime(&dt).unwrap()
+                        } else if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&at_str, "%Y-%m-%d %H:%M") {
+                            chrono::Local.from_local_datetime(&dt).unwrap()
+                        } else {
+                            println!("Error: Invalid datetime format. Use RFC3339 or 'YYYY-MM-DD HH:MM:SS'");
+                            return Ok(());
+                        };
+                        post.scheduled_at = parsed_time;
+                    }
+                    if let Some(sns_arg) = sns {
+                        let mut target_sns = Vec::new();
+                        for part in sns_arg.split(',') {
+                            let part = part.trim();
+                            if !part.is_empty() {
+                                target_sns.push(part.to_string());
+                            }
+                        }
+                        post.target_sns = target_sns;
+                    }
+                    if let Some(s) = status {
+                        post.status = s;
+                    }
+                    if let Some(l) = link {
+                        post.link_url = Some(l);
+                    }
+
+                    post.updated_at = chrono::Local::now();
+
+                    let updated = scheduled_store.update_post(&id, post).await?;
+                    if let Some(p) = updated {
+                        println!("Successfully updated scheduled post: {}", p.id);
+                        println!("  Time: {}", p.scheduled_at.format("%Y-%m-%d %H:%M:%S"));
+                        println!("  SNS: {:?}", p.target_sns);
+                        println!("  Status: {}", p.status);
+                    } else {
+                        println!("Error: Failed to update scheduled post: {}", id);
+                    }
+                }
+            }
         }
     }
     
