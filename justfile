@@ -44,6 +44,17 @@ touch-rss-posted *args='':
 test-cov:
     cargo tarpaulin --out Html
 
+# x86_64 Linux (musl/静的リンク) 向けリリースビルド
+# 要: cross (cargo install cross) と起動中のDocker。
+# macOS(arm64)などからはQEMUエミュレーション経由でビルドする。
+build-x86:
+    @command -v cross >/dev/null 2>&1 || ( echo "error: 'cross' が見つかりません。'cargo install cross' でインストールしてください。" && exit 1 )
+    DOCKER_DEFAULT_PLATFORM=linux/amd64 cross build --release --target x86_64-unknown-linux-musl
+    @echo ""
+    @echo "成果物: target/x86_64-unknown-linux-musl/release/blog-autopost-rs"
+    @ls -lh target/x86_64-unknown-linux-musl/release/blog-autopost-rs
+    @shasum -a 256 target/x86_64-unknown-linux-musl/release/blog-autopost-rs
+
 
 # 使用例とヘルプ
 help:
@@ -70,6 +81,9 @@ help:
     @echo ""
     @echo "環境構築:"
     @echo "  just sync                          # 依存関係の同期"
+    @echo ""
+    @echo "リリースビルド:"
+    @echo "  just build-x86                     # x86_64 Linux(musl/静的)向けビルド (要 cross + Docker)"
     @echo ""
     @echo "メンテナンス:"
     @echo "  just touch-rss-posted              # 全RSSフィードを既読にする"
