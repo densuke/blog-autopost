@@ -729,3 +729,593 @@ pub async fn logout(
         .body(axum::body::Body::empty())
         .unwrap()
 }
+
+use axum::response::sse::{Event, Sse};
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::StreamExt;
+use std::convert::Infallible;
+use serde_json::json;
+use axum::extract::Query;
+
+// SSE 接続が Drop (切断) された際に mcp_sessions からセッションを削除するラッパーストリーム
+struct SessionCleanupStream<S> {
+    inner: S,
+    session_id: String,
+    mcp_sessions: Arc<tokio::sync::RwLock<HashMap<String, tokio::sync::mpsc::Sender<Event>>>>,
+}
+
+impl<S> Drop for SessionCleanupStream<S> {
+    fn drop(&mut self) {
+        let mcp_sessions = self.mcp_sessions.clone();
+        let session_id = self.session_id.clone();
+        tokio::spawn(async move {
+            let mut guard = mcp_sessions.write().await;
+            guard.remove(&session_id);
+            println!("MCP SSE Session disconnected & cleaned up: {}", session_id);
+        });
+    }
+}
+
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
+impl<S: tokio_stream::Stream + Unpin> tokio_stream::Stream for SessionCleanupStream<S> {
+    type Item = S::Item;
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.inner).poll_next(cx)
+    }
+}
+
+// GET /api/mcp/sse
+pub async fn mcp_sse_handler(
+    State(state): State<Arc<AppState>>,
+) -> Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>> {
+    let session_id = format!("mcp-{}", chrono::Utc::now().timestamp_micros());
+    let (tx, rx) = tokio::sync::mpsc::channel(100);
+
+    // セッションを登録
+    {
+        let mut mcp_sessions = state.mcp_sessions.write().await;
+        mcp_sessions.insert(session_id.clone(), tx.clone());
+        println!("MCP SSE Session connected: {}", session_id);
+    }
+
+    // 最初の endpoint イベントを送信して、クライアントへメッセージ送信先を指定する
+    let endpoint_url = format!("/api/mcp/message?session_id={}", session_id);
+    let init_event = Event::default()
+        .event("endpoint")
+        .data(endpoint_url);
+    
+    let _ = tx.send(init_event).await;
+
+    // ストリームの作成
+    let rx_stream = ReceiverStream::new(rx).map(Ok);
+
+    // 切断検知時にセッション削除するストリームに変換
+    let clean_stream = SessionCleanupStream {
+        inner: rx_stream,
+        session_id,
+        mcp_sessions: state.mcp_sessions.clone(),
+    };
+
+    Sse::new(clean_stream).keep_alive(axum::response::sse::KeepAlive::default())
+}
+
+#[derive(Deserialize)]
+pub struct McpQuery {
+    pub session_id: String,
+}
+
+// POST /api/mcp/message
+pub async fn mcp_message_handler(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<McpQuery>,
+    Json(rpc_req): Json<serde_json::Value>,
+) -> impl axum::response::IntoResponse {
+    let state_clone = state.clone();
+    let session_id = query.session_id.clone();
+    
+    tokio::spawn(async move {
+        if let Err(e) = handle_mcp_request(state_clone, &session_id, rpc_req).await {
+            println!("Error handling MCP request for session {}: {:?}", session_id, e);
+        }
+    });
+
+    StatusCode::ACCEPTED
+}
+
+async fn handle_mcp_request(
+    state: Arc<AppState>,
+    session_id: &str,
+    req: serde_json::Value,
+) -> anyhow::Result<()> {
+    let method = req.get("method").and_then(|m| m.as_str()).unwrap_or("");
+    let id = req.get("id").cloned();
+    let has_id = id.is_some();
+
+    let response = if method == "initialize" {
+        json!({
+            "jsonrpc": "2.0",
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {
+                    "tools": {}
+                },
+                "serverInfo": {
+                    "name": "blog-autopost-rs",
+                    "version": "0.1.0"
+                }
+            },
+            "id": id
+        })
+    } else if method == "initialized" {
+        return Ok(());
+    } else if method == "tools/list" {
+        json!({
+            "jsonrpc": "2.0",
+            "result": {
+                "tools": [
+                    {
+                        "name": "list_schedules",
+                        "description": "予約投稿の一覧を取得します。",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "status": {
+                                    "type": "string",
+                                    "description": "特定のステータスでフィルタ（'予約済み', '投稿済み', '失敗'）"
+                                }
+                            }
+                        }
+                    },
+                    {
+                        "name": "add_schedule",
+                        "description": "新しく予約投稿を追加します。",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "text": {
+                                    "type": "string",
+                                    "description": "投稿するメッセージ本文"
+                                },
+                                "at": {
+                                    "type": "string",
+                                    "description": "投稿予定時刻 (RFC3339形式。例: '2026-06-20T18:00:00+09:00')"
+                                },
+                                "auto_slot": {
+                                    "type": "boolean",
+                                    "description": "空いている最適な次の投稿可能時間枠を自動検索する"
+                                },
+                                "sns": {
+                                    "type": "string",
+                                    "description": "投稿先SNS名（カンマ区切り。省略時は全SNS）"
+                                },
+                                "media": {
+                                    "type": "array",
+                                    "items": { "type": "string" },
+                                    "description": "添付するローカルの画像ファイルパス"
+                                },
+                                "link": {
+                                    "type": "string",
+                                    "description": "添付するリンクURL"
+                                }
+                            },
+                            "required": ["text"]
+                        }
+                    },
+                    {
+                        "name": "update_schedule",
+                        "description": "既存の予約投稿の内容や日時を変更します。",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "id": { "type": "string", "description": "変更対象の予約投稿ID" },
+                                "text": { "type": "string", "description": "変更後の本文" },
+                                "at": { "type": "string", "description": "変更後の予定時刻 (RFC3339形式)" },
+                                "sns": { "type": "string", "description": "変更後のSNS名" },
+                                "status": { "type": "string", "description": "変更後のステータス" },
+                                "link": { "type": "string", "description": "変更後のリンクURL" }
+                            },
+                            "required": ["id"]
+                        }
+                    },
+                    {
+                        "name": "delete_schedule",
+                        "description": "指定したIDの予約投稿を削除します。",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "id": { "type": "string", "description": "削除対象の予約投稿ID" }
+                            },
+                            "required": ["id"]
+                        }
+                    },
+                    {
+                        "name": "post_now",
+                        "description": "今すぐ指定のSNSへ直接手動投稿します（予約せず直ちに投稿）。",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "text": { "type": "string", "description": "投稿メッセージ本文" },
+                                "sns": { "type": "string", "description": "送信先SNS名（カンマ区切り。省略時は全SNS）" },
+                                "media": { "type": "array", "items": { "type": "string" }, "description": "添付するローカル画像パス" },
+                                "link": { "type": "string", "description": "添付するリンクURL" }
+                            },
+                            "required": ["text"]
+                        }
+                    }
+                ]
+            },
+            "id": id
+        })
+    } else if method == "tools/call" {
+        let params = req.get("params");
+        let name = params.and_then(|p| p.get("name")).and_then(|n| n.as_str()).unwrap_or("");
+        let arguments = params.and_then(|p| p.get("arguments")).cloned().unwrap_or(json!({}));
+        
+        let result = handle_tool_call(state.clone(), name, arguments).await;
+        
+        match result {
+            Ok(res_val) => {
+                json!({
+                    "jsonrpc": "2.0",
+                    "result": {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": res_val
+                            }
+                        ]
+                    },
+                    "id": id
+                })
+            }
+            Err(e) => {
+                json!({
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32603,
+                        "message": format!("Tool execution error: {:?}", e)
+                    },
+                    "id": id
+                })
+            }
+        }
+    } else {
+        json!({
+            "jsonrpc": "2.0",
+            "error": {
+                "code": -32601,
+                "message": format!("Method not found: {}", method)
+            },
+            "id": id
+        })
+    };
+
+    if has_id {
+        let mcp_sessions = state.mcp_sessions.read().await;
+        if let Some(tx) = mcp_sessions.get(session_id) {
+            let event = Event::default()
+                .event("message")
+                .data(serde_json::to_string(&response)?);
+            let _ = tx.send(event).await;
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_tool_call(
+    state: Arc<AppState>,
+    name: &str,
+    args: serde_json::Value,
+) -> anyhow::Result<String> {
+    match name {
+        "list_schedules" => {
+            let status_filter = args.get("status").and_then(|s| s.as_str());
+            let posts = state.store.get_all_posts().await?;
+            let mut filtered = posts;
+            if let Some(s) = status_filter {
+                filtered.retain(|p| p.status == s);
+            }
+            filtered.sort_by_key(|p| p.scheduled_at);
+            
+            let mut out = String::new();
+            out.push_str("=== 予約投稿一覧 ===\n");
+            for p in filtered {
+                out.push_str(&format!(
+                    "ID: {} | Time: {} | SNS: {:?} | Status: {} | Text: {}\n",
+                    p.id,
+                    p.scheduled_at.format("%Y-%m-%d %H:%M:%S"),
+                    p.target_sns,
+                    p.status,
+                    if p.content.chars().count() > 40 {
+                        format!("{}...", p.content.chars().take(37).collect::<String>())
+                    } else {
+                        p.content.clone()
+                    }
+                ));
+            }
+            if out.lines().count() == 1 {
+                out.push_str("(予約投稿はありません)\n");
+            }
+            Ok(out)
+        }
+        "add_schedule" => {
+            let text = args.get("text").and_then(|t| t.as_str()).ok_or_else(|| anyhow::anyhow!("text is required"))?.to_string();
+            let at = args.get("at").and_then(|a| a.as_str());
+            let auto_slot = args.get("auto_slot").and_then(|a| a.as_bool()).unwrap_or(false);
+            let sns = args.get("sns").and_then(|s| s.as_str());
+            let media = args.get("media").and_then(|m| m.as_array());
+            let link = args.get("link").and_then(|l| l.as_str()).map(|s| s.to_string());
+
+            let mut target_sns = Vec::new();
+            if let Some(sns_arg) = sns {
+                for part in sns_arg.split(',') {
+                    let part = part.trim();
+                    if !part.is_empty() {
+                        target_sns.push(part.to_string());
+                    }
+                }
+            } else {
+                for sns_conf in &state.config.sns {
+                    let name = match sns_conf {
+                        crate::config::SnsConfig::Mastodon { name, .. } => name,
+                        crate::config::SnsConfig::Misskey { name, .. } => name,
+                        crate::config::SnsConfig::Bluesky { name, .. } => name,
+                        crate::config::SnsConfig::X { name, .. } => name,
+                        crate::config::SnsConfig::Threads { name, .. } => name,
+                        crate::config::SnsConfig::Tumblr { name, .. } => name,
+                        _ => continue,
+                    };
+                    target_sns.push(name.clone());
+                }
+            }
+
+            if target_sns.is_empty() {
+                return Err(anyhow::anyhow!("No target SNS configured or specified"));
+            }
+
+            let mut processed_media = Vec::new();
+            if let Some(media_list) = media {
+                std::fs::create_dir_all("data/uploads").ok();
+                for val in media_list {
+                    if let Some(file_path) = val.as_str() {
+                        let path = std::path::Path::new(file_path);
+                        if !path.exists() {
+                            return Err(anyhow::anyhow!("Media file not found: {}", file_path));
+                        }
+                        let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("image.png");
+                        let sanitized_name: String = file_name
+                            .chars()
+                            .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+                            .collect();
+                        let timestamp = chrono::Utc::now().timestamp_micros();
+                        let unique_name = format!("{}_{}", timestamp, sanitized_name);
+                        let save_path = format!("data/uploads/{}", unique_name);
+                        std::fs::copy(file_path, &save_path)?;
+                        processed_media.push(save_path);
+                    }
+                }
+            }
+
+            use chrono::TimeZone;
+            if auto_slot {
+                let finder = crate::timing::SlotFinder::new(&state.timing_manager, &state.store, 5);
+                let mut created_posts = Vec::new();
+                for sns_name in &target_sns {
+                    if let Some(dt) = finder.find_next_available_slot(sns_name, None, 7).await? {
+                        let mut post = crate::scheduled::ScheduledPost::new(
+                            text.clone(),
+                            dt,
+                            processed_media.clone(),
+                            vec![sns_name.clone()],
+                        );
+                        post.link_url = link.clone();
+                        let created = state.store.create_post(post).await?;
+                        created_posts.push(created);
+                    }
+                }
+                let mut out = format!("Successfully scheduled {} posts via auto-slot:\n", created_posts.len());
+                for p in created_posts {
+                    out.push_str(&format!("  - ID: {} | Time: {} | SNS: {:?}\n", p.id, p.scheduled_at.format("%Y-%m-%d %H:%M:%S"), p.target_sns));
+                }
+                return Ok(out);
+            } else if let Some(at_str) = at {
+                let parsed_time = if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(at_str) {
+                    dt.with_timezone(&chrono::Local)
+                } else if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(at_str, "%Y-%m-%d %H:%M:%S") {
+                    chrono::Local.from_local_datetime(&dt).unwrap()
+                } else if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(at_str, "%Y-%m-%d %H:%M") {
+                    chrono::Local.from_local_datetime(&dt).unwrap()
+                } else {
+                    return Err(anyhow::anyhow!("Invalid datetime format. Use RFC3339 or 'YYYY-MM-DD HH:MM:SS'"));
+                };
+
+                let mut post = crate::scheduled::ScheduledPost::new(
+                    text,
+                    parsed_time,
+                    processed_media,
+                    target_sns,
+                );
+                post.link_url = link;
+                let created = state.store.create_post(post).await?;
+                return Ok(format!(
+                    "Successfully scheduled post:\n  ID: {}\n  Time: {}\n  SNS: {:?}",
+                    created.id,
+                    created.scheduled_at.format("%Y-%m-%d %H:%M:%S"),
+                    created.target_sns
+                ));
+            } else {
+                return Err(anyhow::anyhow!("Either 'at' or 'auto_slot' must be specified"));
+            }
+        }
+        "update_schedule" => {
+            let id = args.get("id").and_then(|i| i.as_str()).ok_or_else(|| anyhow::anyhow!("id is required"))?;
+            let opt_post = state.store.get_post_by_id(id).await?;
+            let mut post = opt_post.ok_or_else(|| anyhow::anyhow!("Scheduled post not found"))?;
+
+            if let Some(t) = args.get("text").and_then(|t| t.as_str()) {
+                post.content = t.to_string();
+            }
+            use chrono::TimeZone;
+            if let Some(at_str) = args.get("at").and_then(|a| a.as_str()) {
+                let parsed_time = if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(at_str) {
+                    dt.with_timezone(&chrono::Local)
+                } else if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(at_str, "%Y-%m-%d %H:%M:%S") {
+                    chrono::Local.from_local_datetime(&dt).unwrap()
+                } else if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(at_str, "%Y-%m-%d %H:%M") {
+                    chrono::Local.from_local_datetime(&dt).unwrap()
+                } else {
+                    return Err(anyhow::anyhow!("Invalid datetime format"));
+                };
+                post.scheduled_at = parsed_time;
+            }
+            if let Some(sns_arg) = args.get("sns").and_then(|s| s.as_str()) {
+                let mut target_sns = Vec::new();
+                for part in sns_arg.split(',') {
+                    let part = part.trim();
+                    if !part.is_empty() {
+                        target_sns.push(part.to_string());
+                    }
+                }
+                post.target_sns = target_sns;
+            }
+            if let Some(s) = args.get("status").and_then(|s| s.as_str()) {
+                post.status = s.to_string();
+            }
+            if let Some(l) = args.get("link").and_then(|l| l.as_str()) {
+                post.link_url = Some(l.to_string());
+            }
+
+            post.updated_at = chrono::Local::now();
+            let updated = state.store.update_post(id, post).await?;
+            if let Some(p) = updated {
+                Ok(format!(
+                    "Successfully updated scheduled post: {}\n  Time: {}\n  SNS: {:?}\n  Status: {}",
+                    p.id,
+                    p.scheduled_at.format("%Y-%m-%d %H:%M:%S"),
+                    p.target_sns,
+                    p.status
+                ))
+            } else {
+                Err(anyhow::anyhow!("Failed to update scheduled post"))
+            }
+        }
+        "delete_schedule" => {
+            let id = args.get("id").and_then(|i| i.as_str()).ok_or_else(|| anyhow::anyhow!("id is required"))?;
+            let success = state.store.delete_post(id).await?;
+            if success {
+                Ok(format!("Successfully deleted scheduled post: {}", id))
+            } else {
+                Err(anyhow::anyhow!("Scheduled post not found"))
+            }
+        }
+        "post_now" => {
+            let text = args.get("text").and_then(|t| t.as_str()).ok_or_else(|| anyhow::anyhow!("text is required"))?.to_string();
+            let sns = args.get("sns").and_then(|s| s.as_str());
+            let media = args.get("media").and_then(|m| m.as_array());
+            let link = args.get("link").and_then(|l| l.as_str()).map(|s| s.to_string());
+
+            let mut sns_clients: Vec<Box<dyn crate::sns::traits::SnsClient + Send + Sync>> = Vec::new();
+            
+            let mut included = std::collections::HashSet::new();
+            if let Some(sns_arg) = sns {
+                for part in sns_arg.split(',') {
+                    let part = part.trim().to_lowercase();
+                    if !part.is_empty() {
+                        included.insert(part);
+                    }
+                }
+            }
+
+            for sns_conf in &state.config.sns {
+                let name = match sns_conf {
+                    crate::config::SnsConfig::Mastodon { name, .. } => name,
+                    crate::config::SnsConfig::Misskey { name, .. } => name,
+                    crate::config::SnsConfig::Bluesky { name, .. } => name,
+                    crate::config::SnsConfig::X { name, .. } => name,
+                    _ => continue,
+                };
+
+                if !included.is_empty() {
+                    let lower_name = name.to_lowercase();
+                    let lower_type = match sns_conf {
+                        crate::config::SnsConfig::Mastodon { .. } => "mastodon",
+                        crate::config::SnsConfig::Misskey { .. } => "misskey",
+                        crate::config::SnsConfig::Bluesky { .. } => "bluesky",
+                        crate::config::SnsConfig::X { .. } => "x",
+                        _ => "",
+                    };
+                    if !included.contains(&lower_name) && !included.contains(lower_type) {
+                        continue;
+                    }
+                }
+
+                match sns_conf {
+                    crate::config::SnsConfig::Mastodon { instance_url, access_token, name, .. } => {
+                        if let Ok(c) = crate::sns::mastodon::MastodonClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
+                            sns_clients.push(Box::new(c));
+                        }
+                    }
+                    crate::config::SnsConfig::Misskey { instance_url, access_token, name, .. } => {
+                        if let Ok(c) = crate::sns::misskey::MisskeyClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
+                            sns_clients.push(Box::new(c));
+                        }
+                    }
+                    crate::config::SnsConfig::Bluesky { identifier, password, name, .. } => {
+                        if let Ok(c) = crate::sns::bluesky::BlueskyClient::new(identifier.clone(), password.clone(), name.clone()) {
+                            sns_clients.push(Box::new(c));
+                        }
+                    }
+                    crate::config::SnsConfig::X { consumer_key, consumer_secret, access_token, access_token_secret, name } => {
+                        if let Ok(c) = crate::sns::x::XClient::new(consumer_key.clone(), consumer_secret.clone(), access_token.clone(), access_token_secret.clone(), name.clone()) {
+                            sns_clients.push(Box::new(c));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if sns_clients.is_empty() {
+                return Err(anyhow::anyhow!("No active SNS client matched target: {:?}", sns));
+            }
+
+            let mut processed_media = Vec::new();
+            if let Some(media_list) = media {
+                for val in media_list {
+                    if let Some(s) = val.as_str() {
+                        processed_media.push(s.to_string());
+                    }
+                }
+            }
+
+            let post_content = crate::sns::models::PostContent {
+                text,
+                image_url: None,
+                media_paths: if processed_media.is_empty() { None } else { Some(processed_media) },
+                link_url: link,
+            };
+
+            let mut out = String::new();
+            out.push_str("=== 投稿実行結果 ===\n");
+            for client in sns_clients {
+                out.push_str(&format!("Posting to {}...\n", client.name()));
+                match client.post(&post_content).await {
+                    Ok(res) => {
+                        if res.success {
+                            out.push_str(&format!("  [Success] ID: {:?}\n", res.post_id));
+                        } else {
+                            out.push_str(&format!("  [Failed] Error: {:?}\n", res.error_message));
+                        }
+                    }
+                    Err(e) => {
+                        out.push_str(&format!("  [Error] {:?}\n", e));
+                    }
+                }
+            }
+            Ok(out)
+        }
+        _ => Err(anyhow::anyhow!("Unknown tool name: {}", name)),
+    }
+}

@@ -24,6 +24,7 @@ pub struct AppState {
     pub store: Arc<JsonScheduledPostStore>,
     pub config_path: String,
     pub sessions: Arc<tokio::sync::RwLock<HashMap<String, String>>>,
+    pub mcp_sessions: Arc<tokio::sync::RwLock<HashMap<String, tokio::sync::mpsc::Sender<axum::response::sse::Event>>>>,
 }
 
 pub async fn start_server(config: Config, config_path: String, port: u16) -> anyhow::Result<()> {
@@ -77,7 +78,15 @@ pub async fn start_server(config: Config, config_path: String, port: u16) -> any
     });
 
     let sessions = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
-    let state = Arc::new(AppState { config: config.clone(), timing_manager, store, config_path, sessions });
+    let mcp_sessions = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
+    let state = Arc::new(AppState {
+        config: config.clone(),
+        timing_manager,
+        store,
+        config_path,
+        sessions,
+        mcp_sessions,
+    });
 
     // CORS設定
     let cors = CorsLayer::permissive();
@@ -91,6 +100,8 @@ pub async fn start_server(config: Config, config_path: String, port: u16) -> any
         .route("/schedules", get(routes::get_schedules))
         .route("/schedules/{id}", put(routes::update_schedule).delete(routes::delete_schedule))
         .route("/schedules/{id}/post-now", post(routes::post_now_schedule))
+        .route("/mcp/sse", get(routes::mcp_sse_handler))
+        .route("/mcp/message", post(routes::mcp_message_handler))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
         .layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware));
 
@@ -224,13 +235,15 @@ mod tests {
         let timing_manager = TimingManager::new(&config);
         let store = Arc::new(JsonScheduledPostStore::new("data/test_scheduled_posts.json"));
         let sessions = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
-        
+        let mcp_sessions = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
+
         let state = Arc::new(AppState {
             config,
             timing_manager,
             store,
             config_path: "config.yaml".to_string(),
             sessions,
+            mcp_sessions,
         });
 
         // 認証付きAPIルートと未認証ルートを設定
