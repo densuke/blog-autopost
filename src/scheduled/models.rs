@@ -12,6 +12,9 @@ pub struct ScheduledPost {
     pub target_sns: Vec<String>,
     #[serde(default)]
     pub link_url: Option<String>,
+    /// 添付メディアをセンシティブコンテンツとして扱うか（現状 Misskey のみ対応）
+    #[serde(default)]
+    pub sensitive: bool,
     pub status: String, // "予約済み" (pending), "投稿済み" (posted), "失敗" (failed)
     pub error_message: Option<String>,
     pub created_at: DateTime<Local>,
@@ -34,6 +37,7 @@ impl ScheduledPost {
             media_files,
             target_sns,
             link_url: None,
+            sensitive: false,
             status: "予約済み".to_string(),
             error_message: None,
             created_at: now,

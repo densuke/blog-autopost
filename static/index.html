@@ -80,6 +80,14 @@
                 </div>
 
                 <div class="form-control mt-4">
+                    <label class="label cursor-pointer justify-start gap-3">
+                        <input type="checkbox" id="sensitive-flag" class="checkbox checkbox-warning checkbox-sm" />
+                        <span class="label-text text-slate-300 font-semibold">センシティブなメディアとして投稿する</span>
+                    </label>
+                    <span class="text-xs text-slate-500 ml-1">添付メディアがある場合のみ有効。現状 Misskey のみ対応します。</span>
+                </div>
+
+                <div class="form-control mt-4">
                     <label class="label">
                         <span class="label-text text-slate-300">Schedule</span>
                     </label>
@@ -485,6 +493,7 @@
             
             const checkedTargets = Array.from(document.querySelectorAll('input[name="sns-target"]:checked')).map(el => el.value);
             const scheduleType = document.querySelector('input[name="schedule-type"]:checked').value;
+            const sensitive = document.getElementById('sensitive-flag').checked;
             let scheduledAt = null;
 
             if (!text) {
@@ -540,7 +549,8 @@
                         link_url: linkUrl,
                         targets: checkedTargets,
                         schedule_type: scheduleType,
-                        scheduled_at: scheduledAt
+                        scheduled_at: scheduledAt,
+                        sensitive: sensitive
                     })
                 });
 
