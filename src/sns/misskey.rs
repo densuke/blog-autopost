@@ -24,18 +24,19 @@ impl MisskeyClient {
         })
     }
 
-    async fn upload_drive_file_data(&self, bytes: Vec<u8>, mime: &str) -> anyhow::Result<String> {
+    async fn upload_drive_file_data(&self, bytes: Vec<u8>, mime: &str, sensitive: bool) -> anyhow::Result<String> {
         let resizer = crate::image_resizer::ImageResizer::new(false);
         let resized_bytes = resizer.resize_image_data(&bytes, "misskey")?;
 
         let url = format!("{}/api/drive/files/create", self.base_url);
-        
+
         let part = reqwest::multipart::Part::bytes(resized_bytes)
             .file_name("image.jpg")
             .mime_str(mime)?;
-            
+
         let form = reqwest::multipart::Form::new()
             .text("i", self.access_token.clone())
+            .text("isSensitive", if sensitive { "true" } else { "false" })
             .part("file", part);
         
         let response = self.client.post(&url)
@@ -73,7 +74,7 @@ impl SnsClient for MisskeyClient {
             match super::download_image(&self.client, img_url).await {
                 Ok((bytes, mime)) => {
                     let upload_mime = if mime == "image/png" || mime == "image/jpeg" { mime } else { "image/jpeg".to_string() };
-                    match self.upload_drive_file_data(bytes, &upload_mime).await {
+                    match self.upload_drive_file_data(bytes, &upload_mime, content.sensitive).await {
                         Ok(id) => file_ids.push(id),
                         Err(e) => println!("Warning: Failed to upload file to Misskey: {}", e),
                     }
@@ -88,7 +89,7 @@ impl SnsClient for MisskeyClient {
                 match std::fs::read(path) {
                     Ok(bytes) => {
                         let mime = if path.ends_with(".png") { "image/png" } else { "image/jpeg" };
-                        match self.upload_drive_file_data(bytes, mime).await {
+                        match self.upload_drive_file_data(bytes, mime, content.sensitive).await {
                             Ok(id) => file_ids.push(id),
                             Err(e) => println!("Warning: Failed to upload local media to Misskey: {}", e),
                         }

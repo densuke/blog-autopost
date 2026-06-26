@@ -17,6 +17,7 @@ pub struct Runner<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExt
     dry_run: bool,
     limit: Option<usize>,
     debug: bool,
+    sensitive: bool,
 }
 
 impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor, U: UrlShortener> Runner<F, S, T, I, U> {
@@ -31,6 +32,7 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor, U: Ur
         dry_run: bool,
         limit: Option<usize>,
         debug: bool,
+        sensitive: bool,
     ) -> Self {
         Self {
             fetcher,
@@ -43,6 +45,7 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor, U: Ur
             dry_run,
             limit,
             debug,
+            sensitive,
         }
     }
 
@@ -135,6 +138,7 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor, U: Ur
                     image_url: article.image_url.clone(),
                     media_paths: None,
                     link_url: None,
+                    sensitive: self.sensitive,
                 };
 
                 if self.dry_run {
@@ -316,6 +320,7 @@ mod tests {
             false, // dry_run
             None,  // limit
             true,  // debug
+            false, // sensitive
         );
 
         let result = runner.run_once("http://feed.url", "test-feed").await.unwrap();
@@ -388,6 +393,7 @@ mod tests {
             false,      // dry_run
             Some(1),    // limit = 1
             false,      // debug
+            false,      // sensitive
         );
 
         let result = runner.run_once("http://feed.url", "test-feed").await.unwrap();

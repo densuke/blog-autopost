@@ -66,6 +66,7 @@ impl ScheduledPostExecutor {
                             image_url,
                             media_paths: media_paths_opt,
                             link_url: post.link_url.clone(),
+                            sensitive: false,
                         };
 
                         if self.dry_run {
