@@ -24,7 +24,7 @@ Blog AutoPost CLIのRust移植版（`blog-autopost-rs`）です。
 ## 🛠 動作要件とビルド
 
 ### 動作要件
-- **Rust (MSRV 1.75以上)**
+- **Rust 1.85以上** (edition 2024 を使用)
 - **CMake** (依存する暗号化ライブラリのビルドで必要となる場合があります)
 - **just** (コマンドランナー、任意)
 
@@ -40,6 +40,24 @@ cargo build
 # リリース用バイナリのビルド (target/release/blog-autopost-rs が生成されます)
 cargo build --release
 ```
+
+### x86_64 Linux 向けクロスビルドと配布パッケージ
+他アーキテクチャ（例: macOS arm64）から x86_64 Linux 向けの完全静的バイナリ（musl）を作成できます。`cross` と起動中の Docker が必要です。
+
+```bash
+# cross の導入（初回のみ）
+cargo install cross
+
+# x86_64 Linux (musl/静的リンク) 向けリリースビルド
+#   → target/x86_64-unknown-linux-musl/release/blog-autopost-rs
+just build-x86
+
+# 配布用 tar.gz を作成（バイナリ + static/ + config.yml.template をまとめる）
+#   → target/dist/blog-autopost-rs-x86_64-linux-musl-<日時>.tar.gz
+just dist
+```
+
+`just dist` で作成したアーカイブを展開すると `blog-autopost-rs/` ディレクトリにバイナリ・`static/`・`config.yml.template` が入っています。サーバー上では **このディレクトリをカレントにして起動** してください（`static/` と `config.yml` を実行時に参照するため）。秘密情報を含む `config.yml` はアーカイブに含めないので、`config.yml.template` をコピーして設定してください。
 
 ### justを使用したコマンド実行
 コマンドランナー `just` を導入している場合、定義済みのショートカットが使えます。
@@ -91,9 +109,10 @@ curl -H "Authorization: Bearer your-api-secret-token" http://localhost:8080/api/
 
 ## 💻 CLIコマンドの使い方
 
-サブコマンドを指定して実行します。
+サブコマンドを指定して実行します。サブコマンドを付けずに起動するとヘルプを表示します。
 
-### 1. `run` (ブログ更新チェックと自動投稿)
+### 1. `run` (デーモンとして定期実行)
+スケジューラを起動し、RSS監視と予約投稿の実行を定期的に行い続けます（常駐用）。
 ```bash
 # ドライラン（投稿シミュレーション）で実行
 cargo run -- run --dry-run
@@ -105,7 +124,23 @@ cargo run -- run --limit 2
 cargo run -- run --debug
 ```
 
-### 2. `post` (SNSへのテキスト直接投稿)
+### 2. `check` (RSSを一度だけチェックして新着を投稿)
+本家Python版の引数なし起動に相当する「RSSをチェックし新着記事を各SNSへ投稿」を1回だけ実行します。cron などから定期実行する用途に向きます。設定された全フィードが対象です。
+```bash
+# まずドライランで投稿内容を確認（推奨）
+cargo run -- check --dry-run
+
+# 投稿先SNSを限定（カンマ区切り。'-名前'で除外、'all'で全件）
+cargo run -- check --sns misskey
+cargo run -- check --sns "x,bluesky"
+cargo run -- check --sns "-x"   # X以外へ投稿
+
+# 本投稿
+cargo run -- check
+```
+> 初回の `check` は未投稿の記事がまとめて投稿される場合があります。事前に `touch` で既読化するか、`--dry-run` / `--limit` で確認することを推奨します。
+
+### 3. `post` (SNSへのテキスト直接投稿)
 ```bash
 # 全SNSに直接投稿
 cargo run -- post -t "これは直接投稿のテストです。"
@@ -115,21 +150,28 @@ cargo run -- post -t "テスト" --sns "bluesky,x"
 
 # 画像やリンクカードの添付
 cargo run -- post -t "ブログを更新しました" --media "/path/to/image.jpg" --link "https://example.com/article"
+
+# 添付メディアをセンシティブ扱いで投稿（現状 Misskey のみ対応）
+cargo run -- --sensitive post -t "閲覧注意" --media "/path/to/image.jpg"
 ```
 
-### 3. `serve` (Web UIダッシュボードの起動)
+### 4. `serve` (Web UIダッシュボードの起動)
 ```bash
 # 指定ポート（デフォルト: 8080）で起動
 cargo run -- serve --port 9080
 ```
+Web UI の投稿フォームにもセンシティブ指定のチェックボックスがあり、即時投稿・予約投稿の双方で利用できます（Misskey のみ有効）。
 
-### 4. `touch` (新着フィードの既読化)
+### 5. `touch` (新着フィードの既読化)
 ```bash
 # 現在のフィード記事をすべて「投稿済み（既読）」としてマーク
 cargo run -- touch
+
+# 取得・解析の診断情報（HTTPステータス・本文サイズ等）を表示
+cargo run -- --verbose touch
 ```
 
-### 5. `schedule` (予約投稿のCLI管理)
+### 6. `schedule` (予約投稿のCLI管理)
 ブラウザやWeb UIを使わずに、CLIから直接予約投稿の一覧、追加、削除、変更を行えます。
 ```bash
 # 予約投稿の一覧を表示（予定時刻順）
@@ -151,6 +193,17 @@ cargo run -- schedule update post-1234567890 --text "変更後のテキスト" -
 cargo run -- schedule delete post-1234567890
 ```
 *(※ `--media` オプションでローカルの画像を予約に添付した際、元のファイルが削除されても送信時にエラーにならないよう、自動的に `data/uploads/` ディレクトリへ安全にコピー退避されます)*
+
+---
+
+## 📌 対応SNSと現状の制限
+
+- **対応SNS**: X, Bluesky, Mastodon, Misskey
+- **グローバルオプション**（サブコマンドより前に指定）: `--config <path>`, `--limit <n>`, `--debug`, `--verbose`, `--sensitive`, `--list-sns`, `--list-feeds`
+- **Python版にあって未対応の機能**:
+  - Threads / Tumblr プラグイン（移植対象外）
+  - `--feed`（フィード単位の絞り込み）。`check` は設定された全フィードを処理します
+  - `--optimize`（直接投稿時の明示的な最適化指定）。`post` は文字数超過時の自動URL短縮のみ行います
 
 ---
 
