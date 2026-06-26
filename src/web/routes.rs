@@ -49,6 +49,9 @@ pub struct ManualPostRequest {
     pub targets: Option<Vec<String>>,
     pub schedule_type: Option<String>,
     pub scheduled_at: Option<String>,
+    /// 添付メディアをセンシティブコンテンツとして扱うか（現状 Misskey のみ対応）
+    #[serde(default)]
+    pub sensitive: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -111,7 +114,7 @@ pub async fn manual_post(
             image_url: payload.image_url,
             media_paths: payload.media_paths,
             link_url: payload.link_url,
-            sensitive: false,
+            sensitive: payload.sensitive.unwrap_or(false),
         };
 
         let mut results = Vec::new();
@@ -256,6 +259,7 @@ pub async fn manual_post(
                 vec![sns_name.clone()],
             );
             post.link_url = payload.link_url.clone();
+            post.sensitive = payload.sensitive.unwrap_or(false);
 
             match state.store.create_post(post).await {
                 Ok(_) => {
@@ -566,7 +570,7 @@ pub async fn post_now_schedule(
         image_url,
         media_paths: media_paths_opt,
         link_url: post.link_url.clone(),
-        sensitive: false,
+        sensitive: post.sensitive,
     };
 
     let mut results = Vec::new();
