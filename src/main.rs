@@ -46,6 +46,12 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
+    /// RSSフィードを一度だけチェックし、新着記事を各SNSへ投稿する
+    Check {
+        /// ドライランモード（実際のSNSへの投稿とDB保存を行わない）
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// 任意のテキストを指定したSNSへ手動投稿する
     Post {
         /// 投稿するテキスト
@@ -220,39 +226,12 @@ async fn main() -> anyhow::Result<()> {
             }
             
             // SnsClient のリストを生成
-            let mut sns_clients: Vec<std::sync::Arc<dyn SnsClient + Send + Sync>> = Vec::new();
-            for sns_conf in &config_data.sns {
-                match sns_conf {
-                    config::SnsConfig::Mastodon { instance_url, access_token, name, .. } => {
-                        if let Ok(client) = MastodonClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
-                            sns_clients.push(std::sync::Arc::new(client));
-                        }
-                    }
-                    config::SnsConfig::Misskey { instance_url, access_token, name, .. } => {
-                        if let Ok(client) = MisskeyClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
-                            sns_clients.push(std::sync::Arc::new(client));
-                        }
-                    }
-                    config::SnsConfig::Bluesky { identifier, password, name, .. } => {
-                        if let Ok(client) = BlueskyClient::new(identifier.clone(), password.clone(), name.clone()) {
-                            sns_clients.push(std::sync::Arc::new(client));
-                        }
-                    }
-                    config::SnsConfig::X { consumer_key, consumer_secret, access_token, access_token_secret, name } => {
-                        if let Ok(client) = XClient::new(consumer_key.clone(), consumer_secret.clone(), access_token.clone(), access_token_secret.clone(), name.clone()) {
-                            sns_clients.push(std::sync::Arc::new(client));
-                        }
-                    }
-                    _ => {
-                        println!("Unknown or unsupported SNS configuration found.");
-                    }
-                }
-            }
+            let sns_clients = build_sns_clients(&config_data);
 
             if sns_clients.is_empty() {
                 println!("Warning: No valid SNS clients configured.");
             }
-            
+
             // ブログ設定を取得（複数ある場合は最初の一つ。今後は複数対応も可能）
             let blog_conf = config_data.blog.clone().and_then(|mut blogs| if blogs.is_empty() { None } else { Some(blogs.remove(0)) });
             let feed_url = blog_conf.as_ref().map(|b| b.feed_url.clone()).unwrap_or_default();
@@ -329,8 +308,74 @@ async fn main() -> anyhow::Result<()> {
             })?).await?;
 
             sched.start().await?;
-            
+
             tokio::time::sleep(std::time::Duration::from_secs(60 * 60 * 24)).await;
+        }
+        Commands::Check { dry_run } => {
+            println!("Checking RSS feeds for new articles...");
+            if dry_run {
+                println!("*** DRY RUN MODE ENABLED ***");
+            }
+
+            // SnsClient のリストを生成
+            let sns_clients = build_sns_clients(&config_data);
+            if sns_clients.is_empty() {
+                println!("Warning: No valid SNS clients configured.");
+            }
+
+            // 設定済みの全フィードを対象にする（Python版の通常RSS監視モード相当）
+            let feeds: Vec<(String, String)> = config_data
+                .blog
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|b| (b.feed_url, b.name))
+                .filter(|(url, _)| !url.is_empty())
+                .collect();
+
+            if feeds.is_empty() {
+                println!("Warning: No feed_url configured. Nothing to check.");
+                return Ok(());
+            }
+
+            let fetcher = article::feed_fetcher::DefaultFeedFetcher::new();
+            let store = article::store::JsonArticleStore::new("data/articles.json");
+            let text_optimizer = text::optimizer::DefaultTextOptimizer::new();
+            let image_extractor = article::image_extractor::OgpImageExtractor::new();
+            let url_shortener = text::shortener::IsGdUrlShortener::new();
+            std::fs::create_dir_all("data").ok();
+
+            let runner = runner::Runner::new(
+                fetcher,
+                store,
+                text_optimizer,
+                image_extractor,
+                url_shortener,
+                sns_clients,
+                config_data,
+                dry_run,
+                cli.limit,
+                cli.debug,
+            );
+
+            let mut total = 0usize;
+            for (feed_url, feed_name) in &feeds {
+                println!("--- Feed: {} ({}) ---", feed_name, feed_url);
+                match runner.run_once(feed_url, feed_name).await {
+                    Ok(articles) => {
+                        if articles.is_empty() {
+                            println!("No new articles found.");
+                        } else {
+                            println!("Processed {} new articles.", articles.len());
+                            total += articles.len();
+                        }
+                    }
+                    Err(e) => {
+                        println!("Error checking feed '{}': {:?}", feed_name, e);
+                    }
+                }
+            }
+            println!("Done. Total {} new articles processed.", total);
         }
         Commands::Post { text, sns, instance_url, token, media, link } => {
             let mut sns_clients: Vec<std::sync::Arc<dyn SnsClient + Send + Sync>> = Vec::new();
@@ -768,6 +813,44 @@ async fn main() -> anyhow::Result<()> {
     }
     
     Ok(())
+}
+
+/// 設定から SNS クライアントのリストを構築する。
+///
+/// Run / Check の両コマンドで共通して使用する。生成に失敗したアカウントは
+/// スキップされ、未対応の設定が見つかった場合は警告を表示する。
+fn build_sns_clients(
+    config_data: &config::Config,
+) -> Vec<std::sync::Arc<dyn SnsClient + Send + Sync>> {
+    let mut sns_clients: Vec<std::sync::Arc<dyn SnsClient + Send + Sync>> = Vec::new();
+    for sns_conf in &config_data.sns {
+        match sns_conf {
+            config::SnsConfig::Mastodon { instance_url, access_token, name, .. } => {
+                if let Ok(client) = MastodonClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
+                    sns_clients.push(std::sync::Arc::new(client));
+                }
+            }
+            config::SnsConfig::Misskey { instance_url, access_token, name, .. } => {
+                if let Ok(client) = MisskeyClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
+                    sns_clients.push(std::sync::Arc::new(client));
+                }
+            }
+            config::SnsConfig::Bluesky { identifier, password, name, .. } => {
+                if let Ok(client) = BlueskyClient::new(identifier.clone(), password.clone(), name.clone()) {
+                    sns_clients.push(std::sync::Arc::new(client));
+                }
+            }
+            config::SnsConfig::X { consumer_key, consumer_secret, access_token, access_token_secret, name } => {
+                if let Ok(client) = XClient::new(consumer_key.clone(), consumer_secret.clone(), access_token.clone(), access_token_secret.clone(), name.clone()) {
+                    sns_clients.push(std::sync::Arc::new(client));
+                }
+            }
+            _ => {
+                println!("Unknown or unsupported SNS configuration found.");
+            }
+        }
+    }
+    sns_clients
 }
 
 fn list_sns(config: &config::Config) {
