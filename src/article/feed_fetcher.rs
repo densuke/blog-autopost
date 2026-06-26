@@ -43,6 +43,61 @@ impl DefaultFeedFetcher {
     }
 }
 
+impl DefaultFeedFetcher {
+    /// 診断情報付きでフィードを取得・解析する。
+    ///
+    /// `verbose` が真のとき、HTTP ステータス・Content-Type・本文サイズを表示し、
+    /// 解析に失敗した場合は本文の先頭部分をダンプして原因究明を助ける。
+    pub async fn fetch_articles_verbose(
+        &self,
+        feed_url: &str,
+        feed_name: &str,
+        verbose: bool,
+    ) -> anyhow::Result<Vec<Article>> {
+        if verbose {
+            eprintln!("[verbose] GET {feed_url}");
+        }
+        let response = reqwest::get(feed_url).await?;
+
+        if verbose {
+            let status = response.status();
+            let content_type = response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("(none)")
+                .to_string();
+            let final_url = response.url().to_string();
+            eprintln!("[verbose] status = {status}");
+            eprintln!("[verbose] content-type = {content_type}");
+            eprintln!("[verbose] final url = {final_url}");
+        }
+
+        let bytes = response.bytes().await?;
+        if verbose {
+            eprintln!("[verbose] body size = {} bytes", bytes.len());
+        }
+
+        match Self::parse_feed(&bytes, feed_name) {
+            Ok(articles) => {
+                if verbose {
+                    eprintln!("[verbose] parsed {} entries", articles.len());
+                }
+                Ok(articles)
+            }
+            Err(e) => {
+                if verbose {
+                    let head_len = bytes.len().min(1000);
+                    let head = String::from_utf8_lossy(&bytes[..head_len]);
+                    eprintln!("[verbose] parse failed: {e}");
+                    eprintln!("[verbose] body head ({head_len} bytes):\n{head}");
+                }
+                Err(e)
+            }
+        }
+    }
+}
+
 impl Default for DefaultFeedFetcher {
     fn default() -> Self {
         Self::new()

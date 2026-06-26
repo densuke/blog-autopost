@@ -22,6 +22,10 @@ struct Cli {
     #[arg(long)]
     debug: bool,
 
+    /// フィード取得などの詳細な診断情報を表示します
+    #[arg(short, long)]
+    verbose: bool,
+
     /// 登録されているSNSアカウントの一覧を表示します
     #[arg(long)]
     list_sns: bool,
@@ -202,8 +206,10 @@ async fn main() -> anyhow::Result<()> {
             let store = article::store::JsonArticleStore::new("data/articles.json");
             std::fs::create_dir_all("data").ok();
 
-            use crate::article::traits::{FeedFetcher, ArticleStore};
-            let latest_articles = fetcher.fetch_articles(&feed_url, &feed_name).await?;
+            use crate::article::traits::ArticleStore;
+            let latest_articles = fetcher
+                .fetch_articles_verbose(&feed_url, &feed_name, cli.verbose || cli.debug)
+                .await?;
             store.save_articles(&latest_articles).await?;
             println!("Successfully marked {} articles as read.", latest_articles.len());
         }
