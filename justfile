@@ -55,6 +55,29 @@ build-x86:
     @ls -lh target/x86_64-unknown-linux-musl/release/blog-autopost-rs
     @shasum -a 256 target/x86_64-unknown-linux-musl/release/blog-autopost-rs
 
+# 配布用tar.gzを作成 (x86_64 Linux musl バイナリ + static/ + 設定テンプレート)
+# 先に build-x86 を実行してから、サーバーへ転送・展開できる形にまとめる。
+# 秘密情報を含む config.yml は同梱せず、config.yml.template を入れる。
+dist: build-x86
+    #!/usr/bin/env bash
+    set -euo pipefail
+    stage="target/dist/blog-autopost-rs"
+    rm -rf "$stage"
+    mkdir -p "$stage"
+    cp target/x86_64-unknown-linux-musl/release/blog-autopost-rs "$stage/"
+    cp -r static "$stage/"
+    cp config.yml.template "$stage/"
+    [ -f README_RS.md ] && cp README_RS.md "$stage/"
+    ts=$(date +%Y%m%d%H%M%S)
+    out="target/dist/blog-autopost-rs-x86_64-linux-musl-${ts}.tar.gz"
+    tar -czf "$out" -C target/dist blog-autopost-rs
+    echo ""
+    echo "配布アーカイブ: $out"
+    ls -lh "$out"
+    shasum -a 256 "$out"
+    echo ""
+    echo "展開後、blog-autopost-rs ディレクトリ内で config.yml.template を config.yml にコピーして設定してください。"
+
 
 # 使用例とヘルプ
 help:
@@ -84,6 +107,7 @@ help:
     @echo ""
     @echo "リリースビルド:"
     @echo "  just build-x86                     # x86_64 Linux(musl/静的)向けビルド (要 cross + Docker)"
+    @echo "  just dist                          # 配布用tar.gz作成 (バイナリ+static+設定テンプレート)"
     @echo ""
     @echo "メンテナンス:"
     @echo "  just touch-rss-posted              # 全RSSフィードを既読にする"
