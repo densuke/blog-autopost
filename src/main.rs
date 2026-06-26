@@ -26,6 +26,10 @@ struct Cli {
     #[arg(short, long)]
     verbose: bool,
 
+    /// 添付メディアをセンシティブコンテンツとして扱います（現状 Misskey のみ対応）
+    #[arg(long)]
+    sensitive: bool,
+
     /// 登録されているSNSアカウントの一覧を表示します
     #[arg(long)]
     list_sns: bool,
@@ -51,6 +55,10 @@ enum Commands {
         /// ドライランモード（実際のSNSへの投稿とDB保存を行わない）
         #[arg(long)]
         dry_run: bool,
+
+        /// 投稿先のSNSを限定する（カンマ区切り。'-名前'で除外、'all'で全件）。省略時は全SNS
+        #[arg(short, long)]
+        sns: Option<String>,
     },
     /// 任意のテキストを指定したSNSへ手動投稿する
     Post {
@@ -261,6 +269,7 @@ async fn main() -> anyhow::Result<()> {
                 dry_run,
                 cli.limit,
                 cli.debug,
+                cli.sensitive,
             ));
 
             let scheduled_store = std::sync::Arc::new(scheduled::JsonScheduledPostStore::new("data/scheduled_posts.json"));
@@ -311,16 +320,22 @@ async fn main() -> anyhow::Result<()> {
 
             tokio::time::sleep(std::time::Duration::from_secs(60 * 60 * 24)).await;
         }
-        Commands::Check { dry_run } => {
+        Commands::Check { dry_run, sns } => {
             println!("Checking RSS feeds for new articles...");
             if dry_run {
                 println!("*** DRY RUN MODE ENABLED ***");
             }
 
-            // SnsClient のリストを生成
-            let sns_clients = build_sns_clients(&config_data);
+            // SnsClient のリストを生成し、--sns 指定があれば絞り込む
+            let sns_clients = filter_sns_clients(build_sns_clients(&config_data), sns.as_deref());
             if sns_clients.is_empty() {
                 println!("Warning: No valid SNS clients configured.");
+            } else if cli.debug {
+                let names: Vec<String> = sns_clients
+                    .iter()
+                    .map(|c| format!("{} ({})", c.name(), c.account_name()))
+                    .collect();
+                println!("[DEBUG] 投稿対象SNS: {}", names.join(", "));
             }
 
             // 設定済みの全フィードを対象にする（Python版の通常RSS監視モード相当）
@@ -356,6 +371,7 @@ async fn main() -> anyhow::Result<()> {
                 dry_run,
                 cli.limit,
                 cli.debug,
+                cli.sensitive,
             );
 
             let mut total = 0usize;
@@ -542,6 +558,7 @@ async fn main() -> anyhow::Result<()> {
                             image_url: None,
                             media_paths: media.clone(),
                             link_url: final_link,
+                            sensitive: cli.sensitive,
                         }
                     ));
                 }
@@ -853,6 +870,54 @@ fn build_sns_clients(
     sns_clients
 }
 
+/// SNS クライアントのリストを --sns 指定で絞り込む。
+///
+/// `spec` はカンマ区切りで、SNS種別(例: 'mastodon')またはアカウント名
+/// (例: 'mastodon-social')を指定する。先頭に '-' を付けると除外、'all' で
+/// 全件対象。`None` または有効な指定が無い場合は全件をそのまま返す。
+/// 判定は SnsClient の name()（種別）と account_name()（アカウント名）の
+/// 両方に対して大文字小文字を無視して行う。
+fn filter_sns_clients(
+    clients: Vec<std::sync::Arc<dyn SnsClient + Send + Sync>>,
+    spec: Option<&str>,
+) -> Vec<std::sync::Arc<dyn SnsClient + Send + Sync>> {
+    let mut included = std::collections::HashSet::new();
+    let mut excluded = std::collections::HashSet::new();
+    let mut has_all = false;
+
+    if let Some(spec) = spec {
+        for part in spec.split(',') {
+            let part = part.trim().to_lowercase();
+            if part.is_empty() {
+                continue;
+            }
+            if let Some(name) = part.strip_prefix('-') {
+                excluded.insert(name.to_string());
+            } else if part == "all" {
+                has_all = true;
+            } else {
+                included.insert(part);
+            }
+        }
+    }
+
+    let is_implicit_all = spec.is_none() || (included.is_empty() && !has_all);
+
+    clients
+        .into_iter()
+        .filter(|c| {
+            let kind = c.name().to_lowercase();
+            let account = c.account_name().to_lowercase();
+            let is_targeted = is_implicit_all
+                || has_all
+                || included.contains(&kind)
+                || included.contains(&account);
+            let is_excluded = excluded.contains(&kind) || excluded.contains(&account);
+            is_targeted && !is_excluded
+        })
+        .collect()
+}
+
 fn list_sns(config: &config::Config) {
     println!("=== 登録されているSNSアカウント一覧 ===");
     println!("設定形式: 配列形式（複数アカウント対応）");
@@ -951,4 +1016,92 @@ fn list_feeds(config: &config::Config) {
     }
 
     println!("注意: --feed オプションでは上記の名前を指定できます。");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use blog_autopost_rs::sns::models::{PostContent, PostResult};
+    use blog_autopost_rs::sns::traits::SnsClient;
+
+    /// テスト用のダミー SNS クライアント。name() と account_name() のみ意味を持つ。
+    struct DummyClient {
+        kind: String,
+        account: String,
+    }
+
+    #[async_trait::async_trait]
+    impl SnsClient for DummyClient {
+        fn name(&self) -> &str {
+            &self.kind
+        }
+        fn account_name(&self) -> &str {
+            &self.account
+        }
+        async fn post(&self, _content: &PostContent) -> anyhow::Result<PostResult> {
+            Ok(PostResult { success: true, post_id: None, error_message: None })
+        }
+        fn max_characters(&self) -> usize {
+            500
+        }
+    }
+
+    fn dummy(kind: &str, account: &str) -> std::sync::Arc<dyn SnsClient + Send + Sync> {
+        std::sync::Arc::new(DummyClient { kind: kind.to_string(), account: account.to_string() })
+    }
+
+    fn names(clients: &[std::sync::Arc<dyn SnsClient + Send + Sync>]) -> Vec<String> {
+        clients.iter().map(|c| c.account_name().to_string()).collect()
+    }
+
+    fn sample() -> Vec<std::sync::Arc<dyn SnsClient + Send + Sync>> {
+        vec![
+            dummy("x", "x"),
+            dummy("bluesky", "bluesky"),
+            dummy("mastodon", "mastodon-social"),
+            dummy("misskey", "misskey-io"),
+        ]
+    }
+
+    #[test]
+    fn test_filter_none_returns_all() {
+        let result = filter_sns_clients(sample(), None);
+        assert_eq!(result.len(), 4);
+    }
+
+    #[test]
+    fn test_filter_by_kind() {
+        let result = filter_sns_clients(sample(), Some("misskey"));
+        assert_eq!(names(&result), vec!["misskey-io"]);
+    }
+
+    #[test]
+    fn test_filter_by_account_name() {
+        let result = filter_sns_clients(sample(), Some("mastodon-social"));
+        assert_eq!(names(&result), vec!["mastodon-social"]);
+    }
+
+    #[test]
+    fn test_filter_multiple_included() {
+        let result = filter_sns_clients(sample(), Some("x,bluesky"));
+        assert_eq!(names(&result), vec!["x", "bluesky"]);
+    }
+
+    #[test]
+    fn test_filter_exclude() {
+        let result = filter_sns_clients(sample(), Some("-x"));
+        assert_eq!(names(&result), vec!["bluesky", "mastodon-social", "misskey-io"]);
+    }
+
+    #[test]
+    fn test_filter_all_keyword() {
+        let result = filter_sns_clients(sample(), Some("all"));
+        assert_eq!(result.len(), 4);
+    }
+
+    #[test]
+    fn test_filter_case_insensitive() {
+        let result = filter_sns_clients(sample(), Some("MISSKEY"));
+        assert_eq!(names(&result), vec!["misskey-io"]);
+    }
 }

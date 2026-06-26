@@ -111,6 +111,7 @@ pub async fn manual_post(
             image_url: payload.image_url,
             media_paths: payload.media_paths,
             link_url: payload.link_url,
+            sensitive: false,
         };
 
         let mut results = Vec::new();
@@ -565,6 +566,7 @@ pub async fn post_now_schedule(
         image_url,
         media_paths: media_paths_opt,
         link_url: post.link_url.clone(),
+        sensitive: false,
     };
 
     let mut results = Vec::new();
@@ -1295,6 +1297,7 @@ async fn handle_tool_call(
                 image_url: None,
                 media_paths: if processed_media.is_empty() { None } else { Some(processed_media) },
                 link_url: link,
+                sensitive: false,
             };
 
             let mut out = String::new();
