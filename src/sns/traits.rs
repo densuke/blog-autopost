@@ -15,4 +15,13 @@ pub trait SnsClient {
     
     /// このSNSの最大文字数制限を返す
     fn max_characters(&self) -> usize;
+
+    /// 文字数計算におけるURL1個分の重み（文字数）を返す。
+    ///
+    /// X(t.co)やMastodonはリンクを実際の長さに関わらず一律23文字として
+    /// カウントするため、それらは23を返すように override する。
+    /// 既定では実際のURL長(文字数)を返す。
+    fn url_char_weight(&self, url: &str) -> usize {
+        url.chars().count()
+    }
 }

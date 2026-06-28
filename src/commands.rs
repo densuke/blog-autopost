@@ -63,7 +63,6 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
             let store = article::store::JsonArticleStore::new("data/articles.json");
             let text_optimizer = text::optimizer::DefaultTextOptimizer::new();
             let image_extractor = article::image_extractor::OgpImageExtractor::new();
-            let url_shortener = text::shortener::IsGdUrlShortener::new();
 
             // dataディレクトリが無ければ作成する
             std::fs::create_dir_all("data").ok();
@@ -73,7 +72,6 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
                 store,
                 text_optimizer,
                 image_extractor,
-                url_shortener,
                 sns_clients.clone(),
                 config_data,
                 dry_run,
@@ -167,7 +165,6 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
             let store = article::store::JsonArticleStore::new("data/articles.json");
             let text_optimizer = text::optimizer::DefaultTextOptimizer::new();
             let image_extractor = article::image_extractor::OgpImageExtractor::new();
-            let url_shortener = text::shortener::IsGdUrlShortener::new();
             std::fs::create_dir_all("data").ok();
 
             let runner = runner::Runner::new(
@@ -175,7 +172,6 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
                 store,
                 text_optimizer,
                 image_extractor,
-                url_shortener,
                 sns_clients,
                 config_data,
                 dry_run,
@@ -312,10 +308,7 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
                 return Ok(());
             }
 
-            // 3. 送信前チェックとURL短縮の適用
-            use blog_autopost_rs::text::traits::UrlShortener;
-            let shortener = text::shortener::IsGdUrlShortener::new();
-
+            // 3. 送信前の文字数チェック
             let mut client_post_contents = Vec::new();
             let mut length_errors = Vec::new();
 
@@ -323,32 +316,16 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
                 let max_len = client.max_characters();
 
                 let final_text = text.clone();
-                let mut final_link = link.clone();
+                let final_link = link.clone();
 
+                // Blueskyはリンクカードとして添付するため本文の文字数に含めない
                 let is_link_card_sns = client.name() == "bluesky";
 
                 let mut current_len = final_text.chars().count();
                 if !is_link_card_sns {
                     if let Some(ref l) = final_link {
-                        current_len += 1 + l.chars().count(); // +1 for space
-                    }
-                }
-
-                if current_len > max_len {
-                    if let Some(ref l) = final_link {
-                        println!("URL is too long for {} (limit: {} chars). Trying to shorten...", client.name(), max_len);
-                        match shortener.shorten(l).await {
-                            Ok(short_url) => {
-                                final_link = Some(short_url.clone());
-                                current_len = final_text.chars().count();
-                                if !is_link_card_sns {
-                                    current_len += 1 + short_url.chars().count();
-                                }
-                            }
-                            Err(e) => {
-                                println!("Warning: Failed to shorten URL for {}: {:?}", client.name(), e);
-                            }
-                        }
+                        // URLの文字数はSNSごとの重みで計算する(X/Mastodonは一律23文字)
+                        current_len += 1 + client.url_char_weight(l); // +1 for space
                     }
                 }
 
