@@ -129,6 +129,11 @@ impl SnsClient for XClient {
         280
     }
 
+    /// Xはt.coによりURLを実際の長さに関わらず一律23文字としてカウントする
+    fn url_char_weight(&self, _url: &str) -> usize {
+        23
+    }
+
     async fn post(&self, content: &PostContent) -> Result<PostResult, anyhow::Error> {
         let mut media_ids = Vec::new();
 

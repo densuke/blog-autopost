@@ -4,14 +4,13 @@ use std::sync::Arc;
 use crate::config::Config;
 use crate::sns::traits::SnsClient;
 use crate::sns::models::PostContent;
-use crate::text::traits::{TextOptimizer, UrlShortener};
+use crate::text::traits::TextOptimizer;
 
-pub struct Runner<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor, U: UrlShortener> {
+pub struct Runner<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor> {
     fetcher: F,
     store: S,
     text_optimizer: T,
     image_extractor: I,
-    url_shortener: U,
     sns_clients: Vec<Arc<dyn SnsClient + Send + Sync>>,
     config: Config,
     dry_run: bool,
@@ -20,13 +19,12 @@ pub struct Runner<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExt
     sensitive: bool,
 }
 
-impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor, U: UrlShortener> Runner<F, S, T, I, U> {
+impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor> Runner<F, S, T, I> {
     pub fn new(
         fetcher: F,
         store: S,
         text_optimizer: T,
         image_extractor: I,
-        url_shortener: U,
         sns_clients: Vec<Arc<dyn SnsClient + Send + Sync>>,
         config: Config,
         dry_run: bool,
@@ -39,7 +37,6 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor, U: Ur
             store,
             text_optimizer,
             image_extractor,
-            url_shortener,
             sns_clients,
             config,
             dry_run,
@@ -91,20 +88,11 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor, U: Ur
                 }
             }
 
-            // URLの短縮
-            let mut final_link = article.link.clone();
-            if let Ok(short_url) = self.url_shortener.shorten(&article.link).await {
-                if self.debug {
-                    println!("[DEBUG] Shortened URL from '{}' to '{}'", article.link, short_url);
-                }
-                final_link = short_url;
-            } else if self.debug {
-                println!("[DEBUG] Failed to shorten URL for: {}", article.link);
-            }
-
-            // 差し替え用にクローンを作って書き換える
-            let mut display_article = article.clone();
-            display_article.link = final_link;
+            // 記事のリンクはそのまま使用する。
+            // is.gd等による短縮は廃止した。X(t.co)やMastodonはURLを一律23文字に
+            // 丸めて扱い、Bluesky/Misskeyも実URLで問題ないため短縮は不要であり、
+            // 短縮サービスのエラー応答がURLを破壊する不具合を避ける狙いもある。
+            let display_article = article.clone();
 
             for client in &self.sns_clients {
                 // テンプレートの取得
@@ -119,11 +107,13 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor, U: Ur
                 }
 
                 // テキスト整形
+                let link_weight = client.url_char_weight(&display_article.link);
                 let optimized_text = self.text_optimizer.optimize(
                     &display_article,
                     template,
                     client.max_characters(),
-                    self.config.announcement_text.as_deref()
+                    self.config.announcement_text.as_deref(),
+                    link_weight,
                 ).await.unwrap_or_else(|e| {
                     println!("Failed to optimize text: {}", e);
                     display_article.title.clone()
@@ -179,7 +169,7 @@ mod tests {
     use super::*;
     use crate::article::models::Article;
     use crate::article::traits::{ArticleStore, FeedFetcher, ImageExtractor};
-    use crate::text::traits::{TextOptimizer, UrlShortener};
+    use crate::text::traits::TextOptimizer;
     use crate::sns::models::{PostContent, PostResult};
     use crate::sns::traits::SnsClient;
     use async_trait::async_trait;
@@ -230,16 +220,9 @@ mod tests {
             template: &str,
             _max_length: usize,
             _announcement: Option<&str>,
+            _link_weight: usize,
         ) -> anyhow::Result<String> {
             Ok(template.replace("{title}", &article.title).replace("{link}", &article.link))
-        }
-    }
-
-    struct MockUrlShortener;
-    #[async_trait]
-    impl UrlShortener for MockUrlShortener {
-        async fn shorten(&self, url: &str) -> anyhow::Result<String> {
-            Ok(format!("http://short.en/{}", url.len()))
         }
     }
 
@@ -289,7 +272,6 @@ mod tests {
         let store = MockArticleStore { saved: saved_articles.clone() };
         let text_optimizer = MockTextOptimizer;
         let image_extractor = MockImageExtractor;
-        let url_shortener = MockUrlShortener;
 
         let sns_client = Arc::new(MockSnsClient {
             name: "mastodon".to_string(),
@@ -314,7 +296,6 @@ mod tests {
             store,
             text_optimizer,
             image_extractor,
-            url_shortener,
             vec![sns_client],
             config,
             false, // dry_run
@@ -336,7 +317,8 @@ mod tests {
         // 投稿された件数と内容
         let posted = posted_contents.lock().unwrap();
         assert_eq!(posted.len(), 1);
-        assert_eq!(posted[0].text, "Test Article 1 http://short.en/20");
+        // 短縮を廃止したため、実URLがそのまま投稿される
+        assert_eq!(posted[0].text, "Test Article 1 http://example.com/1");
     }
 
     #[tokio::test]
@@ -365,7 +347,6 @@ mod tests {
         let store = MockArticleStore { saved: saved_articles.clone() };
         let text_optimizer = MockTextOptimizer;
         let image_extractor = MockImageExtractor;
-        let url_shortener = MockUrlShortener;
 
         let sns_client = Arc::new(MockSnsClient {
             name: "mastodon".to_string(),
@@ -377,7 +358,6 @@ mod tests {
             store,
             text_optimizer,
             image_extractor,
-            url_shortener,
             vec![sns_client],
             Config {
                 announcement_text: None,

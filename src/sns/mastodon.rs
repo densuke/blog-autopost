@@ -138,6 +138,11 @@ impl SnsClient for MastodonClient {
     fn max_characters(&self) -> usize {
         500
     }
+
+    /// MastodonはリンクをURLの実際の長さに関わらず一律23文字としてカウントする
+    fn url_char_weight(&self, _url: &str) -> usize {
+        23
+    }
 }
 
 #[cfg(test)]
