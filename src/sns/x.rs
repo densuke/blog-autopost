@@ -59,16 +59,6 @@ impl XClient {
         })
     }
 
-    /// 画像をダウンロードするヘルパー
-    async fn download_image(&self, url: &str) -> Result<Vec<u8>> {
-        let resp = self.client.get(url).send().await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!("Failed to download image: HTTP {}", resp.status()));
-        }
-        let bytes = resp.bytes().await?;
-        Ok(bytes.to_vec())
-    }
-
     /// OAuth 1.0a Authorizationヘッダを生成する (POST用)
     fn generate_post_auth_header(&self, url: &str) -> String {
         let token = oauth1_request::Token::from_parts(
@@ -139,14 +129,17 @@ impl SnsClient for XClient {
 
         // 1. image_urlの処理
         if let Some(url) = &content.image_url {
-            match self.download_image(url).await {
-                Ok(bytes) => {
+            match super::download_image(&self.client, url).await {
+                Ok(Some((bytes, _mime))) => {
                     match self.upload_media(bytes).await {
                         Ok(media_id) => media_ids.push(media_id),
                         Err(e) => {
                             println!("[X] Warning: Failed to upload image: {}", e);
                         }
                     }
+                }
+                Ok(None) => {
+                    println!("[X] 画像ではないためスキップしました: {}", url);
                 }
                 Err(e) => {
                     println!("[X] Warning: Failed to download image: {}", e);

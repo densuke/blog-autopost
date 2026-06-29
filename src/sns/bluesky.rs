@@ -99,13 +99,14 @@ impl SnsClient for BlueskyClient {
         // 1. image_urlの処理
         if let Some(img_url) = &content.image_url {
             match super::download_image(&self.client, img_url).await {
-                Ok((bytes, mime)) => {
+                Ok(Some((bytes, mime))) => {
                     let upload_mime = if mime == "image/png" || mime == "image/jpeg" { mime } else { "image/jpeg".to_string() };
                     match self.upload_blob_data(bytes, &upload_mime, &access_jwt).await {
                         Ok(blob) => embed_blobs.push(blob),
                         Err(e) => println!("Warning: Failed to upload blob to Bluesky: {}", e),
                     }
                 }
+                Ok(None) => println!("[Bluesky] 画像ではないためスキップしました: {}", img_url),
                 Err(e) => println!("Warning: Failed to download image for Bluesky: {}", e),
             }
         }
@@ -132,10 +133,10 @@ impl SnsClient for BlueskyClient {
                 let ogp = fetch_ogp(&self.client, link_url).await;
                 let thumb_blob = if let Some(thumb_url) = ogp.image_url {
                     match super::download_image(&self.client, &thumb_url).await {
-                        Ok((bytes, mime)) => {
+                        Ok(Some((bytes, mime))) => {
                             self.upload_blob_data(bytes, &mime, &access_jwt).await.ok()
                         }
-                        Err(_) => None,
+                        Ok(None) | Err(_) => None,
                     }
                 } else {
                     None

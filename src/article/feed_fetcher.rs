@@ -25,10 +25,12 @@ impl DefaultFeedFetcher {
                 .or(entry.updated)
                 .unwrap_or_else(|| chrono::Utc::now());
 
+            // media に動画URL(YouTube等)が入っている場合があるため、
+            // 画像らしいURLのみを採用する。
             let image_url = entry.media.into_iter()
                 .flat_map(|m| m.content)
                 .filter_map(|c| c.url.map(|u| u.to_string()))
-                .next();
+                .find(|u| super::image_extractor::is_probable_image_url(u));
 
             articles.push(Article {
                 title,
