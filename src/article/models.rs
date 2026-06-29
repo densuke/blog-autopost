@@ -9,6 +9,10 @@ pub struct Article {
     pub published_parsed: DateTime<Utc>,
     pub image_url: Option<String>,
     pub feed_name: String,
+    /// 概要欄等から抽出したハッシュタグ(先頭の `#` を除いたタグ名)。
+    /// 旧データとの互換のため、未存在時は空とする。
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// `published_parsed` を寛容に解釈するデシリアライザ。

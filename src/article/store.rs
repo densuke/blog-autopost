@@ -99,6 +99,7 @@ mod tests {
             published_parsed: Utc::now(),
             image_url: None,
             feed_name: "dummy_feed".to_string(),
+            tags: Vec::new(),
         }
     }
 

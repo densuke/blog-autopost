@@ -94,6 +94,21 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor> Runne
             // 短縮サービスのエラー応答がURLを破壊する不具合を避ける狙いもある。
             let display_article = article.clone();
 
+            // 付与するタグを決める。タイトルに既出のタグは重複を避けて除外し、
+            // 多すぎないよう最大5個までとする。
+            const MAX_TAGS: usize = 5;
+            let title_tags: std::collections::HashSet<String> =
+                crate::text::tags::extract_hashtags(&display_article.title)
+                    .into_iter()
+                    .collect();
+            let post_tags: Vec<String> = display_article
+                .tags
+                .iter()
+                .filter(|t| !title_tags.contains(*t))
+                .take(MAX_TAGS)
+                .cloned()
+                .collect();
+
             for client in &self.sns_clients {
                 // テンプレートの取得
                 let template_key = client.name();
@@ -114,6 +129,7 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor> Runne
                     client.max_characters(),
                     self.config.announcement_text.as_deref(),
                     link_weight,
+                    &post_tags,
                 ).await.unwrap_or_else(|e| {
                     println!("Failed to optimize text: {}", e);
                     display_article.title.clone()
@@ -221,6 +237,7 @@ mod tests {
             _max_length: usize,
             _announcement: Option<&str>,
             _link_weight: usize,
+            _tags: &[String],
         ) -> anyhow::Result<String> {
             Ok(template.replace("{title}", &article.title).replace("{link}", &article.link))
         }
@@ -266,6 +283,7 @@ mod tests {
                     published_parsed: chrono::Utc::now(),
                     image_url: None,
                     feed_name: "test-feed".to_string(),
+                    tags: Vec::new(),
                 }
             ],
         };
@@ -334,6 +352,7 @@ mod tests {
                     published_parsed: chrono::Utc::now(),
                     image_url: None,
                     feed_name: "test-feed".to_string(),
+                    tags: Vec::new(),
                 },
                 Article {
                     title: "Test 2".to_string(),
@@ -341,6 +360,7 @@ mod tests {
                     published_parsed: chrono::Utc::now(),
                     image_url: None,
                     feed_name: "test-feed".to_string(),
+                    tags: Vec::new(),
                 }
             ],
         };
