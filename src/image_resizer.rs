@@ -63,24 +63,44 @@ impl ImageResizer {
         let limits = self.get_sns_limits(sns_type);
         self.debug_print(&format!("開始: {}, 元サイズ: {} bytes", sns_type, image_data.len()));
 
-        // 1. サイズ制限内かチェックするために一度デコードしてサイズと縦横を確認する
-        let img = match image::load_from_memory(image_data) {
-            Ok(img) => img,
-            Err(e) => {
-                self.debug_print(&format!("画像デコード失敗: {}", e));
-                return Ok(image_data.to_vec()); // エラーの場合は元のデータを返す
-            }
-        };
+        // 入力フォーマットを判定する(JPEG/PNG以外はJPEGへ再エンコードする方針のため)
+        let format = image::guess_format(image_data).ok();
+
+        // デコードする。失敗した場合(対応外形式: AVIF等)は元データを返さずエラーにする。
+        // 元バイトをそのまま送るとSNS側で「media type unrecognized」等で弾かれ、
+        // 何が起きたか分かりにくくなるため、ここで明確に失敗させて呼び出し側で
+        // 画像なし投稿へフォールバックさせる。
+        let img = image::load_from_memory(image_data).map_err(|e| {
+            self.debug_print(&format!("画像デコード失敗: {}", e));
+            anyhow::anyhow!("画像のデコードに失敗しました(対応外の形式の可能性): {}", e)
+        })?;
 
         let width = img.width();
         let height = img.height();
 
-        if image_data.len() <= limits.max_file_size && width <= limits.max_width && height <= limits.max_height {
-            self.debug_print("リサイズ不要");
+        // JPEG/PNGで上限内ならそのまま返す。各SNSのupload_mimeはpng/jpegはそのまま、
+        // それ以外はimage/jpegとして送るため、この2形式のみ無変換が安全。
+        let is_jpeg_or_png = matches!(
+            format,
+            Some(image::ImageFormat::Jpeg) | Some(image::ImageFormat::Png)
+        );
+        if is_jpeg_or_png
+            && image_data.len() <= limits.max_file_size
+            && width <= limits.max_width
+            && height <= limits.max_height
+        {
+            self.debug_print("変換不要(JPEG/PNGかつ上限内)");
             return Ok(image_data.to_vec());
         }
 
-        self.debug_print(&format!("元画像: {}x{}, 形式: {:?}", width, height, img.color()));
+        // ここから先は常にJPEGとして出力する(WebP等の非JPEG/PNG、または上限超過時)。
+        self.debug_print(&format!(
+            "JPEGへ再エンコード: {}x{}, 形式: {:?}, color: {:?}",
+            width,
+            height,
+            format,
+            img.color()
+        ));
 
         // 2. RGBA画像等の場合は白背景に重ねてRGBにする
         let rgb_img = match img {
@@ -197,10 +217,43 @@ mod tests {
         let resizer = ImageResizer::new(false);
         let data = create_dummy_image(3000, 3000);
         let result = resizer.resize_image_data(&data, "bluesky").unwrap();
-        
+
         let img = image::load_from_memory(&result).unwrap();
         assert!(img.width() <= 2000);
         assert!(img.height() <= 2000);
         assert!(result.len() <= 1024 * 1024);
+    }
+
+    /// JPEG/PNG以外(ここではBMP)は上限内でもJPEGへ変換されることを確認する。
+    /// upload_mimeがimage/jpegとして送るため、実体もJPEGである必要がある。
+    #[test]
+    fn test_non_jpeg_png_converted_to_jpeg() {
+        let resizer = ImageResizer::new(false);
+        // 100x100の小さなBMP(上限内)を作る
+        let img = ImageBuffer::from_fn(100, 100, |_, _| Rgb([0, 128, 255]));
+        let dynamic_img = DynamicImage::ImageRgb8(img);
+        let mut data = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut data);
+        dynamic_img
+            .write_to(&mut cursor, image::ImageFormat::Bmp)
+            .unwrap();
+        assert_eq!(image::guess_format(&data).unwrap(), image::ImageFormat::Bmp);
+
+        let result = resizer.resize_image_data(&data, "x").unwrap();
+        // 出力はJPEGになっている
+        assert_eq!(
+            image::guess_format(&result).unwrap(),
+            image::ImageFormat::Jpeg
+        );
+    }
+
+    /// デコードできない(対応外形式の)データはエラーになり、
+    /// 元バイトをそのまま返さないことを確認する。
+    #[test]
+    fn test_undecodable_returns_err() {
+        let resizer = ImageResizer::new(false);
+        let garbage = vec![0u8, 1, 2, 3, 4, 5, 6, 7];
+        let result = resizer.resize_image_data(&garbage, "x");
+        assert!(result.is_err());
     }
 }
