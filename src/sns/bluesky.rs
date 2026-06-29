@@ -127,9 +127,16 @@ impl SnsClient for BlueskyClient {
             }
         }
 
+        // リンクカードのURLは、明示指定(link_url)が無ければ本文中の最初のURLを使う。
+        // 自動投稿ではURLが本文インラインに入るため、ここで拾ってカード化する。
+        let card_url = content
+            .link_url
+            .clone()
+            .or_else(|| first_url_in_text(&content.text));
+
         let mut embed_external = None;
         if embed_blobs.is_empty() {
-            if let Some(link_url) = &content.link_url {
+            if let Some(link_url) = &card_url {
                 let ogp = fetch_ogp(&self.client, link_url).await;
                 let thumb_blob = if let Some(thumb_url) = ogp.image_url {
                     match super::download_image(&self.client, &thumb_url).await {
@@ -168,6 +175,13 @@ impl SnsClient for BlueskyClient {
             "text": content.text,
             "createdAt": now
         });
+
+        // 本文中のURLをクリック可能にするため facets を付与する。
+        // Blueskyは本文URLを自動リンク化しないため、これが無いとただの文字列になる。
+        let facets = build_link_facets(&content.text);
+        if !facets.is_empty() {
+            record["facets"] = json!(facets);
+        }
 
         if !embed_blobs.is_empty() {
             let images_json: Vec<serde_json::Value> = embed_blobs.into_iter().map(|blob| {
@@ -257,4 +271,79 @@ async fn fetch_ogp(client: &reqwest::Client, url: &str) -> OgpMetadata {
     meta.image_url = re_image.and_then(|r| r.captures(&html)).map(|c| c[1].to_string());
 
     meta
+}
+
+/// 本文中のURLを検出し、Blueskyの facets(リンク)配列を生成する。
+///
+/// `index` のオフセットは UTF-8 バイト単位で指定する必要がある(日本語など
+/// マルチバイト文字が含まれるため、文字数ではなくバイト数で計算する)。
+/// URL末尾に付きやすい句読点や閉じ括弧はリンクから除外する。
+fn build_link_facets(text: &str) -> Vec<serde_json::Value> {
+    let re = match regex::Regex::new(r"https?://[^\s]+") {
+        Ok(r) => r,
+        Err(_) => return Vec::new(),
+    };
+    let trailing: &[char] = &[
+        '.', ',', ';', ':', '!', '?', ')', ']', '}', '\'', '"', '」', '』', '、', '。',
+    ];
+
+    let mut facets = Vec::new();
+    for m in re.find_iter(text) {
+        let trimmed = m.as_str().trim_end_matches(trailing);
+        if trimmed.is_empty() {
+            continue;
+        }
+        let byte_start = m.start();
+        let byte_end = byte_start + trimmed.len();
+        facets.push(json!({
+            "index": { "byteStart": byte_start, "byteEnd": byte_end },
+            "features": [{ "$type": "app.bsky.richtext.facet#link", "uri": trimmed }]
+        }));
+    }
+    facets
+}
+
+/// 本文中の最初のURLを返す(リンクカードのURL導出用)。
+fn first_url_in_text(text: &str) -> Option<String> {
+    build_link_facets(text)
+        .into_iter()
+        .find_map(|f| f["features"][0]["uri"].as_str().map(|s| s.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_link_facets_byte_range() {
+        let text = "更新!→ タイトル https://blog.example.com/post/1";
+        let facets = build_link_facets(text);
+        assert_eq!(facets.len(), 1);
+        let f = &facets[0];
+        let start = f["index"]["byteStart"].as_u64().unwrap() as usize;
+        let end = f["index"]["byteEnd"].as_u64().unwrap() as usize;
+        // バイト範囲が実際のURLを正しく指していること
+        assert_eq!(
+            &text.as_bytes()[start..end],
+            b"https://blog.example.com/post/1"
+        );
+        assert_eq!(f["features"][0]["uri"], "https://blog.example.com/post/1");
+    }
+
+    #[test]
+    fn test_build_link_facets_trims_trailing_punct() {
+        let text = "見て (https://example.com/a)";
+        let facets = build_link_facets(text);
+        assert_eq!(facets.len(), 1);
+        assert_eq!(facets[0]["features"][0]["uri"], "https://example.com/a");
+    }
+
+    #[test]
+    fn test_first_url_in_text() {
+        assert_eq!(first_url_in_text("no url here"), None);
+        assert_eq!(
+            first_url_in_text("a https://x.com/y b"),
+            Some("https://x.com/y".to_string())
+        );
+    }
 }
