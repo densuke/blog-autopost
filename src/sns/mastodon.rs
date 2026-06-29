@@ -70,13 +70,14 @@ impl SnsClient for MastodonClient {
         // 1. image_urlの処理
         if let Some(img_url) = &content.image_url {
             match super::download_image(&self.client, img_url).await {
-                Ok((bytes, mime)) => {
+                Ok(Some((bytes, mime))) => {
                     let upload_mime = if mime == "image/png" || mime == "image/jpeg" { mime } else { "image/jpeg".to_string() };
                     match self.upload_media_data(bytes, &upload_mime).await {
                         Ok(id) => media_ids.push(id),
                         Err(e) => println!("Warning: Failed to upload media to Mastodon: {}", e),
                     }
                 }
+                Ok(None) => println!("[Mastodon] 画像ではないためスキップしました: {}", img_url),
                 Err(e) => println!("Warning: Failed to download image for Mastodon: {}", e),
             }
         }
