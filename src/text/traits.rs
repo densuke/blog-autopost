@@ -12,5 +12,6 @@ pub trait TextOptimizer {
         max_length: usize,
         announcement: Option<&str>,
         link_weight: usize,
+        tags: &[String],
     ) -> anyhow::Result<String>;
 }

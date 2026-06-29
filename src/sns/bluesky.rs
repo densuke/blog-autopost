@@ -176,9 +176,11 @@ impl SnsClient for BlueskyClient {
             "createdAt": now
         });
 
-        // 本文中のURLをクリック可能にするため facets を付与する。
-        // Blueskyは本文URLを自動リンク化しないため、これが無いとただの文字列になる。
-        let facets = build_link_facets(&content.text);
+        // 本文中のURLとハッシュタグを facets として付与する。
+        // Blueskyは本文のURL/タグを自動でリンク化しないため、これが無いと
+        // ただの文字列になる。
+        let mut facets = build_link_facets(&content.text);
+        facets.extend(build_tag_facets(&content.text));
         if !facets.is_empty() {
             record["facets"] = json!(facets);
         }
@@ -303,6 +305,31 @@ fn build_link_facets(text: &str) -> Vec<serde_json::Value> {
     facets
 }
 
+/// 本文中のハッシュタグを検出し、Blueskyの tag facet を生成する。
+///
+/// `index` は UTF-8 バイト範囲で `#タグ` 全体を指し、`tag` には `#` を除いた
+/// タグ名を入れる。半角 `#`・全角 `＃` の両方に対応する。
+fn build_tag_facets(text: &str) -> Vec<serde_json::Value> {
+    let re = match regex::Regex::new(r"[#＃](\w+)") {
+        Ok(r) => r,
+        Err(_) => return Vec::new(),
+    };
+    let mut facets = Vec::new();
+    for cap in re.captures_iter(text) {
+        let whole = cap.get(0).unwrap();
+        let name = cap.get(1).unwrap().as_str();
+        // 数字のみのタグは抽出側と同様に除外する
+        if name.chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        facets.push(json!({
+            "index": { "byteStart": whole.start(), "byteEnd": whole.end() },
+            "features": [{ "$type": "app.bsky.richtext.facet#tag", "tag": name }]
+        }));
+    }
+    facets
+}
+
 /// 本文中の最初のURLを返す(リンクカードのURL導出用)。
 fn first_url_in_text(text: &str) -> Option<String> {
     build_link_facets(text)
@@ -336,6 +363,22 @@ mod tests {
         let facets = build_link_facets(text);
         assert_eq!(facets.len(), 1);
         assert_eq!(facets[0]["features"][0]["uri"], "https://example.com/a");
+    }
+
+    #[test]
+    fn test_build_tag_facets() {
+        let text = "本文 #Rust と ＃技術";
+        let facets = build_tag_facets(text);
+        assert_eq!(facets.len(), 2);
+        // 1つ目: #Rust
+        let f0 = &facets[0];
+        let s0 = f0["index"]["byteStart"].as_u64().unwrap() as usize;
+        let e0 = f0["index"]["byteEnd"].as_u64().unwrap() as usize;
+        assert_eq!(&text.as_bytes()[s0..e0], "#Rust".as_bytes());
+        assert_eq!(f0["features"][0]["$type"], "app.bsky.richtext.facet#tag");
+        assert_eq!(f0["features"][0]["tag"], "Rust");
+        // 2つ目: ＃技術(全角#) → tagは"技術"
+        assert_eq!(facets[1]["features"][0]["tag"], "技術");
     }
 
     #[test]

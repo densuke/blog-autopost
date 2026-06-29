@@ -25,6 +25,27 @@ impl DefaultFeedFetcher {
                 .or(entry.updated)
                 .unwrap_or_else(|| chrono::Utc::now());
 
+            // 概要欄(summary / content / media:description)からハッシュタグを抽出する。
+            // YouTubeはタイトルにタグが無く media:description にタグが入ることがある。
+            let mut description = String::new();
+            if let Some(summary) = &entry.summary {
+                description.push_str(&summary.content);
+                description.push(' ');
+            }
+            if let Some(content) = &entry.content {
+                if let Some(body) = &content.body {
+                    description.push_str(body);
+                    description.push(' ');
+                }
+            }
+            for media in &entry.media {
+                if let Some(desc) = &media.description {
+                    description.push_str(&desc.content);
+                    description.push(' ');
+                }
+            }
+            let tags = crate::text::tags::extract_hashtags(&description);
+
             // media に動画URL(YouTube等)が入っている場合があるため、
             // 画像らしいURLのみを採用する。
             let image_url = entry.media.into_iter()
@@ -38,6 +59,7 @@ impl DefaultFeedFetcher {
                 published_parsed,
                 image_url,
                 feed_name: feed_name.to_string(),
+                tags,
             });
         }
 
