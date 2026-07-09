@@ -13,15 +13,32 @@ mod schedule;
 ///
 /// グローバルオプション（`--limit` / `--debug` / `--verbose` / `--sensitive` /
 /// `--config`）は `cli` から参照する。
+/// 設定から監視対象フィードの `(feed_url, feed_name)` 一覧を取り出す。
+///
+/// `feed_url` が空のフィードは除外する。Check と Touch の双方で使用し、
+/// どちらも全フィードを対象にすることを保証する。
+fn feed_targets(config_data: &Config) -> Vec<(String, String)> {
+    config_data
+        .blog
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|b| (b.feed_url, b.name))
+        .filter(|(url, _)| !url.is_empty())
+        .collect()
+}
+
 pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> anyhow::Result<()> {
     match command {
         Commands::Touch => {
-            println!("Fetching current RSS feed and marking all as read...");
-            let blog_conf = config_data.blog.clone().and_then(|mut blogs| if blogs.is_empty() { None } else { Some(blogs.remove(0)) });
-            let feed_url = blog_conf.as_ref().map(|b| b.feed_url.clone()).unwrap_or_default();
-            let feed_name = blog_conf.as_ref().map(|b| b.name.clone()).unwrap_or_else(|| "default".to_string());
+            println!("Fetching current RSS feeds and marking all as read...");
 
-            if feed_url.is_empty() {
+            // 設定済みの全フィードを対象にする(Check と同様)。以前は先頭
+            // フィードのみを touch しており、2つ目以降が未マークのまま残る
+            // 不具合があったため、全フィードをループして処理する。
+            let feeds = feed_targets(&config_data);
+
+            if feeds.is_empty() {
                 println!("Warning: No feed_url configured. Cannot touch.");
                 return Ok(());
             }
@@ -31,11 +48,20 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
             std::fs::create_dir_all("data").ok();
 
             use blog_autopost_rs::article::traits::ArticleStore;
-            let latest_articles = fetcher
-                .fetch_articles_verbose(&feed_url, &feed_name, cli.verbose || cli.debug)
-                .await?;
-            store.save_articles(&latest_articles).await?;
-            println!("Successfully marked {} articles as read.", latest_articles.len());
+            let mut total = 0usize;
+            for (feed_url, feed_name) in &feeds {
+                let latest_articles = fetcher
+                    .fetch_articles_verbose(feed_url, feed_name, cli.verbose || cli.debug)
+                    .await?;
+                store.save_articles(&latest_articles).await?;
+                println!(
+                    "Feed '{}': marked {} articles as read.",
+                    feed_name,
+                    latest_articles.len()
+                );
+                total += latest_articles.len();
+            }
+            println!("Successfully marked {} articles as read in total.", total);
         }
         Commands::Run { dry_run } => {
             println!("Starting blog-autopost-rs scheduler...");
@@ -147,14 +173,7 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
             }
 
             // 設定済みの全フィードを対象にする（Python版の通常RSS監視モード相当）
-            let feeds: Vec<(String, String)> = config_data
-                .blog
-                .clone()
-                .unwrap_or_default()
-                .into_iter()
-                .map(|b| (b.feed_url, b.name))
-                .filter(|(url, _)| !url.is_empty())
-                .collect();
+            let feeds = feed_targets(&config_data);
 
             if feeds.is_empty() {
                 println!("Warning: No feed_url configured. Nothing to check.");
@@ -575,8 +594,42 @@ pub fn list_feeds(config: &config::Config) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use blog_autopost_rs::config::parse_config;
     use blog_autopost_rs::sns::models::{PostContent, PostResult};
     use blog_autopost_rs::sns::traits::SnsClient;
+
+    #[test]
+    fn test_feed_targets_returns_all_feeds() {
+        // 複数フィード。以前は Touch が先頭のみ処理していたが、全件返すこと。
+        let yaml = r#"
+blog:
+  - name: main
+    feed_url: https://example.com/main.xml
+  - name: youtube
+    feed_url: https://example.com/yt.xml
+  - name: zenn
+    feed_url: https://example.com/zenn.xml
+"#;
+        let config = parse_config(yaml).unwrap();
+        let targets = feed_targets(&config);
+        let names: Vec<&str> = targets.iter().map(|(_, n)| n.as_str()).collect();
+        assert_eq!(names, vec!["main", "youtube", "zenn"]);
+    }
+
+    #[test]
+    fn test_feed_targets_skips_empty_url() {
+        let yaml = r#"
+blog:
+  - name: main
+    feed_url: https://example.com/main.xml
+  - name: broken
+    feed_url: ""
+"#;
+        let config = parse_config(yaml).unwrap();
+        let targets = feed_targets(&config);
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].1, "main");
+    }
 
     /// テスト用のダミー SNS クライアント。name() と account_name() のみ意味を持つ。
     struct DummyClient {
