@@ -1,0 +1,176 @@
+name: ビルドとリリース
+
+# main への push で 2 ターゲットをビルドし、ローリング `latest` を常に更新する。
+# Cargo.toml の version が上がった時(= v<version> タグ未作成)は、その版の
+# タグ付きリリースも作成する。dependabot の依存更新が main に入った場合は
+# patch を自動で +1 し、それがバージョン変更として扱われタグ付きリリースになる。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # バージョン判定と、dependabot 更新時の patch 自動インクリメント
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.decide.outputs.version }}
+      sha: ${{ steps.decide.outputs.sha }}
+      new_tag: ${{ steps.decide.outputs.new_tag }}
+    steps:
+      - name: ソースの取得
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: バージョン判定と自動patch
+        id: decide
+        run: |
+          set -euo pipefail
+          version=$(grep -E '^version' Cargo.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          msg=$(git log -1 --pretty=%s)
+          echo "現在のバージョン: $version / HEADメッセージ: $msg"
+
+          if git rev-parse "v$version" >/dev/null 2>&1; then
+            tag_exists=true
+          else
+            tag_exists=false
+          fi
+
+          # 依存更新(dependabot の commit prefix は deps / ci)で、かつ現バージョンの
+          # タグが既にある場合は patch を +1 して「バージョン変更」を発生させる。
+          if [ "$tag_exists" = "true" ] && printf '%s' "$msg" | grep -qE '^(deps|ci)(\(|:| )'; then
+            new=$(awk -F. '{printf "%d.%d.%d", $1, $2, $3+1}' <<<"$version")
+            echo "依存更新を検知。patchを $version -> $new に更新します。"
+            # 行頭 version は [package] のみ該当。Cargo.lock は自クレートのブロックを更新。
+            perl -0777 -pi -e "s/^version = \"[^\"]+\"/version = \"$new\"/m" Cargo.toml
+            perl -0777 -pi -e "s/(name = \"blog-autopost-rs\"\nversion = \")[^\"]+(\")/\${1}$new\${2}/" Cargo.lock
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add Cargo.toml Cargo.lock
+            git commit -m "[chore] バージョンを $new に更新 (依存更新に伴う自動patch) [skip ci]"
+            git push origin HEAD:main
+            version="$new"
+            tag_exists=false
+          fi
+
+          sha=$(git rev-parse HEAD)
+          if [ "$tag_exists" = "true" ]; then new_tag=false; else new_tag=true; fi
+          {
+            echo "version=$version"
+            echo "sha=$sha"
+            echo "new_tag=$new_tag"
+          } >> "$GITHUB_OUTPUT"
+          echo "確定: version=$version new_tag=$new_tag sha=$sha"
+
+  # 2 ターゲットのビルドと配布用アーカイブ作成
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-24.04
+            use_cross: true
+          - target: aarch64-apple-darwin
+            os: macos-14
+            use_cross: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: ソースの取得(確定コミット)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Rustツールチェインのセットアップ
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: crossのインストール(muslのみ)
+        if: ${{ matrix.use_cross }}
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: ビルド(cross / musl)
+        if: ${{ matrix.use_cross }}
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: ビルド(cargo / macOS)
+        if: ${{ !matrix.use_cross }}
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: 配布用アーカイブの作成
+        run: |
+          set -euo pipefail
+          version="${{ needs.prepare.outputs.version }}"
+          target="${{ matrix.target }}"
+          stage="dist/blog-autopost-rs"
+          rm -rf dist && mkdir -p "$stage"
+          cp "target/${target}/release/blog-autopost-rs" "$stage/"
+          cp -r static "$stage/"
+          cp config.yml.template "$stage/"
+          [ -f README.md ] && cp README.md "$stage/"
+          out="blog-autopost-rs-${target}-${version}.tar.gz"
+          tar -czf "$out" -C dist blog-autopost-rs
+          shasum -a 256 "$out" > "$out.sha256"
+          echo "ARCHIVE=$out" >> "$GITHUB_ENV"
+
+      - name: アーティファクトのアップロード
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: |
+            *.tar.gz
+            *.tar.gz.sha256
+
+  # ローリング latest の更新と、バージョン変更時のタグ付きリリース
+  release:
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: アーティファクトの取得
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: 収集物の確認
+        run: ls -lh artifacts
+
+      - name: ローリング latest リリースの更新
+        if: ${{ env.ACT != 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          sha="${{ needs.prepare.outputs.sha }}"
+          # 既存の latest を削除(タグも含む)してから作り直し、常に最新ビルドを指す
+          gh release delete latest --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" || true
+          gh release create latest \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$sha" \
+            --prerelease \
+            --title "latest (rolling)" \
+            --notes "main の最新ビルド (commit ${sha})。恒久版はタグ付きリリースを利用してください。" \
+            artifacts/*.tar.gz artifacts/*.tar.gz.sha256
+
+      - name: タグ付きリリースの作成(バージョン変更時)
+        if: ${{ env.ACT != 'true' && needs.prepare.outputs.new_tag == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${{ needs.prepare.outputs.version }}"
+          sha="${{ needs.prepare.outputs.sha }}"
+          gh release create "v$version" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$sha" \
+            --title "v$version" \
+            --notes "blog-autopost-rs v$version" \
+            artifacts/*.tar.gz artifacts/*.tar.gz.sha256

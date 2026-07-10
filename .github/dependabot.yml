@@ -1,13 +1,15 @@
 # Dependabot 設定（保守のお仕事 #10 / 第一歩）
-# - Python依存(uv)・Rust依存(cargo)・GitHub Actions を週次で更新監視
+# - Rust依存(cargo)・GitHub Actions は main(Rust版) を監視
+# - Python依存(uv) は python ブランチ(旧Python版) を監視 (target-branch)
 # - security-update(即時)は本ファイルではなくリポジトリ設定
 #   「Dependabot security updates」を有効化することで動作する
 #   （Settings → Code security → Dependabot）
 version: 2
 updates:
-  # Python依存 (uv / pyproject.toml + uv.lock)
+  # Python依存 (uv / pyproject.toml + uv.lock) は python ブランチ側にのみ存在
   - package-ecosystem: "uv"
     directory: "/"
+    target-branch: "python"
     schedule:
       interval: "weekly"
       day: "monday"
