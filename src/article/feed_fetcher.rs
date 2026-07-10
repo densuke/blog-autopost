@@ -5,11 +5,26 @@ use reqwest;
 use crate::article::models::Article;
 use crate::article::traits::FeedFetcher;
 
-pub struct DefaultFeedFetcher;
+/// フィード取得時に用いる User-Agent。
+///
+/// YouTube の RSS サーバー(`www.youtube.com/feeds/videos.xml`)は、User-Agent が
+/// 無い/非ブラウザのリクエストに対して 404 の HTML を返すため、feed-rs が
+/// 「no root element」で失敗する。ブラウザ風の UA を付けることで正常な XML を
+/// 受け取れるようにする。
+const FEED_USER_AGENT: &str =
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
+
+pub struct DefaultFeedFetcher {
+    client: reqwest::Client,
+}
 
 impl DefaultFeedFetcher {
     pub fn new() -> Self {
-        Self
+        let client = reqwest::Client::builder()
+            .user_agent(FEED_USER_AGENT)
+            .build()
+            .unwrap_or_default();
+        Self { client }
     }
 
     /// フィードの内容（XML/JSONなどのバイト列）を解析して `Article` のリストに変換する
@@ -81,7 +96,7 @@ impl DefaultFeedFetcher {
         if verbose {
             eprintln!("[verbose] GET {feed_url}");
         }
-        let response = reqwest::get(feed_url).await?;
+        let response = self.client.get(feed_url).send().await?;
 
         if verbose {
             let status = response.status();
@@ -131,7 +146,7 @@ impl Default for DefaultFeedFetcher {
 #[async_trait]
 impl FeedFetcher for DefaultFeedFetcher {
     async fn fetch_articles(&self, feed_url: &str, feed_name: &str) -> anyhow::Result<Vec<Article>> {
-        let response = reqwest::get(feed_url).await?;
+        let response = self.client.get(feed_url).send().await?;
         let bytes = response.bytes().await?;
         Self::parse_feed(&bytes, feed_name)
     }
