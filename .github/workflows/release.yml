@@ -40,9 +40,10 @@ jobs:
             tag_exists=false
           fi
 
-          # 依存更新(dependabot の commit prefix は deps / ci)で、かつ現バージョンの
+          # cargo 依存更新(dependabot の commit prefix は deps)で、かつ現バージョンの
           # タグが既にある場合は patch を +1 して「バージョン変更」を発生させる。
-          if [ "$tag_exists" = "true" ] && printf '%s' "$msg" | grep -qE '^(deps|ci)(\(|:| )'; then
+          # CI(actions)更新の prefix ci はバイナリに影響しないため対象外。
+          if [ "$tag_exists" = "true" ] && printf '%s' "$msg" | grep -qE '^deps(\(|:| )'; then
             new=$(awk -F. '{printf "%d.%d.%d", $1, $2, $3+1}' <<<"$version")
             echo "依存更新を検知。patchを $version -> $new に更新します。"
             # 行頭 version は [package] のみ該当。Cargo.lock は自クレートのブロックを更新。
