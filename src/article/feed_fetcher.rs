@@ -82,12 +82,17 @@ impl DefaultFeedFetcher {
     }
 }
 
+/// フィード取得の最大試行回数(初回 + リトライ)。YouTube の RSS は同一 URL でも
+/// 成功率が3割程度まで落ちることがあるため、複数回リトライして取りこぼしを防ぐ。
+const FEED_MAX_ATTEMPTS: usize = 6;
+/// リトライ時の基準待ち時間。試行ごとに倍にして待機する(1s, 2s, 4s...)。
+const FEED_RETRY_BASE_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
+/// バックオフ待ち時間の上限。指数的に伸びすぎないよう頭打ちにする。
+const FEED_RETRY_MAX_DELAY: std::time::Duration = std::time::Duration::from_secs(8);
+
 impl DefaultFeedFetcher {
-    /// 診断情報付きでフィードを取得・解析する。
-    ///
-    /// `verbose` が真のとき、HTTP ステータス・Content-Type・本文サイズを表示し、
-    /// 解析に失敗した場合は本文の先頭部分をダンプして原因究明を助ける。
-    pub async fn fetch_articles_verbose(
+    /// フィードを1回だけ取得・解析する。非 2xx ステータスや解析失敗はエラーとする。
+    async fn fetch_once(
         &self,
         feed_url: &str,
         feed_name: &str,
@@ -97,9 +102,9 @@ impl DefaultFeedFetcher {
             eprintln!("[verbose] GET {feed_url}");
         }
         let response = self.client.get(feed_url).send().await?;
+        let status = response.status();
 
         if verbose {
-            let status = response.status();
             let content_type = response
                 .headers()
                 .get(reqwest::header::CONTENT_TYPE)
@@ -110,6 +115,12 @@ impl DefaultFeedFetcher {
             eprintln!("[verbose] status = {status}");
             eprintln!("[verbose] content-type = {content_type}");
             eprintln!("[verbose] final url = {final_url}");
+        }
+
+        // 非 2xx はフィード本文が得られないため、リトライ対象のエラーとして扱う。
+        // YouTube の RSS は断続的に 404/500 を返すことがあるため重要。
+        if !status.is_success() {
+            anyhow::bail!("HTTP status {} for feed '{}'", status, feed_name);
         }
 
         let bytes = response.bytes().await?;
@@ -135,6 +146,43 @@ impl DefaultFeedFetcher {
             }
         }
     }
+
+    /// 診断情報付きでフィードを取得・解析する。バックオフ付きでリトライする。
+    ///
+    /// `verbose` が真のとき、HTTP ステータス・Content-Type・本文サイズを表示し、
+    /// 解析に失敗した場合は本文の先頭部分をダンプして原因究明を助ける。
+    ///
+    /// YouTube の RSS エンドポイントは同一 URL でも 200/404/500 を不定期に返す
+    /// ことがあるため、失敗時は待機して再取得を試みる。
+    pub async fn fetch_articles_verbose(
+        &self,
+        feed_url: &str,
+        feed_name: &str,
+        verbose: bool,
+    ) -> anyhow::Result<Vec<Article>> {
+        let mut last_err = None;
+        for attempt in 1..=FEED_MAX_ATTEMPTS {
+            match self.fetch_once(feed_url, feed_name, verbose).await {
+                Ok(articles) => return Ok(articles),
+                Err(e) => {
+                    if attempt < FEED_MAX_ATTEMPTS {
+                        let delay = (FEED_RETRY_BASE_DELAY * 2u32.pow((attempt - 1) as u32))
+                            .min(FEED_RETRY_MAX_DELAY);
+                        if verbose {
+                            eprintln!(
+                                "[verbose] attempt {attempt}/{FEED_MAX_ATTEMPTS} failed: {e}. retrying in {:?}...",
+                                delay
+                            );
+                        }
+                        tokio::time::sleep(delay).await;
+                    }
+                    last_err = Some(e);
+                }
+            }
+        }
+        Err(last_err
+            .unwrap_or_else(|| anyhow::anyhow!("フィード '{}' の取得に失敗しました", feed_name)))
+    }
 }
 
 impl Default for DefaultFeedFetcher {
@@ -146,9 +194,7 @@ impl Default for DefaultFeedFetcher {
 #[async_trait]
 impl FeedFetcher for DefaultFeedFetcher {
     async fn fetch_articles(&self, feed_url: &str, feed_name: &str) -> anyhow::Result<Vec<Article>> {
-        let response = self.client.get(feed_url).send().await?;
-        let bytes = response.bytes().await?;
-        Self::parse_feed(&bytes, feed_name)
+        self.fetch_articles_verbose(feed_url, feed_name, false).await
     }
 }
 
