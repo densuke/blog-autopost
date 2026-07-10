@@ -26,6 +26,9 @@ bcrypt = "0.19.2"
 fd-lock = "4.0.2"
 tokio-stream = { version = "0.1.17", features = ["sync"] }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 wiremock = "0.6.2"
 tower = { version = "0.5.3", features = ["util"] }

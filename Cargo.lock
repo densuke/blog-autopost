@@ -345,6 +345,7 @@ dependencies = [
  "fd-lock",
  "feed-rs",
  "image",
+ "libc",
  "oauth1-request",
  "regex",
  "reqwest",

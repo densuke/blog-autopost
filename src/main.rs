@@ -7,8 +7,27 @@ mod commands;
 
 use cli::Cli;
 
+/// SIGPIPE をデフォルト(プロセス終了)に戻す。
+///
+/// Rust は既定で SIGPIPE を無視するため、`blog-autopost-rs check | head` の
+/// ように出力先パイプが途中で閉じると、以降の write が EPIPE を返し、
+/// `println!` がそれを unwrap して panic する。ここで既定挙動へ戻すことで、
+/// パイプ切断時は静かに終了するようにする。
+#[cfg(unix)]
+fn reset_sigpipe() {
+    // SAFETY: プログラム起動直後に一度だけ呼び、既定のシグナル動作へ戻すのみ。
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+
+#[cfg(not(unix))]
+fn reset_sigpipe() {}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    reset_sigpipe();
+
     let mut cli = Cli::parse();
 
     // config.ymlの読み込み
