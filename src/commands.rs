@@ -48,12 +48,28 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
             std::fs::create_dir_all("data").ok();
 
             use blog_autopost_rs::article::traits::ArticleStore;
+            // フィード単位でエラーを握って継続する(Check と同様)。取得失敗が
+            // 一過性(空応答やリダイレクト等で "no root element")の場合でも、
+            // 1フィードの失敗で残りが未マークになる事態を避ける。
             let mut total = 0usize;
+            let mut had_error = false;
             for (feed_url, feed_name) in &feeds {
-                let latest_articles = fetcher
+                let latest_articles = match fetcher
                     .fetch_articles_verbose(feed_url, feed_name, cli.verbose || cli.debug)
-                    .await?;
-                store.save_articles(&latest_articles).await?;
+                    .await
+                {
+                    Ok(articles) => articles,
+                    Err(e) => {
+                        had_error = true;
+                        println!("Error touching feed '{}': {:?}", feed_name, e);
+                        continue;
+                    }
+                };
+                if let Err(e) = store.save_articles(&latest_articles).await {
+                    had_error = true;
+                    println!("Error saving feed '{}': {:?}", feed_name, e);
+                    continue;
+                }
                 println!(
                     "Feed '{}': marked {} articles as read.",
                     feed_name,
@@ -62,6 +78,11 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
                 total += latest_articles.len();
             }
             println!("Successfully marked {} articles as read in total.", total);
+            if had_error {
+                println!(
+                    "Warning: 一部フィードの処理に失敗しました。再実行すると未処理分を補えます。"
+                );
+            }
         }
         Commands::Run { dry_run } => {
             println!("Starting blog-autopost-rs scheduler...");
