@@ -1,7 +1,0 @@
-[feat] ScheduledPostデータモデルの定義
-
-- 予約投稿のデータモデル`ScheduledPost`とステータスEnum`ScheduledPostStatus`を定義しました。
-- `id`, `scheduled_at`, `content`, `media_files`, `target_sns`, `status`, `error_message`, `created_at`, `updated_at`フィールドを含みます。
-- `scheduled_at`, `content`, `target_sns`は必須フィールドです。
-- `ScheduledPostStatus`は`予約済み`, `実行済み`, `失敗`の3つの状態を持ちます。
-- 関連する単体テストを追加し、パスすることを確認しました。
