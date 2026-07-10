@@ -1,0 +1,50 @@
+name: dependabot 自動マージ (python)
+
+# python ブランチ(旧Python版)の最低限保守。dependabot の依存更新PRについて
+# pytest が通れば自動でマージする(major更新は安全のため自動マージしない)。
+# pull_request_target を使うことで、dependabot 発のPRでも書き込み権限のある
+# トークンでマージできる。実行対象は actor が dependabot のPRに限定する。
+on:
+  pull_request_target:
+    branches: [python]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    if: ${{ github.actor == 'dependabot[bot]' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: dependabot メタデータ取得
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+
+      - name: ソースの取得(PRのhead)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: uvのセットアップ
+        uses: astral-sh/setup-uv@v7
+
+      - name: 依存インストール
+        run: |
+          uv sync --extra dev
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+
+      - name: 設定テンプレートの用意
+        run: cp -v config.yml.template config.yml
+
+      - name: テスト実行
+        run: uv run pytest --maxfail=1 -q
+
+      - name: 自動マージ(major更新以外)
+        if: ${{ steps.meta.outputs.update-type != 'version-update:semver-major' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge --squash --delete-branch "${{ github.event.pull_request.html_url }}"

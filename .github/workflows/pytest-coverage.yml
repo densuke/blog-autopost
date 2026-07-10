@@ -1,14 +1,18 @@
-name: CI — pytest + coverage
+name: CI — pytest + coverage (python)
 
+# python ブランチ(旧Python版)の保守用CI。push/PRでpytestを実行する。
+# dependabotのPRは専用の自動マージワークフロー側でテスト・マージするため除外。
 on:
     push:
-        branches: [main]
+        branches: [python]
     pull_request:
-        branches: [main]
+        branches: [python]
+    workflow_dispatch:
 
 jobs:
     test:
-        runs-on: ubuntu-latest
+        if: ${{ github.actor != 'dependabot[bot]' }}
+        runs-on: ubuntu-24.04
         steps:
             - name: Checkout repository
               uses: actions/checkout@v4
