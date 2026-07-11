@@ -1,0 +1,51 @@
+name: dependabot 自動マージ (main)
+
+# main(Rust版)の dependabot 依存更新PRについて、cargo test が通れば自動で
+# マージする(major更新は安全のため除外)。GITHUB_TOKEN でのマージ push は
+# release.yml を自動起動しない(GitHubの再帰防止)ため、マージ後に release を
+# 明示的に workflow_dispatch で起動する。cargo 依存更新なら release 側で
+# patch を +1 してタグ付きリリースまで自動化される。
+on:
+  pull_request_target:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  automerge:
+    if: ${{ github.actor == 'dependabot[bot]' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: dependabot メタデータ取得
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+
+      - name: ソースの取得(PRのhead)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Rustツールチェインのセットアップ
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: ビルドキャッシュ
+        uses: Swatinem/rust-cache@v2
+
+      - name: テスト
+        run: cargo test --all
+
+      - name: 自動マージ(major更新以外)
+        id: merge
+        if: ${{ steps.meta.outputs.update-type != 'version-update:semver-major' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge --squash --delete-branch "${{ github.event.pull_request.html_url }}"
+
+      - name: リリースの起動(マージ成功時)
+        if: ${{ steps.merge.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run release.yml --ref main
