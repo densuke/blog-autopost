@@ -12,6 +12,12 @@ on:
 permissions:
   contents: write
 
+# 複数の依存更新が同時にマージされても release を直列化し、patch bump の
+# push が競合(non-fast-forward)して失敗するのを防ぐ。順に処理する。
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
 jobs:
   # バージョン判定と、dependabot 更新時の patch 自動インクリメント
   prepare:
@@ -123,7 +129,7 @@ jobs:
           echo "ARCHIVE=$out" >> "$GITHUB_ENV"
 
       - name: アーティファクトのアップロード
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist-${{ matrix.target }}
           path: |
@@ -136,7 +142,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: アーティファクトの取得
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
