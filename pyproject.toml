@@ -11,7 +11,7 @@ dependencies = [
     "tweepy>=4.17.0",
     "atproto>=0.0.69",
     "beautifulsoup4>=4.15.0",
-    "pillow>=11.3.0",
+    "pillow>=12.3.0",
     "fastapi>=0.139.0",
     "uvicorn[standard]",
     "python-multipart",
