@@ -16,7 +16,7 @@ dependencies = [
     "uvicorn[standard]",
     "python-multipart",
     "jinja2",
-    "apscheduler>=3.11.2",
+    "apscheduler>=3.11.3",
     "itsdangerous",
     "sqlalchemy",
     "starlette-csrf>=3.0.0",
