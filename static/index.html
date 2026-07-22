@@ -225,37 +225,50 @@
     </dialog>
 
     <script>
+        // /api/config から取得した SNS アカウント一覧 ({name, sns_type, label})
+        // 手動投稿フォームと編集モーダルの双方がこれを唯一の情報源とする
+        let snsAccounts = [];
+
         // 設定をロードしてヘッダーに表示
         async function loadConfig() {
             try {
                 const res = await fetch('/api/config');
                 const data = await res.json();
-                
+
                 document.getElementById('blog-name').textContent = data.blog_name;
-                
+
+                // 旧形式 (active_sns のみ) のレスポンスでも動くようにしておく
+                snsAccounts = Array.isArray(data.sns_accounts) && data.sns_accounts.length > 0
+                    ? data.sns_accounts
+                    : (data.active_sns || []).map(label => ({
+                        name: label.match(/\(([^)]+)\)$/)?.[1] || label,
+                        sns_type: '',
+                        label
+                    }));
+
                 const container = document.getElementById('sns-checkboxes');
                 container.innerHTML = '';
-                
-                if (data.active_sns.length === 0) {
+
+                if (snsAccounts.length === 0) {
                     container.innerHTML = '<span class="text-slate-500 text-sm">No connected SNS found in config.yml</span>';
                     return;
                 }
-                
-                data.active_sns.forEach(sns => {
+
+                snsAccounts.forEach(account => {
                     const label = document.createElement('label');
                     label.className = 'label cursor-pointer justify-start gap-3 bg-slate-800/50 hover:bg-slate-700/50 p-2 rounded-lg border border-slate-700/50 transition-colors flex-1 min-w-[200px]';
-                    
+
                     const checkbox = document.createElement('input');
                     checkbox.type = 'checkbox';
                     checkbox.name = 'sns-target';
-                    checkbox.value = sns;
+                    checkbox.value = account.name;
                     checkbox.checked = true;
                     checkbox.className = 'checkbox checkbox-primary checkbox-sm';
-                    
+
                     const span = document.createElement('span');
                     span.className = 'label-text text-slate-200 font-medium';
-                    span.textContent = sns;
-                    
+                    span.textContent = account.label;
+
                     label.appendChild(checkbox);
                     label.appendChild(span);
                     container.appendChild(label);
@@ -752,31 +765,32 @@
             // 対象 SNS チェックボックスの生成
             const container = document.getElementById('edit-sns-checkboxes');
             container.innerHTML = '';
-            
-            // 現在アクティブな全SNSを取得する
-            const allSns = Array.from(document.querySelectorAll('input[name="sns-target"]')).map(el => el.value);
-            allSns.forEach(sns => {
+
+            // 設定済みの全SNSを /api/config 由来の一覧から生成する
+            // (手動投稿フォームの DOM には依存しない)
+            if (snsAccounts.length === 0) {
+                container.innerHTML = '<span class="text-slate-500 text-sm">No connected SNS found in config.yml</span>';
+            }
+            snsAccounts.forEach(account => {
                 const label = document.createElement('label');
                 label.className = 'label cursor-pointer justify-start gap-2 bg-slate-700/30 hover:bg-slate-700/50 p-2 rounded-lg border border-slate-600/30 flex-1 min-w-[120px]';
-                
+
                 const checkbox = document.createElement('input');
                 checkbox.type = 'checkbox';
                 checkbox.name = 'edit-sns-target';
-                checkbox.value = sns;
-                
-                const snsName = sns.match(/\(([^)]+)\)/)?.[1] || sns;
-                checkbox.checked = post.target_sns.includes(snsName);
+                checkbox.value = account.name;
+                checkbox.checked = post.target_sns.includes(account.name);
                 checkbox.className = 'checkbox checkbox-primary checkbox-sm';
-                
+
                 const span = document.createElement('span');
                 span.className = 'label-text text-slate-200 text-xs font-semibold';
-                span.textContent = sns;
-                
+                span.textContent = account.label;
+
                 label.appendChild(checkbox);
                 label.appendChild(span);
                 container.appendChild(label);
             });
-            
+
             document.getElementById('edit-modal').showModal();
         }
 
@@ -786,10 +800,8 @@
             const dateVal = document.getElementById('edit-scheduled-at').value;
             const status = document.getElementById('edit-status').value;
             
-            const checkedTargets = Array.from(document.querySelectorAll('input[name="edit-sns-target"]:checked')).map(el => {
-                const val = el.value;
-                return val.match(/\(([^)]+)\)/)?.[1] || val;
-            });
+            // value にはアカウント名がそのまま入っているため文字列解析は不要
+            const checkedTargets = Array.from(document.querySelectorAll('input[name="edit-sns-target"]:checked')).map(el => el.value);
             
             const linkUrl = document.getElementById('edit-link-url').value.trim();
             const post = schedulesData.find(p => p.id === id);
