@@ -35,7 +35,7 @@
 </head>
 <body class="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-slate-100 p-4 md:p-8">
 
-    <div class="max-w-4xl mx-auto space-y-8">
+    <div class="max-w-4xl lg:max-w-7xl mx-auto space-y-8">
         <!-- Header -->
         <header class="space-y-2">
             <div class="flex flex-wrap items-center justify-end gap-2">
@@ -56,6 +56,10 @@
                 <p id="blog-name" class="text-slate-400 text-lg">Loading config...</p>
             </div>
         </header>
+
+        <!-- 広い画面(lg以上)では左に投稿フォーム、右に予約一覧を並べる。
+             それより狭い場合は従来どおりの縦積みになる。 -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
 
         <!-- Main Panel -->
         <div class="card glass-panel shadow-2xl">
@@ -149,18 +153,24 @@
             </div>
         </div>
 
-        <!-- Scheduled Posts Panel -->
-        <div class="card glass-panel shadow-2xl">
+        <!-- Scheduled Posts Panel
+             lg以上ではスクロールしても追従するよう sticky にし、
+             一覧が長くなっても画面内に収まるよう高さを制限して独立スクロールさせる。 -->
+        <div class="card glass-panel shadow-2xl lg:sticky lg:top-8">
             <div class="card-body">
-                <div class="flex justify-between items-center mb-4">
+                <!-- 狭い画面では見出しとボタンが1行に収まらず横あふれするため、
+                     flex-wrap で折り返す -->
+                <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
                     <h2 class="card-title text-2xl">Scheduled Posts</h2>
-                    <div class="flex gap-2">
+                    <div class="flex flex-wrap gap-2">
                         <button class="btn btn-sm btn-outline btn-accent" onclick="cleanupFinished()">Cleanup Posted</button>
                         <button class="btn btn-sm btn-outline btn-primary" onclick="loadSchedules()">Refresh</button>
                     </div>
                 </div>
                 
-                <div class="overflow-x-auto">
+                <!-- モバイルでは横スクロール、lg以上では縦の高さを制限して
+                     一覧だけが独立してスクロールするようにする -->
+                <div class="overflow-x-auto lg:overflow-y-auto lg:max-h-[calc(100vh-16rem)]">
                     <table class="table w-full text-slate-200">
                         <thead>
                             <tr class="text-slate-400 border-b border-slate-700">
@@ -183,7 +193,9 @@
             </div>
         </div>
 
-        <!-- Result / Log Area -->
+        </div><!-- /2カラムグリッド -->
+
+        <!-- Result / Log Area (常に全幅) -->
         <div class="card glass-panel shadow-xl mt-8">
             <div class="card-body">
                 <h3 class="font-bold text-lg">Log</h3>

@@ -234,7 +234,7 @@ mod tests {
             blog: None,
             sns: vec![SnsConfig::Mastodon {
                 name: "mstdn-main".to_string(),
-                instance_url: "https://mstdn.jp".to_string(),
+                instance_url: "https://mstdn.example.com".to_string(),
                 access_token: "dummy".to_string(),
             }],
             templates: HashMap::new(),

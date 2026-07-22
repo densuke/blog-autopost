@@ -3,7 +3,7 @@
   "created_at": "2025-10-18T00:00:00Z",
   "updated_at": "2026-07-22T00:00:00+09:00",
   "language": "ja",
-  "phase": "implementation-phase-0-completed",
+  "phase": "completed",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -26,5 +26,6 @@
     62,
     63
   ],
-  "notes": "Rust版として全面的に作り直した。Python版の旧specは archive-python/ に退避済み。"
+  "notes": "Rust版として全面的に作り直し、Phase 0〜4を完了した。カバレッジは42.06%から80.76%へ。以降は閾値80での維持が目的。Python版の旧specは archive-python/ に退避済み。",
+  "implementation_completed": true
 }

@@ -3,7 +3,7 @@
   "created_at": "2025-10-17T10:47:25+09:00",
   "updated_at": "2026-07-22T00:00:00+09:00",
   "language": "ja",
-  "phase": "tasks",
+  "phase": "implemented",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -15,10 +15,11 @@
     },
     "tasks": {
       "generated": true,
-      "approved": false
+      "approved": true
     }
   },
   "ready_for_implementation": true,
   "tracking_issue": 78,
-  "notes": "2026-07-22の再調査により未実装であることが判明した。詳細は requirements.md の「状態の訂正」を参照。"
+  "notes": "Issue #78 にて Tailwind の lg: ユーティリティで2カラムレイアウトを実装した。残る未チェック項目は実機確認・将来拡張・計測監査であり、本Issueのスコープ外。",
+  "implementation_completed": true
 }
