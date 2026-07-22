@@ -437,7 +437,7 @@ mod http_tests {
 
     fn client_for(server: &MockServer) -> BlueskyClient {
         BlueskyClient::new(
-            "test.bsky.social".to_string(),
+            "test.example.com".to_string(),
             "app-password".to_string(),
             "bsky-main".to_string(),
         )

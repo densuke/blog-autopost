@@ -2597,12 +2597,12 @@ mod tests {
                 },
                 SnsConfig::Mastodon {
                     name: "mastodon-social".to_string(),
-                    instance_url: "https://mastodon.social".to_string(),
+                    instance_url: "https://mstdn.example.com".to_string(),
                     access_token: "g".to_string(),
                 },
                 SnsConfig::Misskey {
                     name: "misskey-io".to_string(),
-                    instance_url: "https://misskey.io".to_string(),
+                    instance_url: "https://misskey.example.com".to_string(),
                     access_token: "h".to_string(),
                     is_sensitive: None,
                 },

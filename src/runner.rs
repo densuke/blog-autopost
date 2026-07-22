@@ -382,7 +382,7 @@ mod tests {
         );
 
         let result = runner
-            .run_once("http://feed.url", "test-feed")
+            .run_once("https://blog.example.com/feed.xml", "test-feed")
             .await
             .unwrap();
 
@@ -464,7 +464,7 @@ mod tests {
         );
 
         let result = runner
-            .run_once("http://feed.url", "test-feed")
+            .run_once("https://blog.example.com/feed.xml", "test-feed")
             .await
             .unwrap();
         assert_eq!(result.len(), 1);
