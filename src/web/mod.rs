@@ -171,6 +171,16 @@ pub async fn start_server(config: Config, config_path: String, port: u16) -> any
     Ok(())
 }
 
+/// 認証なしでアクセスできるパスかどうかを判定する。
+///
+/// ログイン画面自体と、そこから読み込まれるテーマ関連の共有アセットを許可する。
+///
+/// `static/` はルータの `ServeDir` がルート直下へ配信するため `/static/...` という
+/// URL は存在しない。意図しないパスを開けないよう完全一致のみで判定する。
+fn is_public_path(path: &str) -> bool {
+    path == "/login" || path == "/theme.js" || path == "/theme.css"
+}
+
 // 認証確認ミドルウェア
 async fn auth_middleware(
     State(state): State<Arc<AppState>>,
@@ -179,7 +189,7 @@ async fn auth_middleware(
 ) -> Result<axum::response::Response, axum::http::StatusCode> {
     let path = req.uri().path();
 
-    if path == "/login" || path.starts_with("/static/") {
+    if is_public_path(path) {
         return Ok(next.run(req).await);
     }
 
@@ -251,6 +261,25 @@ mod tests {
         routing::get,
     };
     use tower::ServiceExt; // for oneshot
+
+    #[test]
+    fn test_is_public_path() {
+        // ログイン画面と、そこから読み込む共有アセットは認証不要
+        assert!(is_public_path("/login"));
+        assert!(is_public_path("/theme.js"));
+        assert!(is_public_path("/theme.css"));
+
+        // それ以外は認証が必要
+        assert!(!is_public_path("/"));
+        assert!(!is_public_path("/index.html"));
+        assert!(!is_public_path("/api/config"));
+
+        // ServeDir はルート直下へ配信するため /static/... は存在しない。
+        // 前方一致で余計なパスを開けていないことを確認する
+        assert!(!is_public_path("/static/app.css"));
+        assert!(!is_public_path("/theme.js.map"));
+        assert!(!is_public_path("/login/extra"));
+    }
 
     // ヘルパー: テスト用の AppState と Router を作成
     async fn setup_test_router(secret_key: Option<String>) -> (Router, Arc<AppState>) {

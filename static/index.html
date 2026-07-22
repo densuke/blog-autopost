@@ -5,89 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Blog Autopost RS - Dashboard</title>
     <!-- テーマの早期適用 (描画前に確定させてちらつきを防ぐ) -->
-    <script>
-        (function () {
-            var KEY = 'blog-autopost-theme';
-            var pref = null;
-            try { pref = localStorage.getItem(KEY); } catch (e) { pref = null; }
-            if (pref !== 'light' && pref !== 'dark') { pref = 'auto'; }
-            var dark = pref === 'dark' || (pref === 'auto' &&
-                window.matchMedia('(prefers-color-scheme: dark)').matches);
-            var root = document.documentElement;
-            root.setAttribute('data-theme-pref', pref);
-            root.setAttribute('data-theme', dark ? 'dark' : 'light');
-        })();
-    </script>
+    <script src="/theme.js"></script>
     <!-- Tailwind CSS & DaisyUI -->
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.10.2/dist/full.min.css" rel="stylesheet" type="text/css" />
     <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        // slate 系の色を CSS 変数経由にして、テーマ毎に明暗を入れ替えられるようにする
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        slate: [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]
-                            .reduce(function (acc, key) {
-                                acc[key] = 'rgb(var(--c-slate-' + key + ') / <alpha-value>)';
-                                return acc;
-                            }, {})
-                    }
-                }
-            }
-        };
-    </script>
+    <script>applyTailwindSlatePalette();</script>
+    <link href="/theme.css" rel="stylesheet" type="text/css" />
     <style>
-        /* ダーク: slate の標準ランプをそのまま使う */
+        /* ダッシュボード固有: ログ表示色 */
         :root {
-            color-scheme: dark;
-            --c-slate-50: 248 250 252;
-            --c-slate-100: 241 245 249;
-            --c-slate-200: 226 232 240;
-            --c-slate-300: 203 213 225;
-            --c-slate-400: 148 163 184;
-            --c-slate-500: 100 116 139;
-            --c-slate-600: 71 85 105;
-            --c-slate-700: 51 65 85;
-            --c-slate-800: 30 41 59;
-            --c-slate-900: 15 23 42;
-            --c-slate-950: 2 6 23;
-            --page-gradient: linear-gradient(to bottom right, #0f172a, #4c1d95, #0f172a);
-            --glass-bg: rgba(30, 41, 59, 0.7);
-            --glass-border: rgba(255, 255, 255, 0.1);
             --log-text: #4ade80;
         }
 
-        /* ライト: ランプを反転させ、既存のクラス指定をそのまま活かす */
         html[data-theme="light"] {
-            color-scheme: light;
-            --c-slate-50: 2 6 23;
-            --c-slate-100: 15 23 42;
-            --c-slate-200: 30 41 59;
-            --c-slate-300: 51 65 85;
-            --c-slate-400: 71 85 105;
-            --c-slate-500: 100 116 139;
-            --c-slate-600: 148 163 184;
-            --c-slate-700: 203 213 225;
-            --c-slate-800: 226 232 240;
-            --c-slate-900: 241 245 249;
-            --c-slate-950: 248 250 252;
-            --page-gradient: linear-gradient(to bottom right, #f8fafc, #ede9fe, #f8fafc);
-            --glass-bg: rgba(255, 255, 255, 0.72);
-            --glass-border: rgba(15, 23, 42, 0.08);
             --log-text: #15803d;
-        }
-
-        /* Tailwind の bg-gradient-* クラスより後勝ちさせる必要があるため !important を付ける */
-        body {
-            background-image: var(--page-gradient) !important;
-        }
-
-        .glass-panel {
-            background: var(--glass-bg);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border: 1px solid var(--glass-border);
         }
 
         /* id セレクタで Tailwind のクラスより優先させる */

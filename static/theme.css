@@ -1,0 +1,56 @@
+/*
+ * テーマ共通スタイル (ダッシュボード / ログイン画面で共有)
+ *
+ * slate ランプを CSS 変数化し、ライト時はランプを反転させることで
+ * HTML 側の Tailwind クラス指定を書き換えずに明暗を切り替える。
+ */
+
+/* ダーク: slate の標準ランプをそのまま使う */
+:root {
+    color-scheme: dark;
+    --c-slate-50: 248 250 252;
+    --c-slate-100: 241 245 249;
+    --c-slate-200: 226 232 240;
+    --c-slate-300: 203 213 225;
+    --c-slate-400: 148 163 184;
+    --c-slate-500: 100 116 139;
+    --c-slate-600: 71 85 105;
+    --c-slate-700: 51 65 85;
+    --c-slate-800: 30 41 59;
+    --c-slate-900: 15 23 42;
+    --c-slate-950: 2 6 23;
+    --page-gradient: linear-gradient(to bottom right, #0f172a, #4c1d95, #0f172a);
+    --glass-bg: rgba(30, 41, 59, 0.7);
+    --glass-border: rgba(255, 255, 255, 0.1);
+}
+
+/* ライト: ランプを反転させ、既存のクラス指定をそのまま活かす */
+html[data-theme="light"] {
+    color-scheme: light;
+    --c-slate-50: 2 6 23;
+    --c-slate-100: 15 23 42;
+    --c-slate-200: 30 41 59;
+    --c-slate-300: 51 65 85;
+    --c-slate-400: 71 85 105;
+    --c-slate-500: 100 116 139;
+    --c-slate-600: 148 163 184;
+    --c-slate-700: 203 213 225;
+    --c-slate-800: 226 232 240;
+    --c-slate-900: 241 245 249;
+    --c-slate-950: 248 250 252;
+    --page-gradient: linear-gradient(to bottom right, #f8fafc, #ede9fe, #f8fafc);
+    --glass-bg: rgba(255, 255, 255, 0.72);
+    --glass-border: rgba(15, 23, 42, 0.08);
+}
+
+/* Tailwind の bg-gradient-* クラスより後勝ちさせる必要があるため !important を付ける */
+body {
+    background-image: var(--page-gradient) !important;
+}
+
+.glass-panel {
+    background: var(--glass-bg);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--glass-border);
+}
