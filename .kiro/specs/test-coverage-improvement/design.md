@@ -120,20 +120,29 @@ mod test_support {
 `sns/bluesky.rs` は既に4件のテストを持ち42.67%に達しているので、同じ形を
 `sns/x.rs` `sns/misskey.rs` `sns/mastodon.rs` へ展開する。
 
+### HTTPエラーの表現について
+
+各クライアントの `post()` は、**HTTPエラー応答を `Err` ではなく
+`PostResult { success: false, error_message: Some(..) }` として返す**。
+1つのSNSが失敗しても他のSNSへの投稿を継続する設計と一貫しており、
+テストもこの仕様に沿って書く。`Err` になるのは接続失敗など、応答自体を
+得られなかった場合に限られる。
+
 ```rust
 #[tokio::test]
-async fn test_post_returns_error_on_http_500() {
+async fn test_post_returns_failure_on_500() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/api/notes/create"))
-        .respond_with(ResponseTemplate::new(500))
+        .respond_with(ResponseTemplate::new(500).set_body_string("internal error"))
         .mount(&server)
         .await;
 
     let client = MisskeyClient::new(/* server.uri() を注入 */);
-    let result = client.post(&content).await;
+    let result = client.post(&content).await.unwrap();
 
-    assert!(result.is_err());
+    assert!(!result.success);
+    assert_eq!(result.error_message.as_deref(), Some("internal error"));
 }
 ```
 
@@ -142,8 +151,8 @@ async fn test_post_returns_error_on_http_500() {
 | 観点 | 内容 |
 |---|---|
 | 正常系 | 投稿が成功し `PostResult` が期待通り |
-| 認証エラー | 401応答時に `Err` を返す |
-| サーバエラー | 500応答時に `Err` を返す |
+| 認証エラー | 401応答時に `success: false` の `PostResult` を返す |
+| サーバエラー | 500応答時に `success: false` の `PostResult` を返す |
 | 文字数制限 | `max_characters()` が仕様通りの値を返す |
 | URL重み | `url_char_weight()` が X/Mastodon で23を返す |
 
