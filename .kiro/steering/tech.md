@@ -2,99 +2,127 @@
 
 ## 1. アーキテクチャ
 
-このプロジェクトは、Pythonで記述されたCLIツールとFastAPIベースのWebアプリケーションを併せ持つ構成です。主要なコンポーネントは以下の通りです。
+Rust (edition 2024) 単一クレート `blog-autopost-rs` として実装されており、
+1つのバイナリがCLIとWebサーバの両方を提供します。旧Python/FastAPI実装は
+`python` ブランチにのみ存在し、`main` には含まれません。
 
-- **CLI (`main.py`)**: コマンドライン引数の解析、設定の読み込み、フィード監視・直接投稿・メンテナンスコマンドの実行を担います。
-- **コンテンツ取得 (`article_manager.py`)**: RSS/Atomフィードの解析、新着記事検出、処理済み記事の永続化（JSON）を担当します。
-- **設定管理 (`config_manager.py`)**: `config.yml`を読み込み、SNS認証情報の環境変数上書きやWebサーバー設定、セッション用シークレットキーを提供します。
-- **共通投稿ロジック (`src/web/core_posting_logic.py`, `src/web/posting_service.py`)**: CLIとWeb UIの双方から利用される投稿パイプライン。プラグインのロード、テキスト最適化、メディア処理をラップします。
-- **Web UI (`src/web/main_web.py`, `src/web/runner.py`)**: FastAPIアプリ本体とUvicorn起動エントリーポイント。ログイン画面、テンプレート描画、予約投稿API、APSchedulerの起動をまとめています。
-- **スケジューラと永続化 (`src/web/scheduler_service.py`, `src/web/post_executor.py`, `src/web/scheduled_post_store_sqlite.py`, `src/web/dao.py`, `src/web/models.py`)**: APSchedulerで予約投稿を監視し、SQLite + SQLAlchemy経由で予約情報を永続化します。JSONベースの`ScheduledPostStore`は互換用に残存します。
-- **SNSプラグイン群 (`src/plugins/*.py`)**: 各SNSへの投稿ロジックをカプセル化したモジュール群。X/Bluesky/Threads/Misskey/Mastodon/Tumblrなどに対応しています。
+主要なコンポーネントは以下の通りです。
+
+- **CLI (`src/cli.rs`, `src/commands/`)**: `clap` によるサブコマンド定義と、
+  その実処理。`main.rs` は設定読込とディスパッチのみを行います。
+- **フィード処理 (`src/article/`)**: `feed-rs` によるRSS/Atom解析、
+  アイキャッチ抽出、投稿済み記事のJSON永続化。
+- **投稿パイプライン (`src/runner.rs`, `src/text/`)**: 新着記事の抽出、
+  テンプレート適用、SNSごとの文字数制限に合わせたテキスト最適化。
+- **SNSクライアント (`src/sns/`)**: `SnsClient` トレイトと
+  X / Bluesky / Misskey / Mastodon の各実装。
+- **予約投稿 (`src/scheduled/`)**: JSONファイルによるストアと実行器。
+- **タイミング管理 (`src/timing.rs`)**: 曜日と時刻の許可リストから
+  次に投稿可能な枠を算出します。
+- **Web UI / API (`src/web/`, `static/`)**: `axum` によるHTTPサーバ。
+  画面は `static/index.html` と `static/login.html` を直接配信します。
+- **デーモン (`src/commands/daemon.rs`)**: `tokio-cron-scheduler` により
+  フィード監視と予約投稿の実行を毎分起動します。
 
 ## 2. 使用技術
 
-### 2.1. 言語
+### 2.1. 言語とツールチェイン
 
-- **Python 3.12+**
+- **Rust (edition 2024)**。ツールチェインは stable を前提とします。
+- 依存関係は `Cargo.toml` / `Cargo.lock` で管理します。
 
-### 2.2. 主要ライブラリ
+### 2.2. 主要クレート
 
-`pyproject.toml` で管理されています。
+バージョンは `Cargo.toml` を参照してください(ここには記載しません)。
 
-- **フィード解析 / スクレイピング**: `feedparser`（RSS/Atomの解析）、`requests`（HTTPアクセス）、`beautifulsoup4`（OGP抽出など）。
-- **SNS連携**: `tweepy`（X API）、`atproto`（Bluesky API）。その他のSNSはプラグイン内の直接HTTP実装で対応します。
-- **メディア処理**: `Pillow`（画像リサイズ）。音声→動画変換などはシステム依存の`ffmpeg`を呼び出します。
-- **Webアプリケーション**: `fastapi`（API本体）、`uvicorn[standard]`（開発用ASGIサーバー）、`python-multipart`（ファイルアップロード）、`jinja2`（HTMLテンプレート）、`itsdangerous`（セッション署名）。
-- **スケジューラ / 永続化**: `apscheduler`（バックグラウンドジョブ管理）、`sqlalchemy`（SQLiteベースの予約投稿ストア）。
-- **構成管理**: `pyyaml`（設定ファイル読み込み）。
-- **テスト**: `pytest`, `pytest-cov`。
+- **非同期ランタイム**: `tokio`, `async-trait`, `tokio-stream`
+- **CLI**: `clap` (derive, env)
+- **HTTPサーバ**: `axum` (multipart), `tower-http` (fs, cors)
+- **HTTPクライアント**: `reqwest` (json, multipart, rustls)
+- **フィード解析**: `feed-rs`
+- **シリアライズ**: `serde`, `serde_json`, `serde_yaml`
+- **スケジューリング**: `tokio-cron-scheduler`, `chrono`
+- **認証・排他**: `bcrypt` (パスワードハッシュ), `fd-lock` (ファイルロック)
+- **メディア**: `image` (リサイズ), `tempfile`
+- **その他**: `anyhow` (エラー), `regex`, `urlencoding`,
+  `oauth1-request` (X API の署名)
+- **開発用**: `wiremock` (HTTPスタブ), `tower` (Router のテスト)
 
-### 2.3. パッケージ管理
+### 2.3. 永続化
 
-- **`uv`**: 高速なPythonパッケージインストーラおよびリゾルバ。依存関係のインストールや仮想環境の管理に使用します。
+データベースは使用しません。以下のJSONファイルで完結します。
+
+- `data/articles.json`: 投稿済み記事の記録
+- `data/scheduled_posts.json`: 予約投稿
+- `data/uploads/`: Web UI からのアップロードメディア
+
+書き込みは一時ファイルと rename による原子的な置き換えで行い、
+予約投稿ストアはプロセス内 `Mutex` とプロセス間 `fd-lock` で排他します。
 
 ## 3. 開発環境
 
 ### 3.1. 必須ツール
 
-- **Python 3.12** 以降
-- **`uv`**: `pip install uv` でインストール。
-- **`git`**: バージョン管理。
-- **`just`**: コマンドランナー（オプションだが推奨）。
-- **`ffmpeg`**: 音声ファイルを動画に変換するために必要（メディア投稿機能）。
+- **Rust ツールチェイン** (stable。`rustfmt`, `clippy` を含む)
+- **`git`**
+- **`just`**: コマンドランナー(推奨)
+- **`cargo-llvm-cov`**: カバレッジ計測
+- **`cross` と Docker**: x86_64 Linux 向けのクロスビルド時のみ
 
-### 3.2. セットアップ手順
+### 3.2. セットアップ
 
-1. リポジトリをクローン:
-   ```bash
-   git clone <repository_url>
-   cd blog-autopost
-   ```
-2. 仮想環境の作成と依存関係のインストール:
-   ```bash
-   uv sync
-   ```
+```bash
+git clone <repository_url>
+cd blog-autopost
+just sync                       # cargo fetch
+cp config.yml.template config.yml
+```
 
 ## 4. 主要なコマンド
 
-`justfile` に主要な開発コマンドが定義されています。
+`justfile` に定義されています。`just help` で一覧を表示できます。
 
-- **ブログ更新チェックと投稿**:
-  ```bash
-  just blog-check
-  # または uv run -m src.main
-  ```
-- **テキストの直接投稿**:
-  ```bash
-  just post-text "投稿したい内容"
-  # または uv run -m src.main --text "投稿したい内容"
-  ```
-- **ドライラン実行**:
-  ```bash
-  just dry-run
-  # または uv run -m src.main --dry-run
-  ```
-- **Web UIの起動**:
-  ```bash
-  just run-web
-  # または uv run -m src.web.runner
-  ```
-- **テストの実行**:
-  ```bash
-  just test
-  # または uv run pytest
-  ```
-- **依存関係の同期**:
-  ```bash
-  just sync
-  # または uv sync
-  ```
+- フィードのチェックと投稿: `cargo run -- check`
+- デーモン起動: `cargo run -- run`
+- ドライラン: `just dry-run` / `just debug-dry-run`
+- 手動投稿: `just post-text 'テキスト内容'`
+- 予約投稿の操作: `cargo run -- schedule list` / `schedule add` など
+- 全フィードを既読化: `just touch-rss-posted`
+- Web UI 起動: `just run-web` (`cargo run -- serve`、既定ポート 8080)
+- テスト: `just test` (`cargo test`)
+- カバレッジ: `just cov` / `just test-cov` / `just cov-check`
+- リリースビルド: `just build-x86` / `just dist`
 
-## 5. 環境変数
+コミット前には `cargo fmt` と `cargo clippy` を実行します。
 
-このプロジェクトでは、`config.yml` ファイルを使用して設定を管理しており、直接的な環境変数の使用は必須ではありません。ただし、CI/CD環境などでは、`config.yml` の内容を環境変数経由で動的に生成することが想定されます。Web UIを利用する場合は`web_auth.username` / `web_auth.password` / `web_auth.secret_key`を設定する必要があります。SNS認証情報は`X_CONSUMER_KEY`などの環境変数で上書き可能です。
+## 5. CI
 
-## 6. ポート設定
+`.github/workflows/ci.yml` が main への push と PR で以下を実行します。
 
-FastAPI Web UIを起動する場合は、`config.yml`の`web_server.host` / `web_server.port`設定に従ってサーバーが起動します（デフォルトは`127.0.0.1:8000`）。CLIのみを利用する場合はポートは使用しません。
+1. `cargo fmt --all -- --check`
+2. `cargo clippy --all-targets --all-features -- -D warnings`
+3. `cargo llvm-cov` によるテストとカバレッジ計測
+
+カバレッジ閾値は `coverage-threshold.txt` で管理し、CIが
+`--fail-under-regions` で判定します。**閾値は引き下げないこと**。
+テスト追加で上回ったら同じPR内で引き上げるラチェット方式を取ります。
+
+## 6. 設定と環境変数
+
+設定は `config.yml` に集約します(`config.yml.template` からコピーして作成)。
+主な項目は監視フィード(`blog`)、SNS認証情報(`sns`)、投稿テンプレート
+(`templates`)、投稿タイミング(`default_allowed_timings` /
+`allowed_timings`)、Web認証(`web_auth`)です。
+
+環境変数は一部のCLIオプションの上書きに使えます(`clap` の `env` 属性。
+例: `SNS_URL`, `SNS_TOKEN`)。秘密情報を含む `config.yml` はgitに含めません。
+
+`web_auth.password` は平文を検出すると起動時に bcrypt ハッシュへ
+自動移行します。
+
+## 7. ポート
+
+Web UI は `cargo run -- serve --port <番号>` で起動します。既定は 8080 で、
+`0.0.0.0` で待ち受けます。外部公開する場合は前段のリバースプロキシや
+ファイアウォールで制御してください。CLIのみを利用する場合はポートを
+使用しません。
