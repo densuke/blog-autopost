@@ -7,19 +7,22 @@ use crate::commands::sns_selector::SnsSelector;
 
 /// 設定から SNS クライアントのリストを構築する。
 ///
-/// Run / Check の両コマンドで共通して使用する。生成に失敗したアカウントは
-/// スキップされ、未対応の設定が見つかった場合は警告を表示する。
+/// Run / Check の両コマンドで共通して使用する。
+///
+/// クライアントを構築できなかった設定はスキップされる。理由は
+/// 未対応の種別(Threads / Tumblr / 不明な設定)の場合と、対応している種別だが
+/// クライアントの生成に失敗した場合の2通りがあり、ここでは区別せずに
+/// 件数だけを警告する。CLIから設定の誤りに気づけるようにするための表示。
 pub fn build_sns_clients(
     config_data: &config::Config,
 ) -> Vec<std::sync::Arc<dyn SnsClient + Send + Sync>> {
     let clients = blog_autopost_rs::sns::build_clients_from_config(config_data);
 
-    // 未対応の設定が含まれていた場合は警告する(CLIでは設定の誤りに気づけるように)
-    let unsupported = config_data.sns.len() - clients.len();
-    if unsupported > 0 {
+    let skipped = config_data.sns.len() - clients.len();
+    if skipped > 0 {
         println!(
-            "Unknown or unsupported SNS configuration found: {} 件",
-            unsupported
+            "警告: {} 件のSNS設定をスキップしました(未対応の種別、またはクライアントの生成に失敗)",
+            skipped
         );
     }
 

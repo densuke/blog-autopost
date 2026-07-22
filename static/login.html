@@ -4,17 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Blog Autopost RS - Login</title>
+    <!-- テーマの早期適用 (描画前に確定させてちらつきを防ぐ) -->
+    <script src="/theme.js"></script>
     <!-- Tailwind CSS & DaisyUI -->
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.10.2/dist/full.min.css" rel="stylesheet" type="text/css" />
     <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        .glass-panel {
-            background: rgba(30, 41, 59, 0.7);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-    </style>
+    <script>applyTailwindSlatePalette();</script>
+    <link href="/theme.css" rel="stylesheet" type="text/css" />
 </head>
 <body class="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-slate-100 flex items-center justify-center p-4">
 
@@ -33,7 +29,7 @@
                         <span class="label-text text-slate-300 font-medium">ユーザー名</span>
                     </label>
                     <input type="text" id="username" name="username" required placeholder="username" 
-                           class="input input-bordered w-full bg-slate-800/50 text-white placeholder-slate-500 border-slate-700 focus:border-purple-500 focus:outline-none transition-colors" />
+                           class="input input-bordered w-full bg-slate-800/50 text-slate-50 placeholder-slate-500 border-slate-700 focus:border-purple-500 focus:outline-none transition-colors" />
                 </div>
 
                 <div class="form-control">
@@ -41,7 +37,7 @@
                         <span class="label-text text-slate-300 font-medium">パスワード</span>
                     </label>
                     <input type="password" id="password" name="password" required placeholder="••••••••" 
-                           class="input input-bordered w-full bg-slate-800/50 text-white placeholder-slate-500 border-slate-700 focus:border-purple-500 focus:outline-none transition-colors" />
+                           class="input input-bordered w-full bg-slate-800/50 text-slate-50 placeholder-slate-500 border-slate-700 focus:border-purple-500 focus:outline-none transition-colors" />
                 </div>
 
                 <div class="form-control mt-6">

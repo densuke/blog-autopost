@@ -16,10 +16,99 @@ use crate::sns::{
     bluesky::BlueskyClient, mastodon::MastodonClient, misskey::MisskeyClient, x::XClient,
 };
 
+/// Web UI へ返す SNS アカウント1件分の情報。
+///
+/// `name` が実際の識別子であり、`label` は表示専用である。
+/// 表示文字列からアカウント名を逆算する処理を UI 側に持たせないために
+/// 両者を分けて返す。
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+pub struct SnsAccountInfo {
+    /// config.yml に記載されたアカウント名 (投稿対象の識別子)
+    pub name: String,
+    /// SNS の種別 (`x` / `bluesky` / `mastodon` / `misskey` など)
+    pub sns_type: String,
+    /// 画面表示用のラベル (例: `X (x)`)
+    pub label: String,
+}
+
 #[derive(Serialize)]
 pub struct ConfigResponse {
     pub blog_name: String,
+    /// 表示用ラベルの一覧 (既存クライアント互換のために維持)
     pub active_sns: Vec<String>,
+    /// SNS アカウントの構造化一覧
+    pub sns_accounts: Vec<SnsAccountInfo>,
+}
+
+/// `SnsConfig` からアカウント名を取り出す。未知種別は `None` を返す。
+pub fn sns_account_name(sns: &SnsConfig) -> Option<&str> {
+    match sns {
+        SnsConfig::Mastodon { name, .. }
+        | SnsConfig::Misskey { name, .. }
+        | SnsConfig::Bluesky { name, .. }
+        | SnsConfig::X { name, .. }
+        | SnsConfig::Threads { name, .. }
+        | SnsConfig::Tumblr { name, .. } => Some(name),
+        SnsConfig::Unknown => None,
+    }
+}
+
+/// `SnsConfig` から種別名を取り出す。未知種別は `None` を返す。
+pub fn sns_type_name(sns: &SnsConfig) -> Option<&'static str> {
+    match sns {
+        SnsConfig::Mastodon { .. } => Some("mastodon"),
+        SnsConfig::Misskey { .. } => Some("misskey"),
+        SnsConfig::Bluesky { .. } => Some("bluesky"),
+        SnsConfig::X { .. } => Some("x"),
+        SnsConfig::Threads { .. } => Some("threads"),
+        SnsConfig::Tumblr { .. } => Some("tumblr"),
+        SnsConfig::Unknown => None,
+    }
+}
+
+/// 画面表示用のラベル (例: `X (x)`) を生成する。未知種別は `None` を返す。
+pub fn sns_display_label(sns: &SnsConfig) -> Option<String> {
+    let name = sns_account_name(sns)?;
+    let type_label = match sns {
+        SnsConfig::Mastodon { .. } => "Mastodon",
+        SnsConfig::Misskey { .. } => "Misskey",
+        SnsConfig::Bluesky { .. } => "Bluesky",
+        SnsConfig::X { .. } => "X",
+        SnsConfig::Threads { .. } => "Threads",
+        SnsConfig::Tumblr { .. } => "Tumblr",
+        SnsConfig::Unknown => return None,
+    };
+    Some(format!("{} ({})", type_label, name))
+}
+
+/// 設定から Web UI 用の SNS アカウント一覧を組み立てる。未知種別は除外する。
+pub fn build_sns_accounts(sns_list: &[SnsConfig]) -> Vec<SnsAccountInfo> {
+    sns_list
+        .iter()
+        .filter_map(|s| {
+            Some(SnsAccountInfo {
+                name: sns_account_name(s)?.to_string(),
+                sns_type: sns_type_name(s)?.to_string(),
+                label: sns_display_label(s)?,
+            })
+        })
+        .collect()
+}
+
+/// 投稿対象の指定文字列からアカウント名を解決する。
+///
+/// アカウント名そのものと表示用ラベルの双方を受け付ける。
+/// 表示用ラベルを正規表現で分解する必要がないため、
+/// アカウント名に括弧が含まれていても正しく解決できる。
+pub fn resolve_sns_name(sns_list: &[SnsConfig], target: &str) -> Option<String> {
+    sns_list.iter().find_map(|s| {
+        let name = sns_account_name(s)?;
+        if name == target || sns_display_label(s).as_deref() == Some(target) {
+            Some(name.to_string())
+        } else {
+            None
+        }
+    })
 }
 
 pub async fn get_config(State(state): State<Arc<AppState>>) -> Json<ConfigResponse> {
@@ -31,22 +120,13 @@ pub async fn get_config(State(state): State<Arc<AppState>>) -> Json<ConfigRespon
         .map(|b| b.name.clone())
         .unwrap_or_else(|| "Unknown Blog".to_string());
 
-    let active_sns = state
-        .config
-        .sns
-        .iter()
-        .map(|s| match s {
-            SnsConfig::Mastodon { name, .. } => format!("Mastodon ({})", name),
-            SnsConfig::Misskey { name, .. } => format!("Misskey ({})", name),
-            SnsConfig::Bluesky { name, .. } => format!("Bluesky ({})", name),
-            SnsConfig::X { name, .. } => format!("X ({})", name),
-            _ => "Unknown".to_string(),
-        })
-        .collect();
+    let sns_accounts = build_sns_accounts(&state.config.sns);
+    let active_sns = sns_accounts.iter().map(|a| a.label.clone()).collect();
 
     Json(ConfigResponse {
         blog_name,
         active_sns,
+        sns_accounts,
     })
 }
 
@@ -77,16 +157,18 @@ pub async fn manual_post(
     // リクエストごとに SnsClient を組み立てる (KISS実装)
     let mut sns_clients: Vec<Box<dyn SnsClient + Send + Sync>> = Vec::new();
     for sns_conf in &state.config.sns {
-        let target_name = match sns_conf {
-            SnsConfig::Mastodon { name, .. } => format!("Mastodon ({})", name),
-            SnsConfig::Misskey { name, .. } => format!("Misskey ({})", name),
-            SnsConfig::Bluesky { name, .. } => format!("Bluesky ({})", name),
-            SnsConfig::X { name, .. } => format!("X ({})", name),
-            _ => continue,
+        let Some(account_name) = sns_account_name(sns_conf) else {
+            continue;
+        };
+        let Some(target_label) = sns_display_label(sns_conf) else {
+            continue;
         };
 
+        // アカウント名と表示用ラベルのどちらで指定されても受け付ける
         if let Some(ref selected) = payload.targets
-            && !selected.contains(&target_name)
+            && !selected
+                .iter()
+                .any(|t| t == account_name || *t == target_label)
         {
             continue;
         }
@@ -210,31 +292,7 @@ pub async fn manual_post(
         let mut all_success = true;
 
         for target in &targets {
-            let sns_name = state.config.sns.iter().find_map(|s| {
-                let name = match s {
-                    SnsConfig::Mastodon { name, .. } => name,
-                    SnsConfig::Misskey { name, .. } => name,
-                    SnsConfig::Bluesky { name, .. } => name,
-                    SnsConfig::X { name, .. } => name,
-                    SnsConfig::Threads { name, .. } => name,
-                    SnsConfig::Tumblr { name, .. } => name,
-                    _ => return None,
-                };
-                let formatted = match s {
-                    SnsConfig::Mastodon { .. } => format!("Mastodon ({})", name),
-                    SnsConfig::Misskey { .. } => format!("Misskey ({})", name),
-                    SnsConfig::Bluesky { .. } => format!("Bluesky ({})", name),
-                    SnsConfig::X { .. } => format!("X ({})", name),
-                    SnsConfig::Threads { .. } => format!("Threads ({})", name),
-                    SnsConfig::Tumblr { .. } => format!("Tumblr ({})", name),
-                    _ => return None,
-                };
-                if formatted == *target {
-                    Some(name.clone())
-                } else {
-                    None
-                }
-            });
+            let sns_name = resolve_sns_name(&state.config.sns, target);
 
             let Some(sns_name) = sns_name else {
                 all_success = false;
@@ -352,14 +410,8 @@ pub async fn get_next_slots(
     let mut slots = HashMap::new();
 
     for sns_conf in &state.config.sns {
-        let name = match sns_conf {
-            SnsConfig::Mastodon { name, .. } => name,
-            SnsConfig::Misskey { name, .. } => name,
-            SnsConfig::Bluesky { name, .. } => name,
-            SnsConfig::X { name, .. } => name,
-            SnsConfig::Threads { name, .. } => name,
-            SnsConfig::Tumblr { name, .. } => name,
-            _ => continue,
+        let Some(name) = sns_account_name(sns_conf) else {
+            continue;
         };
 
         let slot = finder
@@ -367,7 +419,7 @@ pub async fn get_next_slots(
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        slots.insert(name.clone(), slot.map(|dt| dt.to_rfc3339()));
+        slots.insert(name.to_string(), slot.map(|dt| dt.to_rfc3339()));
     }
 
     Ok(Json(NextSlotResponse { slots }))
@@ -1649,10 +1701,20 @@ mod tests {
 
         let body = json_body(response).await;
         assert_eq!(body["blog_name"], "テストブログ");
+
+        // 未知の種別は一覧に含めない
         let sns = body["active_sns"].as_array().unwrap();
+        assert_eq!(sns.len(), 2, "Unknown は除外されるはず: {:?}", sns);
         assert_eq!(sns[0], "Mastodon (mstdn-main)");
         assert_eq!(sns[1], "Bluesky (bsky-main)");
-        assert_eq!(sns[2], "Unknown");
+
+        // 構造化された一覧にも同じ2件が並ぶ
+        let accounts = body["sns_accounts"].as_array().unwrap();
+        assert_eq!(accounts.len(), 2);
+        assert_eq!(accounts[0]["name"], "mstdn-main");
+        assert_eq!(accounts[0]["sns_type"], "mastodon");
+        assert_eq!(accounts[1]["name"], "bsky-main");
+        assert_eq!(accounts[1]["sns_type"], "bluesky");
     }
 
     // --- GET /api/schedules ---
@@ -1701,7 +1763,7 @@ mod tests {
         let payload = serde_json::json!({
             "content": "変更後",
             "scheduled_at": "2026-09-01T09:00:00+09:00",
-            "target_sns": ["mastodon", "bluesky"],
+            "target_sns": ["mstdn-main", "bsky-main"],
             "status": "投稿済み",
             "media_files": ["a.png"],
             "link_url": "https://example.com/a"
@@ -1721,7 +1783,7 @@ mod tests {
         let body = json_body(response).await;
         assert_eq!(body["content"], "変更後");
         assert_eq!(body["status"], "投稿済み");
-        assert_eq!(body["target_sns"][0], "mastodon");
+        assert_eq!(body["target_sns"][0], "mstdn-main");
         assert_eq!(body["media_files"][0], "a.png");
         assert_eq!(body["link_url"], "https://example.com/a");
     }
@@ -1734,7 +1796,7 @@ mod tests {
         let payload = serde_json::json!({
             "content": "x",
             "scheduled_at": "2026-09-01T09:00:00+09:00",
-            "target_sns": ["mastodon"],
+            "target_sns": ["mstdn-main"],
             "status": "予約済み"
         });
 
@@ -1760,7 +1822,7 @@ mod tests {
         let payload = serde_json::json!({
             "content": "x",
             "scheduled_at": "めちゃくちゃな日時",
-            "target_sns": ["mastodon"],
+            "target_sns": ["mstdn-main"],
             "status": "予約済み"
         });
 
@@ -2510,5 +2572,119 @@ mod tests {
             "実際のステータス: {}",
             response.status()
         );
+    }
+
+    /// main 側で追加されたテスト群。
+    /// SNS名の解決に関するテスト群。
+    mod resolve_sns {
+        // 親モジュール(tests)ではなく routes 本体のスコープを取り込む
+        use crate::config::SnsConfig;
+        use crate::web::routes::*;
+
+        fn sample_sns() -> Vec<SnsConfig> {
+            vec![
+                SnsConfig::X {
+                    name: "x".to_string(),
+                    consumer_key: "a".to_string(),
+                    consumer_secret: "b".to_string(),
+                    access_token: "c".to_string(),
+                    access_token_secret: "d".to_string(),
+                },
+                SnsConfig::Bluesky {
+                    name: "bluesky".to_string(),
+                    identifier: "e".to_string(),
+                    password: "f".to_string(),
+                },
+                SnsConfig::Mastodon {
+                    name: "mastodon-social".to_string(),
+                    instance_url: "https://mastodon.social".to_string(),
+                    access_token: "g".to_string(),
+                },
+                SnsConfig::Misskey {
+                    name: "misskey-io".to_string(),
+                    instance_url: "https://misskey.io".to_string(),
+                    access_token: "h".to_string(),
+                    is_sensitive: None,
+                },
+                SnsConfig::Unknown,
+            ]
+        }
+
+        #[test]
+        fn sns_account_name_は既知種別の名前を返す() {
+            let sns = sample_sns();
+            assert_eq!(sns_account_name(&sns[0]), Some("x"));
+            assert_eq!(sns_account_name(&sns[2]), Some("mastodon-social"));
+            assert_eq!(sns_account_name(&SnsConfig::Unknown), None);
+        }
+
+        #[test]
+        fn sns_display_label_は種別と名前を組み合わせる() {
+            let sns = sample_sns();
+            assert_eq!(sns_display_label(&sns[0]).as_deref(), Some("X (x)"));
+            assert_eq!(
+                sns_display_label(&sns[3]).as_deref(),
+                Some("Misskey (misskey-io)")
+            );
+            assert_eq!(sns_display_label(&SnsConfig::Unknown), None);
+        }
+
+        #[test]
+        fn build_sns_accounts_は未知種別を除いた全件を返す() {
+            let accounts = build_sns_accounts(&sample_sns());
+            assert_eq!(accounts.len(), 4);
+            let names: Vec<&str> = accounts.iter().map(|a| a.name.as_str()).collect();
+            assert_eq!(names, vec!["x", "bluesky", "mastodon-social", "misskey-io"]);
+            assert_eq!(accounts[0].sns_type, "x");
+            assert_eq!(accounts[0].label, "X (x)");
+        }
+
+        #[test]
+        fn build_sns_accounts_は括弧入りの名前をそのまま保持する() {
+            let sns = vec![SnsConfig::Mastodon {
+                name: "my(test)".to_string(),
+                instance_url: "https://example.com".to_string(),
+                access_token: "t".to_string(),
+            }];
+            let accounts = build_sns_accounts(&sns);
+            assert_eq!(accounts.len(), 1);
+            assert_eq!(accounts[0].name, "my(test)");
+            assert_eq!(accounts[0].label, "Mastodon (my(test))");
+        }
+
+        #[test]
+        fn resolve_sns_name_は表示ラベルでもアカウント名でも解決する() {
+            let sns = sample_sns();
+            assert_eq!(resolve_sns_name(&sns, "X (x)").as_deref(), Some("x"));
+            assert_eq!(resolve_sns_name(&sns, "x").as_deref(), Some("x"));
+            assert_eq!(
+                resolve_sns_name(&sns, "misskey-io").as_deref(),
+                Some("misskey-io")
+            );
+        }
+
+        #[test]
+        fn resolve_sns_name_は括弧入りの名前も解決する() {
+            let sns = vec![SnsConfig::Mastodon {
+                name: "my(test)".to_string(),
+                instance_url: "https://example.com".to_string(),
+                access_token: "t".to_string(),
+            }];
+            assert_eq!(
+                resolve_sns_name(&sns, "my(test)").as_deref(),
+                Some("my(test)")
+            );
+            assert_eq!(
+                resolve_sns_name(&sns, "Mastodon (my(test))").as_deref(),
+                Some("my(test)")
+            );
+        }
+
+        #[test]
+        fn resolve_sns_name_は未知の指定を解決しない() {
+            let sns = sample_sns();
+            assert_eq!(resolve_sns_name(&sns, "nope"), None);
+            assert_eq!(resolve_sns_name(&sns, "Unknown"), None);
+        }
     }
 }
