@@ -5,7 +5,9 @@
 
 関連Issue: #58
 
-## 現状調査 (2026-07-22)
+## 着手前の調査 (2026-07-22)
+
+以下は本仕様に着手した時点の状態であり、実装後の姿ではない。
 
 Web UI の実体は `static/` 配下である。`src/web/mod.rs` のルータは
 `fallback_service(ServeDir::new("static"))` を使い、ログイン画面は
