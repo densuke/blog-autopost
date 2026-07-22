@@ -5,3 +5,9 @@
 
 ## Requirements
 <!-- Will be generated in /kiro:spec-requirements phase -->
+
+## 現状 (2026-07-22 棚卸し)
+
+未着手。requirements/design/tasks いずれも未生成。
+
+関連Issue: #57
