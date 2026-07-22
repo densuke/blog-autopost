@@ -1,105 +1,145 @@
 # プロジェクト構造 (structure.md)
 
-## 1. ルートディレクトリ構成
+現行実装は Rust (edition 2024) 単一クレート `blog-autopost-rs` です。
+旧Python/FastAPI実装は `python` ブランチにのみ存在し、`main` には含まれません。
 
-プロジェクトのルートディレクトリは、アプリケーションのソースコード、設定ファイル、ドキュメント、テストコードなどを明確に分離する構造になっています。
+## 1. ルートディレクトリ構成
 
 ```
 /
-├── .env.example         # 環境変数設定のテンプレート
-├── .gitignore           # Gitの追跡対象外ファイルを指定
-├── .kiro/               # Kiro(AI開発ツール)のステアリングファイル
-│   └── steering/
-├── .python-version      # 使用するPythonのバージョンを指定
-├── CLAUDE.md            # Claude AI用の設定・指示ファイル
-├── config.yml.template  # アプリケーション設定ファイルのテンプレート
-├── justfile             # justコマンドランナーの定義ファイル
-├── pyproject.toml       # プロジェクト定義と依存関係管理 (PEP 621)
-├── pytest.ini           # pytestの設定ファイル
-├── README.md            # プロジェクトの主要なドキュメント
-├── uv.lock              # uvによってロックされた依存関係のバージョン
-├── src/                 # アプリケーションのソースコード
-├── tests/               # テストコード
-├── docs/                # プロジェクト関連ドキュメント
-└── data/                # 処理済み記事の記録など、アプリケーションが生成するデータ
+├── .env.example         # 環境変数のテンプレート
+├── .github/workflows/   # CI(書式検査・clippy・テスト・カバレッジ)とリリース
+├── .kiro/               # steering(本ファイル群)と specs
+├── CLAUDE.md            # Claude Code 向けのガイド
+├── Cargo.toml           # クレート定義と依存関係
+├── Cargo.lock           # 依存関係のロック
+├── config.yml.template  # 設定ファイルのテンプレート
+├── coverage-threshold.txt # カバレッジ閾値(CIが判定。引き下げ禁止)
+├── justfile             # just コマンドランナーの定義
+├── README.md            # 利用者向けドキュメント
+├── docs/                # 補足ドキュメント
+├── src/                 # ソースコード
+├── static/              # Web UI の実体(index.html, login.html)
+└── data/                # 実行時に生成されるデータ(git管理外)
 ```
 
-## 2. サブディレクトリ構造
+`tests/` ディレクトリは存在しません。テストはすべて各モジュール内の
+`#[cfg(test)] mod tests` に置く方針です。
 
-### `src/` - ソースコード
+## 2. `src/` の構成
 
-CLIワークフローとWeb UIが共有する主要ロジックがまとまっています。
+```
+src/
+├── main.rs              # エントリポイント。設定読込とディスパッチのみ
+├── lib.rs               # ライブラリのモジュール宣言
+├── cli.rs               # clap によるCLI定義
+├── commands.rs          # サブコマンドのディスパッチ
+├── commands/            # 各サブコマンドの実処理
+├── runner.rs            # フィード取得から投稿までの一連の流れ
+├── config.rs            # config.yml の読み込み
+├── timing.rs            # 投稿タイミングの算出
+├── image_resizer.rs     # 添付画像のリサイズ
+├── article/             # 記事の取得・抽出・永続化
+├── sns/                 # SNSクライアント
+├── scheduled/           # 予約投稿
+├── text/                # 投稿テキストの生成
+└── web/                 # Web UI / API サーバ
+```
 
-- `main.py`: CLIのエントリーポイント。フィード監視、直接投稿、メンテナンス系コマンドを引数に応じて実行します。
-- `article_manager.py`: RSS/Atomフィードの取得、新着記事の検出、処理済み記事の永続化を担当します。
-- `config_manager.py`: `config.yml`の読み込みと設定管理。SNS認証情報の環境変数上書きやWebサーバー／認証設定の提供も行います。
-- `plugin_loader.py`: `src/plugins`にあるSNS向けプラグインを動的に読み込み、CLIとWebの投稿処理で共有します。
-- `image_resizer.py` / `media_converter.py` / `media_validator.py`: SNSごとの制限に合わせたメディアの変換・リサイズ・バリデーションを担います。
-- `text_optimizer.py` / `url_shortener.py`: 文字数制限に応じたテキスト最適化とURL短縮処理を提供します。
+### `src/commands/` - サブコマンドの実処理
 
-### `src/plugins/` - SNSプラグイン
+`commands.rs` は入力を振り分けるだけで、実処理は以下へ分割しています。
 
-各SNSへの投稿機能を実装したプラグインが配置されています。この構造により、新しいSNSへの対応が容易になります。
+- `check.rs`: フィードを一度だけチェックして投稿する
+- `daemon.rs`: `tokio-cron-scheduler` でフィード監視と予約投稿実行を定期起動する
+- `post.rs`: 任意テキストの手動投稿
+- `schedule.rs`: 予約投稿の一覧・追加・削除・変更
+- `touch.rs`: 現在のフィードをすべて既読として記録する
+- `list.rs`: SNS一覧とフィード一覧の表示
+- `sns_clients.rs`: 設定から `SnsClient` 群を構築する
+- `sns_selector.rs`: `--sns` 指定によるフィルタ(`-名前`で除外、`all`で全件)
+- `length_check.rs`: 文字数超過の検査
 
-- `__init__.py`: プラグインの基底クラス`SocialMediaPlugin`を定義します。
-- `x.py`: X (旧Twitter) への投稿ロジック。
-- `bluesky.py`: Blueskyへの投稿ロジック（リンクカード生成機能を含む）。
-- `threads.py`: Threadsへの投稿ロジック。
-- `mastodon.py`: Mastodonへの投稿ロジック。
-- `misskey.py`: Misskeyへの投稿ロジック。
-- `tumblr.py`: Tumblrへの投稿ロジック。
+### `src/article/` - 記事の取得と永続化
 
-### `src/web/` - Web UIと予約投稿サービス
+- `feed_fetcher.rs`: `feed-rs` によるRSS/Atomの取得と解析
+- `image_extractor.rs`: og:image 等からのアイキャッチ抽出
+- `store.rs`: `JsonArticleStore`。一時ファイルと rename で原子的に書き換える
+- `traits.rs`: `ArticleStore` トレイト
+- `models.rs`: `Article`
 
-FastAPIベースのダッシュボードとバックグラウンドスケジューラを実装しています。
+### `src/sns/` - SNS投稿
 
-- `main_web.py`: FastAPIアプリ本体。ログイン、テンプレート描画、予約投稿API、APSchedulerの起動をまとめています。
-- `runner.py`: `uvicorn`で`src.web.main_web:app`を起動するためのエントリーポイント。
-- `posting_service.py`: Web経由の即時投稿をハンドリングし、メディアのリサイズ／バリデーションを共有キャッシュで最適化します。
-- `core_posting_logic.py`: 既存CLIの投稿処理をクラス化したラッパー。Web UIやスケジューラからSNS投稿を再利用できるようにします。
-- `post_executor.py`: 予約投稿を取り出してSNSへ送信し、結果に応じてステータスやエラーメッセージを更新します。
-- `scheduler_service.py`: APSchedulerのバックグラウンドジョブを構成し、一定間隔で予約投稿を監視・実行します。
-- `scheduled_post_model.py`: 予約投稿のデータクラス。JSON/DBとの相互変換やタイムゾーン正規化を担います。
-- `scheduled_post_store.py`: JSONファイルを利用したストア実装（既存データとの互換用）。
-- `scheduled_post_store_sqlite.py`: SQLAlchemy/SQLiteベースのストア実装。DAO (`dao.py`) とORMモデル (`models.py`) を通じて永続化・フィルタリングを行います。
-- `auth_service.py`: 設定ファイルに定義された認証情報でログインを検証します。
-- `timezone_utils.py`: ローカルタイムゾーンの正規化ユーティリティ。
-- `templates/`: FastAPI用のJinja2テンプレート（`index.html`, `login.html`など）。
+- `traits.rs`: `SnsClient` トレイト(`name` / `account_name` / `post` /
+  `max_characters` / `url_char_weight`)
+- `x.rs` / `bluesky.rs` / `misskey.rs` / `mastodon.rs`: 各SNSの実装
+- `models.rs`: `PostContent` と `PostResult`
+- `mod.rs`: 画像ダウンロードと画像形式判定の共通処理
 
-### `tests/` - テストコード
+### `src/scheduled/` - 予約投稿
 
-`pytest`を使用したユニットテストや結合テストが格納されています。ファイル名は`test_*.py`の形式で、テスト対象のモジュールと対応しています。
+- `models.rs`: `ScheduledPost`
+- `store.rs`: `JsonScheduledPostStore`。プロセス内は `tokio::sync::Mutex`、
+  プロセス間は `fd-lock` によるファイルロックで排他する
+- `executor.rs`: 実行時刻を過ぎた予約を取り出して投稿する
 
-### `docs/` - ドキュメント
+### `src/text/` - 投稿テキストの生成
 
-`README.md`だけでは収まらない詳細なセットアップ手順やAPIの仕様などを記述します。
+- `traits.rs`: `TextOptimizer` トレイト
+- `optimizer.rs`: SNSごとの文字数制限に合わせた最適化
+- `tags.rs`: ハッシュタグ抽出
 
-### `data/` - データファイル
+### `src/web/` - Web UI と API
 
-アプリケーションが実行時に生成・参照するデータが保存されます。処理済み記事を記録するJSON、予約投稿を保存する`scheduled_posts.db`（SQLite）、アップロードメディア用の`scheduled_media/`ディレクトリ、アプリケーションログなどがここに配置されます。
+- `mod.rs`: axum の `Router` 構築、`AppState`、認証ミドルウェア、サーバ起動
+- `routes.rs`: 各ハンドラ(設定取得、手動投稿、メディアアップロード、
+  予約のCRUD、次スロット取得、ログインとログアウト、MCP用SSE)
+
+HTMLは `static/index.html` と `static/login.html` を直接配信します
+(`ServeDir` によるフォールバック)。テンプレートエンジンは使いません。
+かつて存在した `src/web/templates/` は死にコードとして削除済みです。
+
+### `data/` - 実行時データ
+
+- `data/articles.json`: 投稿済み記事の記録
+- `data/scheduled_posts.json`: 予約投稿
+- `data/uploads/`: Web UI からアップロードされたメディア
+
+データベースは使用しません。永続化はすべてJSONファイルです。
 
 ## 3. コード構成パターン
 
-- **設定駆動開発**: アプリケーションの挙動の多くは`config.yml`によって制御されます。CLIだけでなくWebサーバーのホスト/ポートや認証情報もここに集約されています。
-- **プラグインアーキテクチャ**: SNSへの投稿機能は疎結合なプラグインとして実装されています。`SocialMediaPlugin`基底クラスを継承し、`post`メソッドを実装することで、コアロジックに手を加えることなく新しいSNSに対応できます。
-- **共有投稿パイプライン**: CLIとWeb UIは`core_posting_logic.py`および`posting_service.py`を通じて同じ投稿処理を利用し、単一のプラグイン群で両方のユースケースを賄います。
-- **責任の分離**: 設定管理、記事管理、投稿実行、Web/DBアクセスなどをモジュール単位で分離しています。DAO層（`dao.py`）とモデル（`models.py`）により永続化処理も分離されています。
-- **バックグラウンドスケジューリング**: APSchedulerを使った監視ジョブとSQLiteストレージを組み合わせて予約投稿を管理し、完了済み投稿のクリーンアップも自動化しています。
+- **トレイトによる抽象化**: `SnsClient` / `ArticleStore` / `TextOptimizer` を
+  境界に置き、実装の差し替えとテスト時のモック化を可能にしています。
+  新しいSNSは `src/sns/` にモジュールを追加し、`sns/mod.rs` と
+  `commands/sns_clients.rs` に登録します。動的プラグイン機構はありません。
+- **設定駆動**: 監視フィード、SNS認証情報、投稿タイミング、Web認証を
+  `config.yml` に集約しています。
+- **薄いエントリポイント**: `main.rs` と `commands.rs` は振り分けのみを担い、
+  実処理は各モジュールへ寄せます。
+- **CLIとWebでロジックを共有**: 双方が同じ `SnsClient` 実装と
+  `JsonScheduledPostStore` を利用します。
+- **エラーの局所化**: 各SNSへの投稿失敗は個別に捕捉し、他SNSへの投稿を
+  継続します。エラー型は `anyhow` を使用します。
 
-## 4. ファイル命名規則
+## 4. 命名規則
 
-- **Pythonモジュール**: スネークケース（例: `config_manager.py`）。
-- **テストファイル**: `test_`プレフィックスを付けたスネークケース（例: `test_main.py`）。
-- **クラス名**: アッパーキャメルケース（例: `ArticleManager`）。
+- モジュールとファイル: スネークケース(例: `image_resizer.rs`)
+- 型とトレイト: アッパーキャメルケース(例: `JsonArticleStore`)
+- 定数: 大文字スネークケース
+- テスト関数: `test_` プレフィックス(例: `test_feed_targets_skips_empty_url`)
 
-## 5. インポート構成
+## 5. ドキュメンテーション
 
-- `src`ディレクトリをルートとする絶対インポートを基本とします。
-  - 例: `from .config_manager import ConfigManager`
+公開API・構造体・トレイトには doc comment (`///`) を必ず記述します。
+自明でない設計判断(排他制御の方式、SIGPIPEの扱いなど)は、その理由を
+コメントとして残します。
 
 ## 6. 主要な設計原則
 
-- **拡張性**: 新しいSNSやブログフィード形式、URL短縮サービスなどを容易に追加できるよう、各機能はモジュール化・プラグイン化されています。
-- **後方互換性**: 設定ファイルのフォーマット変更時（例: 単一アカウントから複数アカウント対応へ）にも、古い形式をサポートし、既存ユーザーが設定変更なしでアップデートできるよう配慮されています。
-- **堅牢性**: メディア投稿前のバリデーションや、APIエラー発生時のフォールバック処理など、予期せぬエラーが発生してもアプリケーション全体が停止しないように設計されています。
-- **ユーザーフレンドリーなCLI**: `--dry-run`や`--debug`、`--list-sns`といったオプションを提供し、ユーザーが動作を安全に確認・デバッグできるようにしています。
+- **拡張性**: SNSの追加はトレイト実装1つとその登録で完結します。
+- **堅牢性**: JSONの書き込みは原子的に行い、ファイルロックで多重起動に備えます。
+- **安全な確認手段**: `--dry-run` / `--debug` / `--verbose` / `--list-sns` /
+  `--list-feeds` により、実投稿の前に挙動を確認できます。
+- **テストの近接配置**: テストは対象モジュール内に置き、カバレッジは
+  `coverage-threshold.txt` の閾値をCIで判定します。
