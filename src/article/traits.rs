@@ -12,8 +12,7 @@ pub trait FeedFetcher {
 #[async_trait]
 pub trait ArticleStore {
     /// 与えられた最新記事のリストから、まだ保存されていない新着記事だけを抽出して返す
-    async fn get_new_articles(&self, latest_articles: Vec<Article>)
-    -> anyhow::Result<Vec<Article>>;
+    async fn get_new_articles(&self, latest_articles: Vec<Article>) -> anyhow::Result<Vec<Article>>;
 
     /// 投稿済みの記事として保存する
     async fn save_articles(&self, articles: &[Article]) -> anyhow::Result<()>;
