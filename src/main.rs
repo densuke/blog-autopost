@@ -1,5 +1,5 @@
-use clap::Parser;
 use blog_autopost_rs::config::{self, parse_config};
+use clap::Parser;
 use std::fs;
 
 mod cli;

@@ -1,5 +1,5 @@
-use async_trait::async_trait;
 use super::models::{PostContent, PostResult};
+use async_trait::async_trait;
 
 /// SNS（X, Bluesky, Mastodon等）への投稿を抽象化するインターフェース
 #[async_trait]
@@ -12,7 +12,7 @@ pub trait SnsClient {
 
     /// 投稿を実行する
     async fn post(&self, content: &PostContent) -> anyhow::Result<PostResult>;
-    
+
     /// このSNSの最大文字数制限を返す
     fn max_characters(&self) -> usize;
 

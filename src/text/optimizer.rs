@@ -1,5 +1,5 @@
-use crate::article::models::Article;
 use super::traits::TextOptimizer;
+use crate::article::models::Article;
 use async_trait::async_trait;
 
 pub struct DefaultTextOptimizer;
@@ -25,7 +25,9 @@ impl TextOptimizer for DefaultTextOptimizer {
         // リンクはSNSにより文字数の数え方が異なる(X/Mastodonは一律23文字)ため、
         // 呼び出し側から渡された link_weight を使用する。
         let link_len = link_weight;
-        let announcement_str = announcement.map(|s| format!("{}\n\n", s)).unwrap_or_default();
+        let announcement_str = announcement
+            .map(|s| format!("{}\n\n", s))
+            .unwrap_or_default();
         let announcement_len = announcement_str.chars().count();
 
         // テンプレート内の固定文字（"{title}", "{link}" 以外の部分）の長さを計算
@@ -38,9 +40,12 @@ impl TextOptimizer for DefaultTextOptimizer {
 
         if reserved_len + title.chars().count() > max_length {
             let available_title_len = max_length.saturating_sub(reserved_len + 3); // 3 for "..."
-            
+
             if available_title_len > 0 {
-                title = format!("{}...", title.chars().take(available_title_len).collect::<String>());
+                title = format!(
+                    "{}...",
+                    title.chars().take(available_title_len).collect::<String>()
+                );
             } else {
                 title = "".to_string(); // 極端なケース
             }
@@ -99,8 +104,21 @@ mod tests {
         };
 
         let link_weight = article.link.chars().count();
-        let result = optimizer.optimize(&article, "{title} {link}", 100, Some("更新しました！"), link_weight, &[]).await.unwrap();
-        assert_eq!(result, "更新しました！\n\n短いタイトル http://example.com/1");
+        let result = optimizer
+            .optimize(
+                &article,
+                "{title} {link}",
+                100,
+                Some("更新しました！"),
+                link_weight,
+                &[],
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            result,
+            "更新しました！\n\n短いタイトル http://example.com/1"
+        );
     }
 
     #[tokio::test]
@@ -108,7 +126,7 @@ mod tests {
         let optimizer = DefaultTextOptimizer::new();
         let article = Article {
             title: "あいうえおかきくけこさしすせそたちつてと".into(), // 20 chars
-            link: "http://example.com/1".into(), // 20 chars
+            link: "http://example.com/1".into(),                      // 20 chars
             published_parsed: Utc::now(),
             image_url: None,
             feed_name: "test".into(),
@@ -121,12 +139,21 @@ mod tests {
         // space = 1 chars
         // reserved = 25 chars.
         // title allowed = 50 - 25 - 3("...") = 22.  titleは20なのでそのまま入る。
-        let result = optimizer.optimize(&article, "{title} {link}", 50, Some("更新"), 20, &[]).await.unwrap();
-        assert_eq!(result, "更新\n\nあいうえおかきくけこさしすせそたちつてと http://example.com/1");
+        let result = optimizer
+            .optimize(&article, "{title} {link}", 50, Some("更新"), 20, &[])
+            .await
+            .unwrap();
+        assert_eq!(
+            result,
+            "更新\n\nあいうえおかきくけこさしすせそたちつてと http://example.com/1"
+        );
 
         // max=35 とする。
         // title allowed = 35 - 25 - 3 = 7
-        let result2 = optimizer.optimize(&article, "{title} {link}", 35, Some("更新"), 20, &[]).await.unwrap();
+        let result2 = optimizer
+            .optimize(&article, "{title} {link}", 35, Some("更新"), 20, &[])
+            .await
+            .unwrap();
         assert_eq!(result2, "更新\n\nあいうえおかき... http://example.com/1");
     }
 

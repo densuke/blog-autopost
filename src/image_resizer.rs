@@ -1,6 +1,6 @@
-use std::io::Cursor;
-use image::{DynamicImage, imageops};
 use image::codecs::jpeg::JpegEncoder;
+use image::{DynamicImage, imageops};
+use std::io::Cursor;
 
 pub struct ImageResizer {
     debug: bool,
@@ -61,7 +61,11 @@ impl ImageResizer {
 
     pub fn resize_image_data(&self, image_data: &[u8], sns_type: &str) -> anyhow::Result<Vec<u8>> {
         let limits = self.get_sns_limits(sns_type);
-        self.debug_print(&format!("開始: {}, 元サイズ: {} bytes", sns_type, image_data.len()));
+        self.debug_print(&format!(
+            "開始: {}, 元サイズ: {} bytes",
+            sns_type,
+            image_data.len()
+        ));
 
         // 入力フォーマットを判定する(JPEG/PNG以外はJPEGへ再エンコードする方針のため)
         let format = image::guess_format(image_data).ok();
@@ -105,13 +109,21 @@ impl ImageResizer {
         // 2. RGBA画像等の場合は白背景に重ねてRGBにする
         let rgb_img = match img {
             DynamicImage::ImageRgba8(rgba_img) => {
-                let mut base = image::ImageBuffer::from_pixel(rgba_img.width(), rgba_img.height(), image::Rgba([255, 255, 255, 255]));
+                let mut base = image::ImageBuffer::from_pixel(
+                    rgba_img.width(),
+                    rgba_img.height(),
+                    image::Rgba([255, 255, 255, 255]),
+                );
                 imageops::overlay(&mut base, &rgba_img, 0, 0);
                 DynamicImage::ImageRgba8(base).to_rgb8()
             }
             DynamicImage::ImageLumaA8(luma_a_img) => {
                 let rgba_img = DynamicImage::ImageLumaA8(luma_a_img).to_rgba8();
-                let mut base = image::ImageBuffer::from_pixel(rgba_img.width(), rgba_img.height(), image::Rgba([255, 255, 255, 255]));
+                let mut base = image::ImageBuffer::from_pixel(
+                    rgba_img.width(),
+                    rgba_img.height(),
+                    image::Rgba([255, 255, 255, 255]),
+                );
                 imageops::overlay(&mut base, &rgba_img, 0, 0);
                 DynamicImage::ImageRgba8(base).to_rgb8()
             }
@@ -122,7 +134,11 @@ impl ImageResizer {
         // 3. アスペクト比を維持して最大縦横に収まるよう縮小する
         if rgb_img.width() > limits.max_width || rgb_img.height() > limits.max_height {
             rgb_img = rgb_img.thumbnail(limits.max_width, limits.max_height);
-            self.debug_print(&format!("サイズ調整後: {}x{}", rgb_img.width(), rgb_img.height()));
+            self.debug_print(&format!(
+                "サイズ調整後: {}x{}",
+                rgb_img.width(),
+                rgb_img.height()
+            ));
         }
 
         // 4. 品質を段階的に下げて圧縮を試みる
@@ -138,10 +154,18 @@ impl ImageResizer {
                 return Ok(image_data.to_vec());
             }
             result_data = buf;
-            self.debug_print(&format!("品質{}: {} bytes", current_quality, result_data.len()));
+            self.debug_print(&format!(
+                "品質{}: {} bytes",
+                current_quality,
+                result_data.len()
+            ));
 
             if result_data.len() <= limits.max_file_size {
-                self.debug_print(&format!("完了: {} bytes (品質: {})", result_data.len(), current_quality));
+                self.debug_print(&format!(
+                    "完了: {} bytes (品質: {})",
+                    result_data.len(),
+                    current_quality
+                ));
                 return Ok(result_data);
             }
 
@@ -156,7 +180,7 @@ impl ImageResizer {
         while result_data.len() > limits.max_file_size && scale_factor > 0.5 {
             let new_width = (rgb_img.width() as f32 * scale_factor) as u32;
             let new_height = (rgb_img.height() as f32 * scale_factor) as u32;
-            
+
             let resized = rgb_img.resize(new_width, new_height, imageops::FilterType::CatmullRom);
 
             let mut buf = Vec::new();
@@ -167,10 +191,20 @@ impl ImageResizer {
                 return Ok(image_data.to_vec());
             }
             result_data = buf;
-            self.debug_print(&format!("追加縮小 {:.1}: {}x{}, {} bytes", scale_factor, new_width, new_height, result_data.len()));
+            self.debug_print(&format!(
+                "追加縮小 {:.1}: {}x{}, {} bytes",
+                scale_factor,
+                new_width,
+                new_height,
+                result_data.len()
+            ));
 
             if result_data.len() <= limits.max_file_size {
-                self.debug_print(&format!("完了: {} bytes (スケール: {:.1})", result_data.len(), scale_factor));
+                self.debug_print(&format!(
+                    "完了: {} bytes (スケール: {:.1})",
+                    result_data.len(),
+                    scale_factor
+                ));
                 return Ok(result_data);
             }
 
@@ -194,13 +228,13 @@ mod tests {
     use image::{ImageBuffer, Rgb};
 
     fn create_dummy_image(width: u32, height: u32) -> Vec<u8> {
-        let img = ImageBuffer::from_fn(width, height, |_, _| {
-            Rgb([255, 0, 0])
-        });
+        let img = ImageBuffer::from_fn(width, height, |_, _| Rgb([255, 0, 0]));
         let dynamic_img = DynamicImage::ImageRgb8(img);
         let mut buf = Vec::new();
         let mut cursor = std::io::Cursor::new(&mut buf);
-        dynamic_img.write_to(&mut cursor, image::ImageFormat::Jpeg).unwrap();
+        dynamic_img
+            .write_to(&mut cursor, image::ImageFormat::Jpeg)
+            .unwrap();
         buf
     }
 

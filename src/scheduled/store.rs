@@ -1,8 +1,8 @@
+use crate::scheduled::models::ScheduledPost;
+use anyhow::{Context, Result};
+use chrono::{DateTime, Duration, Local};
 use std::path::PathBuf;
 use tokio::sync::Mutex;
-use anyhow::{Result, Context};
-use crate::scheduled::models::ScheduledPost;
-use chrono::{DateTime, Local, Duration};
 
 pub struct JsonScheduledPostStore {
     file_path: PathBuf,
@@ -26,19 +26,23 @@ impl JsonScheduledPostStore {
             .read(true)
             .open(&self.file_path)
             .context("Failed to open scheduled posts file for reading")?;
-        
+
         let lock = fd_lock::RwLock::new(file);
-        let read_guard = lock.read().context("Failed to acquire read lock on scheduled posts file")?;
-        
+        let read_guard = lock
+            .read()
+            .context("Failed to acquire read lock on scheduled posts file")?;
+
         use std::io::Read;
         let mut content = String::new();
-        (&*read_guard).read_to_string(&mut content).context("Failed to read scheduled posts file content")?;
-        
+        (&*read_guard)
+            .read_to_string(&mut content)
+            .context("Failed to read scheduled posts file content")?;
+
         if content.trim().is_empty() {
             return Ok(Vec::new());
         }
-        let posts: Vec<ScheduledPost> = serde_json::from_str(&content)
-            .context("Failed to parse scheduled posts JSON")?;
+        let posts: Vec<ScheduledPost> =
+            serde_json::from_str(&content).context("Failed to parse scheduled posts JSON")?;
         Ok(posts)
     }
 
@@ -53,16 +57,22 @@ impl JsonScheduledPostStore {
             .truncate(true)
             .open(&self.file_path)
             .context("Failed to open scheduled posts file for writing")?;
-        
+
         let mut lock = fd_lock::RwLock::new(file);
-        let mut write_guard = lock.write().context("Failed to acquire write lock on scheduled posts file")?;
-        
+        let mut write_guard = lock
+            .write()
+            .context("Failed to acquire write lock on scheduled posts file")?;
+
         let content = serde_json::to_string_pretty(posts)
             .context("Failed to serialize scheduled posts to JSON")?;
-        
+
         use std::io::Write;
-        write_guard.write_all(content.as_bytes()).context("Failed to write scheduled posts file content")?;
-        write_guard.flush().context("Failed to flush scheduled posts file")?;
+        write_guard
+            .write_all(content.as_bytes())
+            .context("Failed to write scheduled posts file content")?;
+        write_guard
+            .flush()
+            .context("Failed to flush scheduled posts file")?;
         Ok(())
     }
 
@@ -86,7 +96,11 @@ impl JsonScheduledPostStore {
         Ok(post)
     }
 
-    pub async fn update_post(&self, id: &str, updated: ScheduledPost) -> Result<Option<ScheduledPost>> {
+    pub async fn update_post(
+        &self,
+        id: &str,
+        updated: ScheduledPost,
+    ) -> Result<Option<ScheduledPost>> {
         let _guard = self.lock.lock().await;
         let mut posts = self.read_all_unlocked()?;
         if let Some(pos) = posts.iter().position(|p| p.id == id) {
@@ -120,16 +134,17 @@ impl JsonScheduledPostStore {
     ) -> Result<Vec<ScheduledPost>> {
         let _guard = self.lock.lock().await;
         let posts = self.read_all_unlocked()?;
-        
+
         let start_time = time - Duration::minutes(tolerance_minutes);
         let end_time = time + Duration::minutes(tolerance_minutes);
-        
-        let filtered = posts.into_iter()
+
+        let filtered = posts
+            .into_iter()
             .filter(|p| {
-                p.target_sns.contains(&sns_name.to_string()) &&
-                p.scheduled_at >= start_time &&
-                p.scheduled_at <= end_time &&
-                p.status != "失敗"
+                p.target_sns.contains(&sns_name.to_string())
+                    && p.scheduled_at >= start_time
+                    && p.scheduled_at <= end_time
+                    && p.status != "失敗"
             })
             .collect();
         Ok(filtered)
@@ -143,7 +158,7 @@ impl JsonScheduledPostStore {
         let _guard = self.lock.lock().await;
         let mut posts = self.read_all_unlocked()?;
         let orig_len = posts.len();
-        
+
         posts.retain(|p| {
             let status_match = match &statuses {
                 Some(s) => s.contains(&p.status),
@@ -152,15 +167,11 @@ impl JsonScheduledPostStore {
             if !status_match {
                 return true;
             }
-            
+
             let ref_time = p.updated_at;
-            if ref_time <= cutoff {
-                false
-            } else {
-                true
-            }
+            if ref_time <= cutoff { false } else { true }
         });
-        
+
         let deleted_count = orig_len - posts.len();
         if deleted_count > 0 {
             self.write_all_unlocked(&posts)?;
@@ -201,26 +212,39 @@ mod tests {
         // 4. 更新
         let mut to_update = fetched.clone();
         to_update.content = "更新された投稿".to_string();
-        let updated = store.update_post(&created.id, to_update).await.unwrap().unwrap();
+        let updated = store
+            .update_post(&created.id, to_update)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(updated.content, "更新された投稿");
 
         // 5. SNSと時間による取得
-        let by_time = store.get_posts_by_sns_and_time("x-main", time, 5).await.unwrap();
+        let by_time = store
+            .get_posts_by_sns_and_time("x-main", time, 5)
+            .await
+            .unwrap();
         assert_eq!(by_time.len(), 1);
         assert_eq!(by_time[0].content, "更新された投稿");
 
         // 別SNSでは取得できないこと
-        let by_time_other = store.get_posts_by_sns_and_time("bluesky-main", time, 5).await.unwrap();
+        let by_time_other = store
+            .get_posts_by_sns_and_time("bluesky-main", time, 5)
+            .await
+            .unwrap();
         assert!(by_time_other.is_empty());
 
         // 時間外では取得できないこと
-        let by_time_out = store.get_posts_by_sns_and_time("x-main", time + Duration::minutes(10), 5).await.unwrap();
+        let by_time_out = store
+            .get_posts_by_sns_and_time("x-main", time + Duration::minutes(10), 5)
+            .await
+            .unwrap();
         assert!(by_time_out.is_empty());
 
         // 6. 削除
         let deleted = store.delete_post(&created.id).await.unwrap();
         assert!(deleted);
-        
+
         let posts_after = store.get_all_posts().await.unwrap();
         assert!(posts_after.is_empty());
 
@@ -228,23 +252,36 @@ mod tests {
         // テスト用の投稿をいくつか作成
         let now = Local::now();
         let old_time = now - Duration::days(5);
-        
-        let mut post_old = ScheduledPost::new("古い投稿".to_string(), old_time, vec![], vec!["x-main".to_string()]);
+
+        let mut post_old = ScheduledPost::new(
+            "古い投稿".to_string(),
+            old_time,
+            vec![],
+            vec!["x-main".to_string()],
+        );
         post_old.status = "投稿済み".to_string();
         post_old.updated_at = old_time;
-        
-        let mut post_new = ScheduledPost::new("新しい投稿".to_string(), now, vec![], vec!["x-main".to_string()]);
+
+        let mut post_new = ScheduledPost::new(
+            "新しい投稿".to_string(),
+            now,
+            vec![],
+            vec!["x-main".to_string()],
+        );
         post_new.status = "投稿済み".to_string();
         post_new.updated_at = now;
-        
+
         store.create_post(post_old).await.unwrap();
         store.create_post(post_new).await.unwrap();
-        
+
         // 3日前を閾値にして削除
         let cutoff = now - Duration::days(3);
-        let deleted_count = store.delete_posts_older_than(cutoff, Some(vec!["投稿済み".to_string()])).await.unwrap();
+        let deleted_count = store
+            .delete_posts_older_than(cutoff, Some(vec!["投稿済み".to_string()]))
+            .await
+            .unwrap();
         assert_eq!(deleted_count, 1);
-        
+
         let remaining = store.get_all_posts().await.unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].content, "新しい投稿");

@@ -1,18 +1,20 @@
-use std::sync::Arc;
-use std::collections::HashMap;
 use axum::{
-    extract::{State, Path, Multipart},
     Json,
+    extract::{Multipart, Path, State},
     http::StatusCode,
     response::IntoResponse,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
 
+use super::AppState;
+use crate::config::SnsConfig;
 use crate::sns::models::{PostContent, PostResult};
 use crate::sns::traits::SnsClient;
-use crate::config::SnsConfig;
-use crate::sns::{mastodon::MastodonClient, misskey::MisskeyClient, bluesky::BlueskyClient, x::XClient};
-use super::AppState;
+use crate::sns::{
+    bluesky::BlueskyClient, mastodon::MastodonClient, misskey::MisskeyClient, x::XClient,
+};
 
 #[derive(Serialize)]
 pub struct ConfigResponse {
@@ -21,18 +23,26 @@ pub struct ConfigResponse {
 }
 
 pub async fn get_config(State(state): State<Arc<AppState>>) -> Json<ConfigResponse> {
-    let blog_name = state.config.blog.as_ref()
+    let blog_name = state
+        .config
+        .blog
+        .as_ref()
         .and_then(|b| b.first())
         .map(|b| b.name.clone())
         .unwrap_or_else(|| "Unknown Blog".to_string());
 
-    let active_sns = state.config.sns.iter().map(|s| match s {
-        SnsConfig::Mastodon { name, .. } => format!("Mastodon ({})", name),
-        SnsConfig::Misskey { name, .. } => format!("Misskey ({})", name),
-        SnsConfig::Bluesky { name, .. } => format!("Bluesky ({})", name),
-        SnsConfig::X { name, .. } => format!("X ({})", name),
-        _ => "Unknown".to_string(),
-    }).collect();
+    let active_sns = state
+        .config
+        .sns
+        .iter()
+        .map(|s| match s {
+            SnsConfig::Mastodon { name, .. } => format!("Mastodon ({})", name),
+            SnsConfig::Misskey { name, .. } => format!("Misskey ({})", name),
+            SnsConfig::Bluesky { name, .. } => format!("Bluesky ({})", name),
+            SnsConfig::X { name, .. } => format!("X ({})", name),
+            _ => "Unknown".to_string(),
+        })
+        .collect();
 
     Json(ConfigResponse {
         blog_name,
@@ -82,23 +92,56 @@ pub async fn manual_post(
         }
 
         match sns_conf {
-            SnsConfig::Mastodon { instance_url, access_token, name, .. } => {
-                if let Ok(client) = MastodonClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
+            SnsConfig::Mastodon {
+                instance_url,
+                access_token,
+                name,
+                ..
+            } => {
+                if let Ok(client) =
+                    MastodonClient::new(instance_url.clone(), access_token.clone(), name.clone())
+                {
                     sns_clients.push(Box::new(client));
                 }
             }
-            SnsConfig::Misskey { instance_url, access_token, name, .. } => {
-                if let Ok(client) = MisskeyClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
+            SnsConfig::Misskey {
+                instance_url,
+                access_token,
+                name,
+                ..
+            } => {
+                if let Ok(client) =
+                    MisskeyClient::new(instance_url.clone(), access_token.clone(), name.clone())
+                {
                     sns_clients.push(Box::new(client));
                 }
             }
-            SnsConfig::Bluesky { identifier, password, name, .. } => {
-                if let Ok(client) = BlueskyClient::new(identifier.clone(), password.clone(), name.clone()) {
+            SnsConfig::Bluesky {
+                identifier,
+                password,
+                name,
+                ..
+            } => {
+                if let Ok(client) =
+                    BlueskyClient::new(identifier.clone(), password.clone(), name.clone())
+                {
                     sns_clients.push(Box::new(client));
                 }
             }
-            SnsConfig::X { consumer_key, consumer_secret, access_token, access_token_secret, name } => {
-                if let Ok(client) = XClient::new(consumer_key.clone(), consumer_secret.clone(), access_token.clone(), access_token_secret.clone(), name.clone()) {
+            SnsConfig::X {
+                consumer_key,
+                consumer_secret,
+                access_token,
+                access_token_secret,
+                name,
+            } => {
+                if let Ok(client) = XClient::new(
+                    consumer_key.clone(),
+                    consumer_secret.clone(),
+                    access_token.clone(),
+                    access_token_secret.clone(),
+                    name.clone(),
+                ) {
                     sns_clients.push(Box::new(client));
                 }
             }
@@ -106,7 +149,10 @@ pub async fn manual_post(
         }
     }
 
-    let schedule_type = payload.schedule_type.clone().unwrap_or_else(|| "now".to_string());
+    let schedule_type = payload
+        .schedule_type
+        .clone()
+        .unwrap_or_else(|| "now".to_string());
 
     if schedule_type == "now" {
         let post_content = PostContent {
@@ -217,7 +263,10 @@ pub async fn manual_post(
                         results.push(PostResult {
                             success: false,
                             post_id: None,
-                            error_message: Some(format!("Failed to calculate slot for {}: {}", target, e)),
+                            error_message: Some(format!(
+                                "Failed to calculate slot for {}: {}",
+                                target, e
+                            )),
                         });
                         continue;
                     }
@@ -228,7 +277,9 @@ pub async fn manual_post(
                     results.push(PostResult {
                         success: false,
                         post_id: None,
-                        error_message: Some("Missing scheduled_at time for custom schedule".to_string()),
+                        error_message: Some(
+                            "Missing scheduled_at time for custom schedule".to_string(),
+                        ),
                     });
                     continue;
                 };
@@ -311,7 +362,9 @@ pub async fn get_next_slots(
             _ => continue,
         };
 
-        let slot = finder.find_next_available_slot(name, None, 7).await
+        let slot = finder
+            .find_next_available_slot(name, None, 7)
+            .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
         slots.insert(name.clone(), slot.map(|dt| dt.to_rfc3339()));
@@ -324,12 +377,10 @@ pub async fn get_next_slots(
 pub async fn get_schedules(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<crate::scheduled::ScheduledPost>>, StatusCode> {
-    state.store.get_all_posts().await
-        .map(Json)
-        .map_err(|e| {
-            println!("Failed to get schedules: {:?}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })
+    state.store.get_all_posts().await.map(Json).map_err(|e| {
+        println!("Failed to get schedules: {:?}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })
 }
 
 #[derive(Deserialize)]
@@ -356,11 +407,10 @@ pub async fn update_schedule(
         }
     };
 
-    let existing = state.store.get_post_by_id(&id).await
-        .map_err(|e| {
-            println!("Failed to find schedule {}: {:?}", id, e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let existing = state.store.get_post_by_id(&id).await.map_err(|e| {
+        println!("Failed to find schedule {}: {:?}", id, e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     let Some(mut post) = existing else {
         return Err(StatusCode::NOT_FOUND);
@@ -376,11 +426,10 @@ pub async fn update_schedule(
     post.link_url = payload.link_url;
     post.updated_at = chrono::Local::now();
 
-    let updated = state.store.update_post(&id, post).await
-        .map_err(|e| {
-            println!("Failed to update schedule {}: {:?}", id, e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let updated = state.store.update_post(&id, post).await.map_err(|e| {
+        println!("Failed to update schedule {}: {:?}", id, e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     match updated {
         Some(p) => Ok(Json(p)),
@@ -393,11 +442,10 @@ pub async fn delete_schedule(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
-    let success = state.store.delete_post(&id).await
-        .map_err(|e| {
-            println!("Failed to delete schedule {}: {:?}", id, e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let success = state.store.delete_post(&id).await.map_err(|e| {
+        println!("Failed to delete schedule {}: {:?}", id, e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     if success {
         Ok(StatusCode::NO_CONTENT)
@@ -413,9 +461,7 @@ pub struct UploadResponse {
     pub error: Option<String>,
 }
 
-pub async fn upload_media(
-    mut multipart: Multipart,
-) -> Result<Json<UploadResponse>, StatusCode> {
+pub async fn upload_media(mut multipart: Multipart) -> Result<Json<UploadResponse>, StatusCode> {
     let mut saved_paths = Vec::new();
 
     if let Err(e) = std::fs::create_dir_all("data/uploads") {
@@ -429,7 +475,10 @@ pub async fn upload_media(
 
     while let Ok(Some(field)) = multipart.next_field().await {
         let file_name = field.file_name().unwrap_or("file.png").to_string();
-        let content_type = field.content_type().unwrap_or("application/octet-stream").to_string();
+        let content_type = field
+            .content_type()
+            .unwrap_or("application/octet-stream")
+            .to_string();
 
         let allowed_types = [
             "image/jpeg",
@@ -439,15 +488,20 @@ pub async fn upload_media(
             "video/mp4",
             "video/quicktime",
         ];
-        
-        let mime_base = content_type.split(';').next().unwrap_or("").trim().to_lowercase();
+
+        let mime_base = content_type
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_lowercase();
         if !allowed_types.contains(&mime_base.as_str()) {
             return Ok(Json(UploadResponse {
                 success: false,
                 paths: Vec::new(),
                 error: Some(format!(
-                    "許可されていないファイル形式です: {}。許可形式: {}", 
-                    mime_base, 
+                    "許可されていないファイル形式です: {}。許可形式: {}",
+                    mime_base,
                     allowed_types.join(", ")
                 )),
             }));
@@ -469,13 +523,22 @@ pub async fn upload_media(
             return Ok(Json(UploadResponse {
                 success: false,
                 paths: Vec::new(),
-                error: Some(format!("ファイルサイズが上限（10MB）を超えています: {} bytes", bytes.len())),
+                error: Some(format!(
+                    "ファイルサイズが上限（10MB）を超えています: {} bytes",
+                    bytes.len()
+                )),
             }));
         }
 
         let sanitized_name: String = file_name
             .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         let timestamp = chrono::Utc::now().timestamp_micros();
         let unique_name = format!("{}_{}", timestamp, sanitized_name);
@@ -505,11 +568,10 @@ pub async fn post_now_schedule(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<ManualPostResponse>, StatusCode> {
-    let existing = state.store.get_post_by_id(&id).await
-        .map_err(|e| {
-            println!("Failed to find schedule {}: {:?}", id, e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let existing = state.store.get_post_by_id(&id).await.map_err(|e| {
+        println!("Failed to find schedule {}: {:?}", id, e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     let Some(mut post) = existing else {
         return Err(StatusCode::NOT_FOUND);
@@ -527,23 +589,58 @@ pub async fn post_now_schedule(
 
         if post.target_sns.contains(name) {
             match sns_conf {
-                SnsConfig::Mastodon { instance_url, access_token, name, .. } => {
-                    if let Ok(client) = MastodonClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
+                SnsConfig::Mastodon {
+                    instance_url,
+                    access_token,
+                    name,
+                    ..
+                } => {
+                    if let Ok(client) = MastodonClient::new(
+                        instance_url.clone(),
+                        access_token.clone(),
+                        name.clone(),
+                    ) {
                         sns_clients.push(Box::new(client));
                     }
                 }
-                SnsConfig::Misskey { instance_url, access_token, name, .. } => {
-                    if let Ok(client) = MisskeyClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
+                SnsConfig::Misskey {
+                    instance_url,
+                    access_token,
+                    name,
+                    ..
+                } => {
+                    if let Ok(client) =
+                        MisskeyClient::new(instance_url.clone(), access_token.clone(), name.clone())
+                    {
                         sns_clients.push(Box::new(client));
                     }
                 }
-                SnsConfig::Bluesky { identifier, password, name, .. } => {
-                    if let Ok(client) = BlueskyClient::new(identifier.clone(), password.clone(), name.clone()) {
+                SnsConfig::Bluesky {
+                    identifier,
+                    password,
+                    name,
+                    ..
+                } => {
+                    if let Ok(client) =
+                        BlueskyClient::new(identifier.clone(), password.clone(), name.clone())
+                    {
                         sns_clients.push(Box::new(client));
                     }
                 }
-                SnsConfig::X { consumer_key, consumer_secret, access_token, access_token_secret, name } => {
-                    if let Ok(client) = XClient::new(consumer_key.clone(), consumer_secret.clone(), access_token.clone(), access_token_secret.clone(), name.clone()) {
+                SnsConfig::X {
+                    consumer_key,
+                    consumer_secret,
+                    access_token,
+                    access_token_secret,
+                    name,
+                } => {
+                    if let Ok(client) = XClient::new(
+                        consumer_key.clone(),
+                        consumer_secret.clone(),
+                        access_token.clone(),
+                        access_token_secret.clone(),
+                        name.clone(),
+                    ) {
                         sns_clients.push(Box::new(client));
                     }
                 }
@@ -563,7 +660,11 @@ pub async fn post_now_schedule(
             media_paths.push(file.clone());
         }
     }
-    let media_paths_opt = if media_paths.is_empty() { None } else { Some(media_paths) };
+    let media_paths_opt = if media_paths.is_empty() {
+        None
+    } else {
+        Some(media_paths)
+    };
 
     let post_content = PostContent {
         text: post.content.clone(),
@@ -581,7 +682,10 @@ pub async fn post_now_schedule(
         match client.post(&post_content).await {
             Ok(result) => {
                 if !result.success {
-                    let err = result.error_message.clone().unwrap_or_else(|| "Unknown error".to_string());
+                    let err = result
+                        .error_message
+                        .clone()
+                        .unwrap_or_else(|| "Unknown error".to_string());
                     failed_sns.push((target_name.clone(), err));
                 }
                 results.push(result);
@@ -606,16 +710,18 @@ pub async fn post_now_schedule(
         post.error_message = None;
     } else {
         post.status = "失敗".to_string();
-        let errors: Vec<String> = failed_sns.into_iter().map(|(sns, err)| format!("{}: {}", sns, err)).collect();
+        let errors: Vec<String> = failed_sns
+            .into_iter()
+            .map(|(sns, err)| format!("{}: {}", sns, err))
+            .collect();
         post.error_message = Some(errors.join("; "));
     }
 
     let post_id = post.id.clone();
-    state.store.update_post(&post_id, post).await
-        .map_err(|e| {
-            println!("Failed to update schedule status {}: {:?}", post_id, e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    state.store.update_post(&post_id, post).await.map_err(|e| {
+        println!("Failed to update schedule status {}: {:?}", post_id, e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     Ok(Json(ManualPostResponse {
         success: all_success,
@@ -652,7 +758,10 @@ pub async fn login_submit(
     let mut verified = false;
     let mut needs_hash_migration = false;
 
-    if auth.password.starts_with("$2b$") || auth.password.starts_with("$2a$") || auth.password.starts_with("$2y$") {
+    if auth.password.starts_with("$2b$")
+        || auth.password.starts_with("$2a$")
+        || auth.password.starts_with("$2y$")
+    {
         if let Ok(ok) = bcrypt::verify(&payload.password, &auth.password) {
             verified = ok;
         }
@@ -669,7 +778,9 @@ pub async fn login_submit(
 
     if needs_hash_migration {
         if let Ok(hashed) = bcrypt::hash(&payload.password, bcrypt::DEFAULT_COST) {
-            println!("Plaintext password detected in configuration. Automatically migrating to bcrypt hash.");
+            println!(
+                "Plaintext password detected in configuration. Automatically migrating to bcrypt hash."
+            );
             let config_path = state.config_path.clone();
             let mut updated_config = state.config.clone();
             if let Some(ref mut c_auth) = updated_config.web_auth {
@@ -736,12 +847,12 @@ pub async fn logout(
         .unwrap()
 }
 
-use axum::response::sse::{Event, Sse};
-use tokio_stream::wrappers::ReceiverStream;
-use tokio_stream::StreamExt;
-use std::convert::Infallible;
-use serde_json::json;
 use axum::extract::Query;
+use axum::response::sse::{Event, Sse};
+use serde_json::json;
+use std::convert::Infallible;
+use tokio_stream::StreamExt;
+use tokio_stream::wrappers::ReceiverStream;
 
 // SSE 接続が Drop (切断) された際に mcp_sessions からセッションを削除するラッパーストリーム
 struct SessionCleanupStream<S> {
@@ -788,10 +899,8 @@ pub async fn mcp_sse_handler(
 
     // 最初の endpoint イベントを送信して、クライアントへメッセージ送信先を指定する
     let endpoint_url = format!("/api/mcp/message?session_id={}", session_id);
-    let init_event = Event::default()
-        .event("endpoint")
-        .data(endpoint_url);
-    
+    let init_event = Event::default().event("endpoint").data(endpoint_url);
+
     let _ = tx.send(init_event).await;
 
     // ストリームの作成
@@ -820,10 +929,13 @@ pub async fn mcp_message_handler(
 ) -> impl axum::response::IntoResponse {
     let state_clone = state.clone();
     let session_id = query.session_id.clone();
-    
+
     tokio::spawn(async move {
         if let Err(e) = handle_mcp_request(state_clone, &session_id, rpc_req).await {
-            println!("Error handling MCP request for session {}: {:?}", session_id, e);
+            println!(
+                "Error handling MCP request for session {}: {:?}",
+                session_id, e
+            );
         }
     });
 
@@ -956,11 +1068,17 @@ async fn handle_mcp_request(
         })
     } else if method == "tools/call" {
         let params = req.get("params");
-        let name = params.and_then(|p| p.get("name")).and_then(|n| n.as_str()).unwrap_or("");
-        let arguments = params.and_then(|p| p.get("arguments")).cloned().unwrap_or(json!({}));
-        
+        let name = params
+            .and_then(|p| p.get("name"))
+            .and_then(|n| n.as_str())
+            .unwrap_or("");
+        let arguments = params
+            .and_then(|p| p.get("arguments"))
+            .cloned()
+            .unwrap_or(json!({}));
+
         let result = handle_tool_call(state.clone(), name, arguments).await;
-        
+
         match result {
             Ok(res_val) => {
                 json!({
@@ -1025,7 +1143,7 @@ async fn handle_tool_call(
                 filtered.retain(|p| p.status == s);
             }
             filtered.sort_by_key(|p| p.scheduled_at);
-            
+
             let mut out = String::new();
             out.push_str("=== 予約投稿一覧 ===\n");
             for p in filtered {
@@ -1048,12 +1166,22 @@ async fn handle_tool_call(
             Ok(out)
         }
         "add_schedule" => {
-            let text = args.get("text").and_then(|t| t.as_str()).ok_or_else(|| anyhow::anyhow!("text is required"))?.to_string();
+            let text = args
+                .get("text")
+                .and_then(|t| t.as_str())
+                .ok_or_else(|| anyhow::anyhow!("text is required"))?
+                .to_string();
             let at = args.get("at").and_then(|a| a.as_str());
-            let auto_slot = args.get("auto_slot").and_then(|a| a.as_bool()).unwrap_or(false);
+            let auto_slot = args
+                .get("auto_slot")
+                .and_then(|a| a.as_bool())
+                .unwrap_or(false);
             let sns = args.get("sns").and_then(|s| s.as_str());
             let media = args.get("media").and_then(|m| m.as_array());
-            let link = args.get("link").and_then(|l| l.as_str()).map(|s| s.to_string());
+            let link = args
+                .get("link")
+                .and_then(|l| l.as_str())
+                .map(|s| s.to_string());
 
             let mut target_sns = Vec::new();
             if let Some(sns_arg) = sns {
@@ -1091,10 +1219,19 @@ async fn handle_tool_call(
                         if !path.exists() {
                             return Err(anyhow::anyhow!("Media file not found: {}", file_path));
                         }
-                        let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("image.png");
+                        let file_name = path
+                            .file_name()
+                            .and_then(|f| f.to_str())
+                            .unwrap_or("image.png");
                         let sanitized_name: String = file_name
                             .chars()
-                            .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+                            .map(|c| {
+                                if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                                    c
+                                } else {
+                                    '_'
+                                }
+                            })
                             .collect();
                         let timestamp = chrono::Utc::now().timestamp_micros();
                         let unique_name = format!("{}_{}", timestamp, sanitized_name);
@@ -1122,20 +1259,34 @@ async fn handle_tool_call(
                         created_posts.push(created);
                     }
                 }
-                let mut out = format!("Successfully scheduled {} posts via auto-slot:\n", created_posts.len());
+                let mut out = format!(
+                    "Successfully scheduled {} posts via auto-slot:\n",
+                    created_posts.len()
+                );
                 for p in created_posts {
-                    out.push_str(&format!("  - ID: {} | Time: {} | SNS: {:?}\n", p.id, p.scheduled_at.format("%Y-%m-%d %H:%M:%S"), p.target_sns));
+                    out.push_str(&format!(
+                        "  - ID: {} | Time: {} | SNS: {:?}\n",
+                        p.id,
+                        p.scheduled_at.format("%Y-%m-%d %H:%M:%S"),
+                        p.target_sns
+                    ));
                 }
                 return Ok(out);
             } else if let Some(at_str) = at {
                 let parsed_time = if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(at_str) {
                     dt.with_timezone(&chrono::Local)
-                } else if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(at_str, "%Y-%m-%d %H:%M:%S") {
+                } else if let Ok(dt) =
+                    chrono::NaiveDateTime::parse_from_str(at_str, "%Y-%m-%d %H:%M:%S")
+                {
                     chrono::Local.from_local_datetime(&dt).unwrap()
-                } else if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(at_str, "%Y-%m-%d %H:%M") {
+                } else if let Ok(dt) =
+                    chrono::NaiveDateTime::parse_from_str(at_str, "%Y-%m-%d %H:%M")
+                {
                     chrono::Local.from_local_datetime(&dt).unwrap()
                 } else {
-                    return Err(anyhow::anyhow!("Invalid datetime format. Use RFC3339 or 'YYYY-MM-DD HH:MM:SS'"));
+                    return Err(anyhow::anyhow!(
+                        "Invalid datetime format. Use RFC3339 or 'YYYY-MM-DD HH:MM:SS'"
+                    ));
                 };
 
                 let mut post = crate::scheduled::ScheduledPost::new(
@@ -1153,11 +1304,16 @@ async fn handle_tool_call(
                     created.target_sns
                 ));
             } else {
-                return Err(anyhow::anyhow!("Either 'at' or 'auto_slot' must be specified"));
+                return Err(anyhow::anyhow!(
+                    "Either 'at' or 'auto_slot' must be specified"
+                ));
             }
         }
         "update_schedule" => {
-            let id = args.get("id").and_then(|i| i.as_str()).ok_or_else(|| anyhow::anyhow!("id is required"))?;
+            let id = args
+                .get("id")
+                .and_then(|i| i.as_str())
+                .ok_or_else(|| anyhow::anyhow!("id is required"))?;
             let opt_post = state.store.get_post_by_id(id).await?;
             let mut post = opt_post.ok_or_else(|| anyhow::anyhow!("Scheduled post not found"))?;
 
@@ -1168,9 +1324,13 @@ async fn handle_tool_call(
             if let Some(at_str) = args.get("at").and_then(|a| a.as_str()) {
                 let parsed_time = if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(at_str) {
                     dt.with_timezone(&chrono::Local)
-                } else if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(at_str, "%Y-%m-%d %H:%M:%S") {
+                } else if let Ok(dt) =
+                    chrono::NaiveDateTime::parse_from_str(at_str, "%Y-%m-%d %H:%M:%S")
+                {
                     chrono::Local.from_local_datetime(&dt).unwrap()
-                } else if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(at_str, "%Y-%m-%d %H:%M") {
+                } else if let Ok(dt) =
+                    chrono::NaiveDateTime::parse_from_str(at_str, "%Y-%m-%d %H:%M")
+                {
                     chrono::Local.from_local_datetime(&dt).unwrap()
                 } else {
                     return Err(anyhow::anyhow!("Invalid datetime format"));
@@ -1209,7 +1369,10 @@ async fn handle_tool_call(
             }
         }
         "delete_schedule" => {
-            let id = args.get("id").and_then(|i| i.as_str()).ok_or_else(|| anyhow::anyhow!("id is required"))?;
+            let id = args
+                .get("id")
+                .and_then(|i| i.as_str())
+                .ok_or_else(|| anyhow::anyhow!("id is required"))?;
             let success = state.store.delete_post(id).await?;
             if success {
                 Ok(format!("Successfully deleted scheduled post: {}", id))
@@ -1218,13 +1381,21 @@ async fn handle_tool_call(
             }
         }
         "post_now" => {
-            let text = args.get("text").and_then(|t| t.as_str()).ok_or_else(|| anyhow::anyhow!("text is required"))?.to_string();
+            let text = args
+                .get("text")
+                .and_then(|t| t.as_str())
+                .ok_or_else(|| anyhow::anyhow!("text is required"))?
+                .to_string();
             let sns = args.get("sns").and_then(|s| s.as_str());
             let media = args.get("media").and_then(|m| m.as_array());
-            let link = args.get("link").and_then(|l| l.as_str()).map(|s| s.to_string());
+            let link = args
+                .get("link")
+                .and_then(|l| l.as_str())
+                .map(|s| s.to_string());
 
-            let mut sns_clients: Vec<Box<dyn crate::sns::traits::SnsClient + Send + Sync>> = Vec::new();
-            
+            let mut sns_clients: Vec<Box<dyn crate::sns::traits::SnsClient + Send + Sync>> =
+                Vec::new();
+
             let mut included = std::collections::HashSet::new();
             if let Some(sns_arg) = sns {
                 for part in sns_arg.split(',') {
@@ -1259,23 +1430,62 @@ async fn handle_tool_call(
                 }
 
                 match sns_conf {
-                    crate::config::SnsConfig::Mastodon { instance_url, access_token, name, .. } => {
-                        if let Ok(c) = crate::sns::mastodon::MastodonClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
+                    crate::config::SnsConfig::Mastodon {
+                        instance_url,
+                        access_token,
+                        name,
+                        ..
+                    } => {
+                        if let Ok(c) = crate::sns::mastodon::MastodonClient::new(
+                            instance_url.clone(),
+                            access_token.clone(),
+                            name.clone(),
+                        ) {
                             sns_clients.push(Box::new(c));
                         }
                     }
-                    crate::config::SnsConfig::Misskey { instance_url, access_token, name, .. } => {
-                        if let Ok(c) = crate::sns::misskey::MisskeyClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
+                    crate::config::SnsConfig::Misskey {
+                        instance_url,
+                        access_token,
+                        name,
+                        ..
+                    } => {
+                        if let Ok(c) = crate::sns::misskey::MisskeyClient::new(
+                            instance_url.clone(),
+                            access_token.clone(),
+                            name.clone(),
+                        ) {
                             sns_clients.push(Box::new(c));
                         }
                     }
-                    crate::config::SnsConfig::Bluesky { identifier, password, name, .. } => {
-                        if let Ok(c) = crate::sns::bluesky::BlueskyClient::new(identifier.clone(), password.clone(), name.clone()) {
+                    crate::config::SnsConfig::Bluesky {
+                        identifier,
+                        password,
+                        name,
+                        ..
+                    } => {
+                        if let Ok(c) = crate::sns::bluesky::BlueskyClient::new(
+                            identifier.clone(),
+                            password.clone(),
+                            name.clone(),
+                        ) {
                             sns_clients.push(Box::new(c));
                         }
                     }
-                    crate::config::SnsConfig::X { consumer_key, consumer_secret, access_token, access_token_secret, name } => {
-                        if let Ok(c) = crate::sns::x::XClient::new(consumer_key.clone(), consumer_secret.clone(), access_token.clone(), access_token_secret.clone(), name.clone()) {
+                    crate::config::SnsConfig::X {
+                        consumer_key,
+                        consumer_secret,
+                        access_token,
+                        access_token_secret,
+                        name,
+                    } => {
+                        if let Ok(c) = crate::sns::x::XClient::new(
+                            consumer_key.clone(),
+                            consumer_secret.clone(),
+                            access_token.clone(),
+                            access_token_secret.clone(),
+                            name.clone(),
+                        ) {
                             sns_clients.push(Box::new(c));
                         }
                     }
@@ -1284,7 +1494,10 @@ async fn handle_tool_call(
             }
 
             if sns_clients.is_empty() {
-                return Err(anyhow::anyhow!("No active SNS client matched target: {:?}", sns));
+                return Err(anyhow::anyhow!(
+                    "No active SNS client matched target: {:?}",
+                    sns
+                ));
             }
 
             let mut processed_media = Vec::new();
@@ -1299,7 +1512,11 @@ async fn handle_tool_call(
             let post_content = crate::sns::models::PostContent {
                 text,
                 image_url: None,
-                media_paths: if processed_media.is_empty() { None } else { Some(processed_media) },
+                media_paths: if processed_media.is_empty() {
+                    None
+                } else {
+                    Some(processed_media)
+                },
                 link_url: link,
                 sensitive: false,
             };

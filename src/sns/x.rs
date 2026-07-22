@@ -1,15 +1,15 @@
+use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use reqwest::Client;
+use reqwest::header::AUTHORIZATION;
 use serde::Deserialize;
 use serde_json::json;
-use reqwest::header::AUTHORIZATION;
-use anyhow::{Result, Context, anyhow};
 
 #[derive(oauth1_request::Request)]
 struct EmptyRequest {}
 
-use super::traits::SnsClient;
 use super::models::{PostContent, PostResult};
+use super::traits::SnsClient;
 
 pub struct XClient {
     client: Client,
@@ -76,16 +76,18 @@ impl XClient {
         let resized_bytes = resizer.resize_image_data(&image_data, "x")?;
 
         let upload_url = "https://upload.twitter.com/1.1/media/upload.json";
-        
+
         let auth_header = self.generate_post_auth_header(upload_url);
-        
+
         let part = reqwest::multipart::Part::bytes(resized_bytes)
             .file_name("image.jpg")
-            .mime_str("image/jpeg")?; 
+            .mime_str("image/jpeg")?;
 
         let form = reqwest::multipart::Form::new().part("media", part);
 
-        let res = self.client.post(upload_url)
+        let res = self
+            .client
+            .post(upload_url)
             .header(AUTHORIZATION, auth_header)
             .multipart(form)
             .send()
@@ -95,11 +97,15 @@ impl XClient {
         let body = res.text().await?;
 
         if !status.is_success() {
-            return Err(anyhow!("Failed to upload media to X: HTTP {}, body: {}", status, body));
+            return Err(anyhow!(
+                "Failed to upload media to X: HTTP {}, body: {}",
+                status,
+                body
+            ));
         }
 
-        let upload_res: MediaUploadResponse = serde_json::from_str(&body)
-            .context("Failed to parse media upload response from X")?;
+        let upload_res: MediaUploadResponse =
+            serde_json::from_str(&body).context("Failed to parse media upload response from X")?;
 
         Ok(upload_res.media_id_string)
     }
@@ -130,14 +136,12 @@ impl SnsClient for XClient {
         // 1. image_urlの処理
         if let Some(url) = &content.image_url {
             match super::download_image(&self.client, url).await {
-                Ok(Some((bytes, _mime))) => {
-                    match self.upload_media(bytes).await {
-                        Ok(media_id) => media_ids.push(media_id),
-                        Err(e) => {
-                            println!("[X] Warning: Failed to upload image: {}", e);
-                        }
+                Ok(Some((bytes, _mime))) => match self.upload_media(bytes).await {
+                    Ok(media_id) => media_ids.push(media_id),
+                    Err(e) => {
+                        println!("[X] Warning: Failed to upload image: {}", e);
                     }
-                }
+                },
                 Ok(None) => {
                     println!("[X] 画像ではないためスキップしました: {}", url);
                 }
@@ -151,16 +155,17 @@ impl SnsClient for XClient {
         if let Some(paths) = &content.media_paths {
             for path in paths {
                 match std::fs::read(path) {
-                    Ok(bytes) => {
-                        match self.upload_media(bytes).await {
-                            Ok(media_id) => media_ids.push(media_id),
-                            Err(e) => {
-                                println!("[X] Warning: Failed to upload local media: {}", e);
-                            }
+                    Ok(bytes) => match self.upload_media(bytes).await {
+                        Ok(media_id) => media_ids.push(media_id),
+                        Err(e) => {
+                            println!("[X] Warning: Failed to upload local media: {}", e);
                         }
-                    }
+                    },
                     Err(e) => {
-                        println!("[X] Warning: Failed to read local media file {}: {}", path, e);
+                        println!(
+                            "[X] Warning: Failed to read local media file {}: {}",
+                            path, e
+                        );
                     }
                 }
             }
@@ -184,7 +189,9 @@ impl SnsClient for XClient {
             });
         }
 
-        let res = self.client.post(tweet_url)
+        let res = self
+            .client
+            .post(tweet_url)
             .header(AUTHORIZATION, auth_header)
             .json(&payload)
             .send()
@@ -201,7 +208,10 @@ impl SnsClient for XClient {
             });
         }
 
-        let tweet_res: TweetResponse = serde_json::from_str(&body).unwrap_or(TweetResponse { data: None, detail: None });
+        let tweet_res: TweetResponse = serde_json::from_str(&body).unwrap_or(TweetResponse {
+            data: None,
+            detail: None,
+        });
 
         let post_id = tweet_res.data.map(|d| d.id);
 

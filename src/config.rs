@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Config {
@@ -109,11 +109,21 @@ allowed_timings:
     - ["Weekday", ["08:00", "17:00"]]
 "#;
         let config = parse_config(yaml).expect("Failed to parse valid config");
-        assert_eq!(config.announcement_text.as_deref(), Some("ブログを更新しました！"));
-        assert_eq!(config.blog.unwrap()[0].feed_url, "https://example.com/blog/index.xml");
-        
+        assert_eq!(
+            config.announcement_text.as_deref(),
+            Some("ブログを更新しました！")
+        );
+        assert_eq!(
+            config.blog.unwrap()[0].feed_url,
+            "https://example.com/blog/index.xml"
+        );
+
         match &config.sns[0] {
-            SnsConfig::Mastodon { instance_url, access_token, .. } => {
+            SnsConfig::Mastodon {
+                instance_url,
+                access_token,
+                ..
+            } => {
                 assert_eq!(instance_url, "https://mstdn.jp");
                 assert_eq!(access_token, "dummy");
             }
@@ -122,15 +132,21 @@ allowed_timings:
 
         assert_eq!(
             config.default_allowed_timings,
-            Some(vec![("*".to_string(), vec!["09:00".to_string(), "12:00".to_string()])])
+            Some(vec![(
+                "*".to_string(),
+                vec!["09:00".to_string(), "12:00".to_string()]
+            )])
         );
         assert_eq!(config.allowed_timings_tolerance_minutes, Some(5));
-        
+
         let allowed_timings = config.allowed_timings.unwrap();
         assert!(allowed_timings.contains_key("mstdn-main"));
         assert_eq!(
             allowed_timings.get("mstdn-main").unwrap(),
-            &vec![("Weekday".to_string(), vec!["08:00".to_string(), "17:00".to_string()])]
+            &vec![(
+                "Weekday".to_string(),
+                vec!["08:00".to_string(), "17:00".to_string()]
+            )]
         );
     }
 }

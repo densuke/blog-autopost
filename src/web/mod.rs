@@ -1,19 +1,20 @@
 pub mod routes;
 
-use std::sync::Arc;
-use axum::{
-    routing::{get, post, put},
-    extract::{DefaultBodyLimit, State},
-    Router,
-};
-use tower_http::services::ServeDir;
-use tower_http::cors::CorsLayer;
 use crate::config::Config;
-use crate::timing::TimingManager;
 use crate::scheduled::{JsonScheduledPostStore, ScheduledPostExecutor};
 use crate::sns::{
-    mastodon::MastodonClient, misskey::MisskeyClient, bluesky::BlueskyClient, x::XClient, traits::SnsClient,
+    bluesky::BlueskyClient, mastodon::MastodonClient, misskey::MisskeyClient, traits::SnsClient,
+    x::XClient,
 };
+use crate::timing::TimingManager;
+use axum::{
+    Router,
+    extract::{DefaultBodyLimit, State},
+    routing::{get, post, put},
+};
+use std::sync::Arc;
+use tower_http::cors::CorsLayer;
+use tower_http::services::ServeDir;
 
 use std::collections::HashMap;
 
@@ -24,7 +25,9 @@ pub struct AppState {
     pub store: Arc<JsonScheduledPostStore>,
     pub config_path: String,
     pub sessions: Arc<tokio::sync::RwLock<HashMap<String, String>>>,
-    pub mcp_sessions: Arc<tokio::sync::RwLock<HashMap<String, tokio::sync::mpsc::Sender<axum::response::sse::Event>>>>,
+    pub mcp_sessions: Arc<
+        tokio::sync::RwLock<HashMap<String, tokio::sync::mpsc::Sender<axum::response::sse::Event>>>,
+    >,
 }
 
 pub async fn start_server(config: Config, config_path: String, port: u16) -> anyhow::Result<()> {
@@ -35,23 +38,56 @@ pub async fn start_server(config: Config, config_path: String, port: u16) -> any
     let mut sns_clients: Vec<Arc<dyn SnsClient + Send + Sync>> = Vec::new();
     for sns_conf in &config.sns {
         match sns_conf {
-            crate::config::SnsConfig::Mastodon { instance_url, access_token, name, .. } => {
-                if let Ok(client) = MastodonClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
+            crate::config::SnsConfig::Mastodon {
+                instance_url,
+                access_token,
+                name,
+                ..
+            } => {
+                if let Ok(client) =
+                    MastodonClient::new(instance_url.clone(), access_token.clone(), name.clone())
+                {
                     sns_clients.push(Arc::new(client));
                 }
             }
-            crate::config::SnsConfig::Misskey { instance_url, access_token, name, .. } => {
-                if let Ok(client) = MisskeyClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
+            crate::config::SnsConfig::Misskey {
+                instance_url,
+                access_token,
+                name,
+                ..
+            } => {
+                if let Ok(client) =
+                    MisskeyClient::new(instance_url.clone(), access_token.clone(), name.clone())
+                {
                     sns_clients.push(Arc::new(client));
                 }
             }
-            crate::config::SnsConfig::Bluesky { identifier, password, name, .. } => {
-                if let Ok(client) = BlueskyClient::new(identifier.clone(), password.clone(), name.clone()) {
+            crate::config::SnsConfig::Bluesky {
+                identifier,
+                password,
+                name,
+                ..
+            } => {
+                if let Ok(client) =
+                    BlueskyClient::new(identifier.clone(), password.clone(), name.clone())
+                {
                     sns_clients.push(Arc::new(client));
                 }
             }
-            crate::config::SnsConfig::X { consumer_key, consumer_secret, access_token, access_token_secret, name } => {
-                if let Ok(client) = XClient::new(consumer_key.clone(), consumer_secret.clone(), access_token.clone(), access_token_secret.clone(), name.clone()) {
+            crate::config::SnsConfig::X {
+                consumer_key,
+                consumer_secret,
+                access_token,
+                access_token_secret,
+                name,
+            } => {
+                if let Ok(client) = XClient::new(
+                    consumer_key.clone(),
+                    consumer_secret.clone(),
+                    access_token.clone(),
+                    access_token_secret.clone(),
+                    name.clone(),
+                ) {
                     sns_clients.push(Arc::new(client));
                 }
             }
@@ -98,19 +134,31 @@ pub async fn start_server(config: Config, config_path: String, port: u16) -> any
         .route("/upload", post(routes::upload_media))
         .route("/next-slots", get(routes::get_next_slots))
         .route("/schedules", get(routes::get_schedules))
-        .route("/schedules/{id}", put(routes::update_schedule).delete(routes::delete_schedule))
+        .route(
+            "/schedules/{id}",
+            put(routes::update_schedule).delete(routes::delete_schedule),
+        )
         .route("/schedules/{id}/post-now", post(routes::post_now_schedule))
         .route("/mcp/sse", get(routes::mcp_sse_handler))
         .route("/mcp/message", post(routes::mcp_message_handler))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
-        .layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware));
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
 
     let app = Router::new()
         .nest("/api", api_routes)
-        .route("/login", get(routes::get_login_page).post(routes::login_submit))
+        .route(
+            "/login",
+            get(routes::get_login_page).post(routes::login_submit),
+        )
         .route("/logout", get(routes::logout))
         .fallback_service(ServeDir::new("static").append_index_html_on_directories(true))
-        .layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
         .layer(cors)
         .with_state(state);
 
@@ -130,11 +178,11 @@ async fn auth_middleware(
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, axum::http::StatusCode> {
     let path = req.uri().path();
-    
+
     if path == "/login" || path.starts_with("/static/") {
         return Ok(next.run(req).await);
     }
-    
+
     let mut authenticated = false;
 
     // 1. APIキー (Bearerトークン or X-Api-Key) による認証のチェック
@@ -152,7 +200,7 @@ async fn auth_middleware(
             }
         }
     }
-    
+
     if !authenticated {
         if let Some(api_key_header) = req.headers().get("X-Api-Key") {
             if let Ok(api_key) = api_key_header.to_str() {
@@ -185,7 +233,7 @@ async fn auth_middleware(
             }
         }
     }
-    
+
     if authenticated {
         Ok(next.run(req).await)
     } else {
@@ -205,14 +253,14 @@ async fn auth_middleware(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::WebAuthConfig;
     use axum::{
+        Router,
         body::Body,
         http::{Request, StatusCode},
         routing::get,
-        Router,
     };
     use tower::ServiceExt; // for oneshot
-    use crate::config::WebAuthConfig;
 
     // ヘルパー: テスト用の AppState と Router を作成
     async fn setup_test_router(secret_key: Option<String>) -> (Router, Arc<AppState>) {
@@ -233,7 +281,9 @@ mod tests {
         };
 
         let timing_manager = TimingManager::new(&config);
-        let store = Arc::new(JsonScheduledPostStore::new("data/test_scheduled_posts.json"));
+        let store = Arc::new(JsonScheduledPostStore::new(
+            "data/test_scheduled_posts.json",
+        ));
         let sessions = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
         let mcp_sessions = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
 
@@ -249,13 +299,19 @@ mod tests {
         // 認証付きAPIルートと未認証ルートを設定
         let api_routes = Router::new()
             .route("/config", get(|| async { "config data" }))
-            .layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware));
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            ));
 
         let app = Router::new()
             .nest("/api", api_routes)
             .route("/login", get(|| async { "login page" }))
             .fallback(|| async { "fallback page" })
-            .layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware))
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            ))
             .with_state(state.clone());
 
         (app, state)
@@ -294,7 +350,10 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::SEE_OTHER);
         assert_eq!(
-            response.headers().get(axum::http::header::LOCATION).unwrap(),
+            response
+                .headers()
+                .get(axum::http::header::LOCATION)
+                .unwrap(),
             "/login"
         );
     }
