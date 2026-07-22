@@ -209,7 +209,13 @@ cargo run -- schedule delete post-1234567890
 
 ## 🔄 Python版からのデータ移行（移行マニュアル）
 
-既存の Python 版 `blog-autopost` からデータ（既読記事データ・予約投稿データ・添付メディア）を Rust版へ一括で移行するためのスクリプト `scripts/migrate.py` が用意されています。
+既存の Python 版 `blog-autopost` からデータ（既読記事データ・予約投稿データ・添付メディア）を Rust版へ一括で移行するためのスクリプト `scripts/migrate.py` が用意されていました。
+
+> **注意 (2026-07-22)**: Python版を `python` ブランチへ分離した際（コミット `0b4f56c`）に、`scripts/migrate.py` は `main` から削除されています。移行が必要な場合は `python` ブランチから取得してください。
+>
+> ```bash
+> git show origin/python:scripts/migrate.py > migrate.py
+> ```
 
 ### 移行手順
 
@@ -219,7 +225,7 @@ cargo run -- schedule delete post-1234567890
    Rust版プロジェクトのルートディレクトリで、`python3` を使用して移行スクリプトを実行します。
    ```bash
    # --python-dir に Python版のプロジェクトディレクトリパスを指定します（デフォルト: ../blog-autopost）
-   python3 scripts/migrate.py --python-dir ../blog-autopost
+   python3 migrate.py --python-dir ../blog-autopost
    ```
 3. **移行されるデータ**
    * **既読記事データ**: Python版の複数の JSON ファイル（`data/articles_*.json`）から読み込まれ、自動的に重複排除の上で `data/articles.json` にマージされます。
