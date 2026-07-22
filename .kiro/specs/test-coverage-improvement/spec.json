@@ -3,21 +3,28 @@
   "created_at": "2025-10-18T00:00:00Z",
   "updated_at": "2026-07-22T00:00:00+09:00",
   "language": "ja",
-  "phase": "obsolete",
+  "phase": "tasks-generated",
   "approvals": {
     "requirements": {
       "generated": true,
-      "approved": true
+      "approved": false
     },
     "design": {
       "generated": true,
       "approved": false
     },
     "tasks": {
-      "generated": false,
+      "generated": true,
       "approved": false
     }
   },
   "ready_for_implementation": false,
-  "tracking_issue": 59
+  "tracking_issue": 59,
+  "related_issues": [
+    59,
+    61,
+    62,
+    63
+  ],
+  "notes": "Rust版として全面的に作り直した。Python版の旧specは archive-python/ に退避済み。"
 }
