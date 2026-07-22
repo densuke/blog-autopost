@@ -1,7 +1,7 @@
 use super::traits::ImageExtractor;
 use async_trait::async_trait;
-use reqwest::Client;
 use regex::Regex;
+use reqwest::Client;
 
 pub struct OgpImageExtractor {
     client: Client,
@@ -13,8 +13,12 @@ impl OgpImageExtractor {
     pub fn new() -> Self {
         Self {
             client: Client::new(),
-            og_image_regex: Regex::new(r#"<meta[^>]*property="og:image"[^>]*content="([^"]+)""#).unwrap(),
-            twitter_image_regex: Regex::new(r#"<meta[^>]*name="twitter:image"[^>]*content="([^"]+)""#).unwrap(),
+            og_image_regex: Regex::new(r#"<meta[^>]*property="og:image"[^>]*content="([^"]+)""#)
+                .unwrap(),
+            twitter_image_regex: Regex::new(
+                r#"<meta[^>]*name="twitter:image"[^>]*content="([^"]+)""#,
+            )
+            .unwrap(),
         }
     }
 
@@ -74,8 +78,8 @@ impl ImageExtractor for OgpImageExtractor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::{MockServer, Mock, ResponseTemplate};
     use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[tokio::test]
     async fn test_extract_image_success() {
@@ -100,7 +104,10 @@ mod tests {
         let article_url = format!("{}/article", mock_server.uri());
         let result = extractor.extract_image(&article_url).await.unwrap();
 
-        assert_eq!(result, Some("https://example.com/images/thumb.jpg".to_string()));
+        assert_eq!(
+            result,
+            Some("https://example.com/images/thumb.jpg".to_string())
+        );
     }
 
     #[tokio::test]
@@ -170,8 +177,7 @@ mod tests {
     #[test]
     fn test_extract_from_html_rejects_non_image_og() {
         let extractor = OgpImageExtractor::new();
-        let html =
-            r#"<meta property="og:image" content="https://www.youtube.com/v/x?version=3">"#;
+        let html = r#"<meta property="og:image" content="https://www.youtube.com/v/x?version=3">"#;
         assert_eq!(extractor.extract_from_html(html), None);
     }
 }

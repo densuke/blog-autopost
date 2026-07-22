@@ -11,8 +11,7 @@ use crate::article::traits::FeedFetcher;
 /// 無い/非ブラウザのリクエストに対して 404 の HTML を返すため、feed-rs が
 /// 「no root element」で失敗する。ブラウザ風の UA を付けることで正常な XML を
 /// 受け取れるようにする。
-const FEED_USER_AGENT: &str =
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
+const FEED_USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
 
 pub struct DefaultFeedFetcher {
     client: reqwest::Client,
@@ -34,9 +33,15 @@ impl DefaultFeedFetcher {
 
         for entry in feed.entries {
             let title = entry.title.map(|t| t.content).unwrap_or_default();
-            let link = entry.links.into_iter().next().map(|l| l.href).unwrap_or_default();
-            
-            let published_parsed = entry.published
+            let link = entry
+                .links
+                .into_iter()
+                .next()
+                .map(|l| l.href)
+                .unwrap_or_default();
+
+            let published_parsed = entry
+                .published
                 .or(entry.updated)
                 .unwrap_or_else(|| chrono::Utc::now());
 
@@ -63,7 +68,9 @@ impl DefaultFeedFetcher {
 
             // media に動画URL(YouTube等)が入っている場合があるため、
             // 画像らしいURLのみを採用する。
-            let image_url = entry.media.into_iter()
+            let image_url = entry
+                .media
+                .into_iter()
                 .flat_map(|m| m.content)
                 .filter_map(|c| c.url.map(|u| u.to_string()))
                 .find(|u| super::image_extractor::is_probable_image_url(u));
@@ -193,8 +200,13 @@ impl Default for DefaultFeedFetcher {
 
 #[async_trait]
 impl FeedFetcher for DefaultFeedFetcher {
-    async fn fetch_articles(&self, feed_url: &str, feed_name: &str) -> anyhow::Result<Vec<Article>> {
-        self.fetch_articles_verbose(feed_url, feed_name, false).await
+    async fn fetch_articles(
+        &self,
+        feed_url: &str,
+        feed_name: &str,
+    ) -> anyhow::Result<Vec<Article>> {
+        self.fetch_articles_verbose(feed_url, feed_name, false)
+            .await
     }
 }
 
@@ -227,19 +239,25 @@ mod tests {
         "#;
 
         let articles = DefaultFeedFetcher::parse_feed(feed_xml.as_bytes(), "test_feed").unwrap();
-        
+
         assert_eq!(articles.len(), 2);
-        
+
         assert_eq!(articles[0].title, "Article 1");
         assert_eq!(articles[0].link, "http://example.com/article1");
         assert_eq!(articles[0].feed_name, "test_feed");
-        assert_eq!(articles[0].published_parsed, Utc.with_ymd_and_hms(2024, 1, 1, 12, 0, 0).unwrap());
+        assert_eq!(
+            articles[0].published_parsed,
+            Utc.with_ymd_and_hms(2024, 1, 1, 12, 0, 0).unwrap()
+        );
         assert_eq!(articles[0].image_url, None);
 
         assert_eq!(articles[1].title, "Article 2");
         assert_eq!(articles[1].link, "http://example.com/article2");
         assert_eq!(articles[1].feed_name, "test_feed");
-        assert_eq!(articles[1].published_parsed, Utc.with_ymd_and_hms(2024, 1, 2, 15, 30, 0).unwrap());
+        assert_eq!(
+            articles[1].published_parsed,
+            Utc.with_ymd_and_hms(2024, 1, 2, 15, 30, 0).unwrap()
+        );
     }
 
     #[test]
@@ -263,12 +281,15 @@ mod tests {
         "#;
 
         let articles = DefaultFeedFetcher::parse_feed(feed_xml.as_bytes(), "atom_feed").unwrap();
-        
+
         assert_eq!(articles.len(), 1);
-        
+
         assert_eq!(articles[0].title, "Atom Article 1");
         assert_eq!(articles[0].link, "http://example.com/atom1");
         assert_eq!(articles[0].feed_name, "atom_feed");
-        assert_eq!(articles[0].published_parsed, Utc.with_ymd_and_hms(2024, 1, 3, 10, 0, 0).unwrap());
+        assert_eq!(
+            articles[0].published_parsed,
+            Utc.with_ymd_and_hms(2024, 1, 3, 10, 0, 0).unwrap()
+        );
     }
 }

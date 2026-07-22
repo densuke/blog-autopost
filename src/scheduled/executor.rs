@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use crate::scheduled::store::JsonScheduledPostStore;
+use crate::sns::models::PostContent;
+use crate::sns::traits::SnsClient;
 use anyhow::Result;
 use chrono::Local;
-use crate::scheduled::store::JsonScheduledPostStore;
-use crate::sns::traits::SnsClient;
-use crate::sns::models::PostContent;
+use std::sync::Arc;
 
 pub struct ScheduledPostExecutor {
     store: Arc<JsonScheduledPostStore>,
@@ -28,8 +28,6 @@ impl ScheduledPostExecutor {
         let now = Local::now();
         let posts = self.store.get_all_posts().await?;
 
-
-
         // 実行対象の投稿をフィルタリング
         // "予約済み" かつ scheduled_at <= now
         let pending_posts: Vec<_> = posts
@@ -38,8 +36,11 @@ impl ScheduledPostExecutor {
             .collect();
 
         for mut post in pending_posts {
-            println!("Executing scheduled post: ID={}, ScheduledAt={}", post.id, post.scheduled_at);
-            
+            println!(
+                "Executing scheduled post: ID={}, ScheduledAt={}",
+                post.id, post.scheduled_at
+            );
+
             // target_sns の各 SNS クライアントへ送信
             let mut failed_sns = Vec::new();
             let mut success_sns = Vec::new();
@@ -59,7 +60,11 @@ impl ScheduledPostExecutor {
                                 media_paths.push(file.clone());
                             }
                         }
-                        let media_paths_opt = if media_paths.is_empty() { None } else { Some(media_paths) };
+                        let media_paths_opt = if media_paths.is_empty() {
+                            None
+                        } else {
+                            Some(media_paths)
+                        };
 
                         let content = PostContent {
                             text: post.content.clone(),
@@ -78,7 +83,9 @@ impl ScheduledPostExecutor {
                                     if res.success {
                                         success_sns.push(target.clone());
                                     } else {
-                                        let err = res.error_message.unwrap_or_else(|| "Unknown error".to_string());
+                                        let err = res
+                                            .error_message
+                                            .unwrap_or_else(|| "Unknown error".to_string());
                                         println!("Failed to post to {}: {}", target, err);
                                         failed_sns.push((target.clone(), err));
                                     }
@@ -106,7 +113,10 @@ impl ScheduledPostExecutor {
                 post.error_message = None;
             } else {
                 post.status = "失敗".to_string();
-                let errors: Vec<String> = failed_sns.into_iter().map(|(sns, err)| format!("{}: {}", sns, err)).collect();
+                let errors: Vec<String> = failed_sns
+                    .into_iter()
+                    .map(|(sns, err)| format!("{}: {}", sns, err))
+                    .collect();
                 post.error_message = Some(errors.join("; "));
             }
 
@@ -116,7 +126,11 @@ impl ScheduledPostExecutor {
 
         // クリーンアップ：24時間以上経過した完了投稿を削除
         let cleanup_cutoff = now - chrono::Duration::hours(24);
-        match self.store.delete_posts_older_than(cleanup_cutoff, Some(vec!["投稿済み".to_string()])).await {
+        match self
+            .store
+            .delete_posts_older_than(cleanup_cutoff, Some(vec!["投稿済み".to_string()]))
+            .await
+        {
             Ok(count) => {
                 if count > 0 {
                     println!("Cleaned up {} old scheduled posts.", count);
@@ -134,12 +148,12 @@ impl ScheduledPostExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scheduled::store::JsonScheduledPostStore;
     use crate::scheduled::models::ScheduledPost;
+    use crate::scheduled::store::JsonScheduledPostStore;
     use crate::sns::models::PostResult;
     use async_trait::async_trait;
-    use tempfile::NamedTempFile;
     use chrono::{Duration, Local};
+    use tempfile::NamedTempFile;
 
     struct MockSnsClient {
         name: String,
@@ -183,7 +197,7 @@ mod tests {
             vec![],
             vec!["mock-main".to_string()],
         );
-        
+
         // 未来の投稿（対象外）
         let future_time = now + Duration::minutes(10);
         let post2 = ScheduledPost::new(
@@ -214,4 +228,3 @@ mod tests {
         assert_eq!(p2.status, "予約済み");
     }
 }
-

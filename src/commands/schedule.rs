@@ -19,7 +19,10 @@ pub async fn run(action: ScheduleAction, config_data: &Config) -> anyhow::Result
             // 予定時間順にソート
             filtered_posts.sort_by_key(|p| p.scheduled_at);
 
-            println!("{:<25} {:<20} {:<20} {:<10} {}", "ID", "Scheduled At", "SNS", "Status", "Content Preview");
+            println!(
+                "{:<25} {:<20} {:<20} {:<10} {}",
+                "ID", "Scheduled At", "SNS", "Status", "Content Preview"
+            );
             println!("{}", "-".repeat(100));
             for post in filtered_posts {
                 let content_preview = if post.content.chars().count() > 30 {
@@ -38,7 +41,14 @@ pub async fn run(action: ScheduleAction, config_data: &Config) -> anyhow::Result
                 );
             }
         }
-        ScheduleAction::Add { text, at, auto_slot, sns, media, link } => {
+        ScheduleAction::Add {
+            text,
+            at,
+            auto_slot,
+            sns,
+            media,
+            link,
+        } => {
             // SNS ターゲットの決定
             let mut target_sns = Vec::new();
             if let Some(sns_arg) = sns {
@@ -83,13 +93,20 @@ pub async fn run(action: ScheduleAction, config_data: &Config) -> anyhow::Result
                         return Ok(());
                     }
 
-                    let file_name = path.file_name()
+                    let file_name = path
+                        .file_name()
                         .and_then(|f| f.to_str())
                         .unwrap_or("image.png");
 
                     let sanitized_name: String = file_name
                         .chars()
-                        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+                        .map(|c| {
+                            if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                                c
+                            } else {
+                                '_'
+                            }
+                        })
                         .collect();
 
                     let timestamp = chrono::Utc::now().timestamp_micros();
@@ -97,7 +114,10 @@ pub async fn run(action: ScheduleAction, config_data: &Config) -> anyhow::Result
                     let save_path = format!("data/uploads/{}", unique_name);
 
                     if let Err(e) = std::fs::copy(file_path, &save_path) {
-                        println!("Error: Failed to copy media file {} to {}: {:?}", file_path, save_path, e);
+                        println!(
+                            "Error: Failed to copy media file {} to {}: {:?}",
+                            file_path, save_path, e
+                        );
                         return Ok(());
                     }
 
@@ -139,20 +159,34 @@ pub async fn run(action: ScheduleAction, config_data: &Config) -> anyhow::Result
                     return Ok(());
                 }
 
-                println!("Successfully scheduled {} posts via auto-slot:", created_posts.len());
+                println!(
+                    "Successfully scheduled {} posts via auto-slot:",
+                    created_posts.len()
+                );
                 for p in created_posts {
-                    println!("  - ID: {} | Time: {} | SNS: {:?}", p.id, p.scheduled_at.format("%Y-%m-%d %H:%M:%S"), p.target_sns);
+                    println!(
+                        "  - ID: {} | Time: {} | SNS: {:?}",
+                        p.id,
+                        p.scheduled_at.format("%Y-%m-%d %H:%M:%S"),
+                        p.target_sns
+                    );
                 }
                 return Ok(());
             } else if let Some(at_str) = at {
                 let parsed_time = if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&at_str) {
                     dt.with_timezone(&chrono::Local)
-                } else if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&at_str, "%Y-%m-%d %H:%M:%S") {
+                } else if let Ok(dt) =
+                    chrono::NaiveDateTime::parse_from_str(&at_str, "%Y-%m-%d %H:%M:%S")
+                {
                     chrono::Local.from_local_datetime(&dt).unwrap()
-                } else if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&at_str, "%Y-%m-%d %H:%M") {
+                } else if let Ok(dt) =
+                    chrono::NaiveDateTime::parse_from_str(&at_str, "%Y-%m-%d %H:%M")
+                {
                     chrono::Local.from_local_datetime(&dt).unwrap()
                 } else {
-                    println!("Error: Invalid datetime format. Use RFC3339 (e.g., 2026-06-20T15:00:00+09:00) or 'YYYY-MM-DD HH:MM:SS'");
+                    println!(
+                        "Error: Invalid datetime format. Use RFC3339 (e.g., 2026-06-20T15:00:00+09:00) or 'YYYY-MM-DD HH:MM:SS'"
+                    );
                     return Ok(());
                 };
                 parsed_time
@@ -161,18 +195,17 @@ pub async fn run(action: ScheduleAction, config_data: &Config) -> anyhow::Result
                 return Ok(());
             };
 
-            let mut post = scheduled::ScheduledPost::new(
-                text,
-                scheduled_time,
-                processed_media,
-                target_sns,
-            );
+            let mut post =
+                scheduled::ScheduledPost::new(text, scheduled_time, processed_media, target_sns);
             post.link_url = link;
 
             let created = scheduled_store.create_post(post).await?;
             println!("Successfully scheduled post:");
             println!("  ID: {}", created.id);
-            println!("  Time: {}", created.scheduled_at.format("%Y-%m-%d %H:%M:%S"));
+            println!(
+                "  Time: {}",
+                created.scheduled_at.format("%Y-%m-%d %H:%M:%S")
+            );
             println!("  SNS: {:?}", created.target_sns);
         }
         ScheduleAction::Delete { id } => {
@@ -183,7 +216,14 @@ pub async fn run(action: ScheduleAction, config_data: &Config) -> anyhow::Result
                 println!("Error: Scheduled post not found: {}", id);
             }
         }
-        ScheduleAction::Update { id, text, at, sns, status, link } => {
+        ScheduleAction::Update {
+            id,
+            text,
+            at,
+            sns,
+            status,
+            link,
+        } => {
             let opt_post = scheduled_store.get_post_by_id(&id).await?;
             let Some(mut post) = opt_post else {
                 println!("Error: Scheduled post not found: {}", id);
@@ -197,12 +237,18 @@ pub async fn run(action: ScheduleAction, config_data: &Config) -> anyhow::Result
             if let Some(at_str) = at {
                 let parsed_time = if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&at_str) {
                     dt.with_timezone(&chrono::Local)
-                } else if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&at_str, "%Y-%m-%d %H:%M:%S") {
+                } else if let Ok(dt) =
+                    chrono::NaiveDateTime::parse_from_str(&at_str, "%Y-%m-%d %H:%M:%S")
+                {
                     chrono::Local.from_local_datetime(&dt).unwrap()
-                } else if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&at_str, "%Y-%m-%d %H:%M") {
+                } else if let Ok(dt) =
+                    chrono::NaiveDateTime::parse_from_str(&at_str, "%Y-%m-%d %H:%M")
+                {
                     chrono::Local.from_local_datetime(&dt).unwrap()
                 } else {
-                    println!("Error: Invalid datetime format. Use RFC3339 or 'YYYY-MM-DD HH:MM:SS'");
+                    println!(
+                        "Error: Invalid datetime format. Use RFC3339 or 'YYYY-MM-DD HH:MM:SS'"
+                    );
                     return Ok(());
                 };
                 post.scheduled_at = parsed_time;

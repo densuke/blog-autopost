@@ -1,8 +1,8 @@
-use std::collections::{HashMap, BTreeSet};
-use chrono::{DateTime, Local, Weekday, NaiveTime, Duration, Datelike};
-use anyhow::Result;
 use crate::config::Config;
 use crate::scheduled::store::JsonScheduledPostStore;
+use anyhow::Result;
+use chrono::{DateTime, Datelike, Duration, Local, NaiveTime, Weekday};
+use std::collections::{BTreeSet, HashMap};
 
 pub struct TimingManager {
     // SNS設定名 -> (曜日 -> 許可された時刻のソート済みセット)
@@ -20,13 +20,13 @@ impl TimingManager {
         if let Some(allowed_map) = &config.allowed_timings {
             for (sns_name, spec_list) in allowed_map {
                 let mut merged = HashMap::new();
-                
+
                 // まずグローバル設定を展開
                 Self::merge_spec_list(&mut merged, &global_raw);
-                
+
                 // 次にSNS固有の設定を展開してマージ (上書きまたは追加)
                 Self::merge_spec_list(&mut merged, spec_list);
-                
+
                 sns_timings.insert(sns_name.clone(), merged);
             }
         }
@@ -79,7 +79,8 @@ impl TimingManager {
     ) {
         for (day_spec, times_raw) in spec_list {
             let weekdays = Self::expand_wildcard(day_spec);
-            let times: Vec<NaiveTime> = times_raw.iter()
+            let times: Vec<NaiveTime> = times_raw
+                .iter()
                 .filter_map(|t| NaiveTime::parse_from_str(t, "%H:%M").ok())
                 .collect();
 
@@ -95,16 +96,22 @@ impl TimingManager {
     fn expand_wildcard(day_spec: &str) -> Vec<Weekday> {
         match day_spec {
             "*" => vec![
-                Weekday::Mon, Weekday::Tue, Weekday::Wed,
-                Weekday::Thu, Weekday::Fri, Weekday::Sat, Weekday::Sun
+                Weekday::Mon,
+                Weekday::Tue,
+                Weekday::Wed,
+                Weekday::Thu,
+                Weekday::Fri,
+                Weekday::Sat,
+                Weekday::Sun,
             ],
             "Weekday" => vec![
-                Weekday::Mon, Weekday::Tue, Weekday::Wed,
-                Weekday::Thu, Weekday::Fri
+                Weekday::Mon,
+                Weekday::Tue,
+                Weekday::Wed,
+                Weekday::Thu,
+                Weekday::Fri,
             ],
-            "Weekend" => vec![
-                Weekday::Sat, Weekday::Sun
-            ],
+            "Weekend" => vec![Weekday::Sat, Weekday::Sun],
             other => {
                 if let Some(w) = Self::parse_weekday(other) {
                     vec![w]
@@ -165,7 +172,7 @@ impl<'a> SlotFinder<'a> {
 
         // 候補日時を時系列順に生成してチェック
         let candidates = self.generate_candidate_slots(sns_name, base_start, max_days);
-        
+
         for candidate in candidates {
             if self.is_slot_available(sns_name, candidate).await? {
                 return Ok(Some(candidate));
@@ -188,10 +195,12 @@ impl<'a> SlotFinder<'a> {
         for day_offset in 0..days {
             let check_date = (start_time + Duration::days(day_offset)).date_naive();
             let weekday = check_date.weekday();
-            
+
             let allowed_times = self.timing_manager.get_allowed_times(sns_name, weekday);
             for time in allowed_times {
-                if let Some(candidate_dt) = check_date.and_time(time).and_local_timezone(Local).single() {
+                if let Some(candidate_dt) =
+                    check_date.and_time(time).and_local_timezone(Local).single()
+                {
                     if candidate_dt > min_time {
                         candidates.push(candidate_dt);
                     }
@@ -205,12 +214,11 @@ impl<'a> SlotFinder<'a> {
 
     // 指定されたスロットが他の予約で埋まっていないかチェックする
     async fn is_slot_available(&self, sns_name: &str, slot_time: DateTime<Local>) -> Result<bool> {
-        let existing = self.store.get_posts_by_sns_and_time(
-            sns_name,
-            slot_time,
-            self.tolerance_minutes,
-        ).await?;
-        
+        let existing = self
+            .store
+            .get_posts_by_sns_and_time(sns_name, slot_time, self.tolerance_minutes)
+            .await?;
+
         Ok(existing.is_empty())
     }
 }
@@ -219,31 +227,30 @@ impl<'a> SlotFinder<'a> {
 mod tests {
     use super::*;
     use crate::config::{Config, SnsConfig};
-    use tempfile::NamedTempFile;
-    use chrono::{NaiveDate, Timelike};
     use crate::scheduled::models::ScheduledPost;
+    use chrono::{NaiveDate, Timelike};
+    use tempfile::NamedTempFile;
 
     fn test_config() -> Config {
         Config {
             announcement_text: None,
             blog: None,
-            sns: vec![
-                SnsConfig::Mastodon {
-                    name: "mstdn-main".to_string(),
-                    instance_url: "https://mstdn.jp".to_string(),
-                    access_token: "dummy".to_string(),
-                }
-            ],
+            sns: vec![SnsConfig::Mastodon {
+                name: "mstdn-main".to_string(),
+                instance_url: "https://mstdn.jp".to_string(),
+                access_token: "dummy".to_string(),
+            }],
             templates: HashMap::new(),
-            default_allowed_timings: Some(vec![
-                ("*".to_string(), vec!["09:00".to_string(), "18:00".to_string()])
-            ]),
+            default_allowed_timings: Some(vec![(
+                "*".to_string(),
+                vec!["09:00".to_string(), "18:00".to_string()],
+            )]),
             allowed_timings_tolerance_minutes: Some(5),
             allowed_timings: Some({
                 let mut map = HashMap::new();
                 map.insert(
                     "mstdn-main".to_string(),
-                    vec![("Weekday".to_string(), vec!["12:00".to_string()])]
+                    vec![("Weekday".to_string(), vec!["12:00".to_string()])],
                 );
                 map
             }),
@@ -277,19 +284,26 @@ mod tests {
     async fn test_slot_finder() {
         let config = test_config();
         let manager = TimingManager::new(&config);
-        
+
         let temp_file = NamedTempFile::new().unwrap();
         let store = JsonScheduledPostStore::new(temp_file.path());
 
         let finder = SlotFinder::new(&manager, &store, 5);
 
         // 2026年6月22日(月) 10:00:00 から検索開始
-        let start_time = NaiveDate::from_ymd_opt(2026, 6, 22).unwrap()
-            .and_hms_opt(10, 0, 0).unwrap()
-            .and_local_timezone(Local).unwrap();
+        let start_time = NaiveDate::from_ymd_opt(2026, 6, 22)
+            .unwrap()
+            .and_hms_opt(10, 0, 0)
+            .unwrap()
+            .and_local_timezone(Local)
+            .unwrap();
 
         // 候補の次のスロットは、月曜日(本日)の 12:00
-        let slot = finder.find_next_available_slot("mstdn-main", Some(start_time), 7).await.unwrap().unwrap();
+        let slot = finder
+            .find_next_available_slot("mstdn-main", Some(start_time), 7)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(slot.time().hour(), 12);
         assert_eq!(slot.time().minute(), 0);
         assert_eq!(slot.date_naive(), start_time.date_naive());
@@ -304,7 +318,11 @@ mod tests {
         store.create_post(post).await.unwrap();
 
         // 再度 10:00 から検索すると、12:00 は埋まっているので次の候補である 18:00 が返るべき
-        let slot2 = finder.find_next_available_slot("mstdn-main", Some(start_time), 7).await.unwrap().unwrap();
+        let slot2 = finder
+            .find_next_available_slot("mstdn-main", Some(start_time), 7)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(slot2.time().hour(), 18);
         assert_eq!(slot2.time().minute(), 0);
     }

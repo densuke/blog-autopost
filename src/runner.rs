@@ -1,10 +1,10 @@
 use crate::article::models::Article;
 use crate::article::traits::{ArticleStore, FeedFetcher, ImageExtractor};
-use std::sync::Arc;
 use crate::config::Config;
-use crate::sns::traits::SnsClient;
 use crate::sns::models::PostContent;
+use crate::sns::traits::SnsClient;
 use crate::text::traits::TextOptimizer;
+use std::sync::Arc;
 
 pub struct Runner<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor> {
     fetcher: F,
@@ -54,7 +54,10 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor> Runne
         }
         let latest_articles = self.fetcher.fetch_articles(feed_url, feed_name).await?;
         if self.debug {
-            println!("[DEBUG] Fetched {} articles from feed.", latest_articles.len());
+            println!(
+                "[DEBUG] Fetched {} articles from feed.",
+                latest_articles.len()
+            );
             for (i, art) in latest_articles.iter().enumerate() {
                 println!("[DEBUG]   [{}] Title: {}, Link: {}", i, art.title, art.link);
             }
@@ -63,13 +66,20 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor> Runne
         // 2. 未保存の新着記事のみを抽出
         let mut new_articles = self.store.get_new_articles(latest_articles).await?;
         if self.debug {
-            println!("[DEBUG] Found {} new (unposted) articles.", new_articles.len());
+            println!(
+                "[DEBUG] Found {} new (unposted) articles.",
+                new_articles.len()
+            );
         }
 
         if let Some(limit) = self.limit {
             if new_articles.len() > limit {
                 if self.debug {
-                    println!("[DEBUG] Limiting new articles to {} (original: {}).", limit, new_articles.len());
+                    println!(
+                        "[DEBUG] Limiting new articles to {} (original: {}).",
+                        limit,
+                        new_articles.len()
+                    );
                 }
                 new_articles.truncate(limit);
             }
@@ -112,31 +122,47 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor> Runne
             for client in &self.sns_clients {
                 // テンプレートの取得
                 let template_key = client.name();
-                let template = self.config.templates.get(template_key)
+                let template = self
+                    .config
+                    .templates
+                    .get(template_key)
                     .or_else(|| self.config.templates.get("default"))
                     .map(|s| s.as_str())
                     .unwrap_or("{title} {link}");
 
                 if self.debug {
-                    println!("[DEBUG] Using template for {}: '{}'", client.name(), template);
+                    println!(
+                        "[DEBUG] Using template for {}: '{}'",
+                        client.name(),
+                        template
+                    );
                 }
 
                 // テキスト整形
                 let link_weight = client.url_char_weight(&display_article.link);
-                let optimized_text = self.text_optimizer.optimize(
-                    &display_article,
-                    template,
-                    client.max_characters(),
-                    self.config.announcement_text.as_deref(),
-                    link_weight,
-                    &post_tags,
-                ).await.unwrap_or_else(|e| {
-                    println!("Failed to optimize text: {}", e);
-                    display_article.title.clone()
-                });
+                let optimized_text = self
+                    .text_optimizer
+                    .optimize(
+                        &display_article,
+                        template,
+                        client.max_characters(),
+                        self.config.announcement_text.as_deref(),
+                        link_weight,
+                        &post_tags,
+                    )
+                    .await
+                    .unwrap_or_else(|e| {
+                        println!("Failed to optimize text: {}", e);
+                        display_article.title.clone()
+                    });
 
                 if self.debug {
-                    println!("[DEBUG] Optimized text ({} chars, max {}): '{}'", optimized_text.chars().count(), client.max_characters(), optimized_text);
+                    println!(
+                        "[DEBUG] Optimized text ({} chars, max {}): '{}'",
+                        optimized_text.chars().count(),
+                        client.max_characters(),
+                        optimized_text
+                    );
                 }
 
                 let content = PostContent {
@@ -148,18 +174,31 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor> Runne
                 };
 
                 if self.dry_run {
-                    println!("[DRY RUN] Would post to {} ({}):", client.name(), client.account_name());
+                    println!(
+                        "[DRY RUN] Would post to {} ({}):",
+                        client.name(),
+                        client.account_name()
+                    );
                     println!("[DRY RUN] Content: {}", content.text);
                     continue;
                 }
 
-                println!("Posting to SNS ({} - {}): {}", client.name(), client.account_name(), article.title);
+                println!(
+                    "Posting to SNS ({} - {}): {}",
+                    client.name(),
+                    client.account_name(),
+                    article.title
+                );
                 match client.post(&content).await {
                     Ok(result) => {
                         if result.success {
                             println!("Successfully posted! URI: {:?}", result.post_id);
                         } else {
-                            println!("Failed to post to {}: {:?}", client.name(), result.error_message);
+                            println!(
+                                "Failed to post to {}: {:?}",
+                                client.name(),
+                                result.error_message
+                            );
                         }
                     }
                     Err(e) => {
@@ -171,7 +210,10 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor> Runne
 
         // 4. 処理が終わった（または投稿対象の）記事を永続化
         if self.dry_run {
-            println!("[DRY RUN] Skipping saving {} articles to datastore.", new_articles.len());
+            println!(
+                "[DRY RUN] Skipping saving {} articles to datastore.",
+                new_articles.len()
+            );
         } else {
             self.store.save_articles(&new_articles).await?;
         }
@@ -185,12 +227,12 @@ mod tests {
     use super::*;
     use crate::article::models::Article;
     use crate::article::traits::{ArticleStore, FeedFetcher, ImageExtractor};
-    use crate::text::traits::TextOptimizer;
     use crate::sns::models::{PostContent, PostResult};
     use crate::sns::traits::SnsClient;
+    use crate::text::traits::TextOptimizer;
     use async_trait::async_trait;
-    use std::sync::{Arc, Mutex};
     use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
 
     struct MockFeedFetcher {
         articles: Vec<Article>,
@@ -198,7 +240,11 @@ mod tests {
 
     #[async_trait]
     impl FeedFetcher for MockFeedFetcher {
-        async fn fetch_articles(&self, _feed_url: &str, _feed_name: &str) -> anyhow::Result<Vec<Article>> {
+        async fn fetch_articles(
+            &self,
+            _feed_url: &str,
+            _feed_name: &str,
+        ) -> anyhow::Result<Vec<Article>> {
             Ok(self.articles.clone())
         }
     }
@@ -209,7 +255,10 @@ mod tests {
 
     #[async_trait]
     impl ArticleStore for MockArticleStore {
-        async fn get_new_articles(&self, latest_articles: Vec<Article>) -> anyhow::Result<Vec<Article>> {
+        async fn get_new_articles(
+            &self,
+            latest_articles: Vec<Article>,
+        ) -> anyhow::Result<Vec<Article>> {
             Ok(latest_articles)
         }
         async fn save_articles(&self, articles: &[Article]) -> anyhow::Result<()> {
@@ -239,7 +288,9 @@ mod tests {
             _link_weight: usize,
             _tags: &[String],
         ) -> anyhow::Result<String> {
-            Ok(template.replace("{title}", &article.title).replace("{link}", &article.link))
+            Ok(template
+                .replace("{title}", &article.title)
+                .replace("{link}", &article.link))
         }
     }
 
@@ -276,18 +327,18 @@ mod tests {
         let posted_contents = Arc::new(Mutex::new(Vec::new()));
 
         let fetcher = MockFeedFetcher {
-            articles: vec![
-                Article {
-                    title: "Test Article 1".to_string(),
-                    link: "http://example.com/1".to_string(),
-                    published_parsed: chrono::Utc::now(),
-                    image_url: None,
-                    feed_name: "test-feed".to_string(),
-                    tags: Vec::new(),
-                }
-            ],
+            articles: vec![Article {
+                title: "Test Article 1".to_string(),
+                link: "http://example.com/1".to_string(),
+                published_parsed: chrono::Utc::now(),
+                image_url: None,
+                feed_name: "test-feed".to_string(),
+                tags: Vec::new(),
+            }],
         };
-        let store = MockArticleStore { saved: saved_articles.clone() };
+        let store = MockArticleStore {
+            saved: saved_articles.clone(),
+        };
         let text_optimizer = MockTextOptimizer;
         let image_extractor = MockImageExtractor;
 
@@ -307,7 +358,9 @@ mod tests {
             web_auth: None,
             extra: HashMap::new(),
         };
-        config.templates.insert("default".to_string(), "{title} {link}".to_string());
+        config
+            .templates
+            .insert("default".to_string(), "{title} {link}".to_string());
 
         let runner = Runner::new(
             fetcher,
@@ -322,11 +375,17 @@ mod tests {
             false, // sensitive
         );
 
-        let result = runner.run_once("http://feed.url", "test-feed").await.unwrap();
+        let result = runner
+            .run_once("http://feed.url", "test-feed")
+            .await
+            .unwrap();
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].title, "Test Article 1");
-        assert_eq!(result[0].image_url, Some("http://example.com/extracted.jpg".to_string()));
+        assert_eq!(
+            result[0].image_url,
+            Some("http://example.com/extracted.jpg".to_string())
+        );
 
         // 保存された件数
         let saved = saved_articles.lock().unwrap();
@@ -361,10 +420,12 @@ mod tests {
                     image_url: None,
                     feed_name: "test-feed".to_string(),
                     tags: Vec::new(),
-                }
+                },
             ],
         };
-        let store = MockArticleStore { saved: saved_articles.clone() };
+        let store = MockArticleStore {
+            saved: saved_articles.clone(),
+        };
         let text_optimizer = MockTextOptimizer;
         let image_extractor = MockImageExtractor;
 
@@ -390,15 +451,17 @@ mod tests {
                 web_auth: None,
                 extra: HashMap::new(),
             },
-            false,      // dry_run
-            Some(1),    // limit = 1
-            false,      // debug
-            false,      // sensitive
+            false,   // dry_run
+            Some(1), // limit = 1
+            false,   // debug
+            false,   // sensitive
         );
 
-        let result = runner.run_once("http://feed.url", "test-feed").await.unwrap();
+        let result = runner
+            .run_once("http://feed.url", "test-feed")
+            .await
+            .unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].title, "Test 1");
     }
 }
-

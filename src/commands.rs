@@ -98,9 +98,21 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
             }
 
             // ブログ設定を取得（複数ある場合は最初の一つ。今後は複数対応も可能）
-            let blog_conf = config_data.blog.clone().and_then(|mut blogs| if blogs.is_empty() { None } else { Some(blogs.remove(0)) });
-            let feed_url = blog_conf.as_ref().map(|b| b.feed_url.clone()).unwrap_or_default();
-            let feed_name = blog_conf.as_ref().map(|b| b.name.clone()).unwrap_or_else(|| "default".to_string());
+            let blog_conf = config_data.blog.clone().and_then(|mut blogs| {
+                if blogs.is_empty() {
+                    None
+                } else {
+                    Some(blogs.remove(0))
+                }
+            });
+            let feed_url = blog_conf
+                .as_ref()
+                .map(|b| b.feed_url.clone())
+                .unwrap_or_default();
+            let feed_name = blog_conf
+                .as_ref()
+                .map(|b| b.name.clone())
+                .unwrap_or_else(|| "default".to_string());
 
             if feed_url.is_empty() {
                 println!("Warning: No feed_url configured. Runner will not fetch anything.");
@@ -127,7 +139,9 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
                 cli.sensitive,
             ));
 
-            let scheduled_store = std::sync::Arc::new(scheduled::JsonScheduledPostStore::new("data/scheduled_posts.json"));
+            let scheduled_store = std::sync::Arc::new(scheduled::JsonScheduledPostStore::new(
+                "data/scheduled_posts.json",
+            ));
             let executor = std::sync::Arc::new(scheduled::ScheduledPostExecutor::new(
                 scheduled_store,
                 sns_clients,
@@ -138,38 +152,51 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
 
             // 1. RSS フィードの定期監視ジョブ
             let runner_clone = std::sync::Arc::clone(&runner);
-            sched.add(tokio_cron_scheduler::Job::new_async("0 * * * * *", move |uuid, _| {
-                let r = std::sync::Arc::clone(&runner_clone);
-                let f_url = feed_url.clone();
-                let f_name = feed_name.clone();
-                Box::pin(async move {
-                    println!("Cron job triggered (UUID: {}) - Fetching feed...", uuid);
-                    match r.run_once(&f_url, &f_name).await {
-                        Ok(articles) => {
-                            if articles.is_empty() {
-                                println!("No new articles found.");
-                            } else {
-                                println!("Processed {} new articles.", articles.len());
+            sched
+                .add(tokio_cron_scheduler::Job::new_async(
+                    "0 * * * * *",
+                    move |uuid, _| {
+                        let r = std::sync::Arc::clone(&runner_clone);
+                        let f_url = feed_url.clone();
+                        let f_name = feed_name.clone();
+                        Box::pin(async move {
+                            println!("Cron job triggered (UUID: {}) - Fetching feed...", uuid);
+                            match r.run_once(&f_url, &f_name).await {
+                                Ok(articles) => {
+                                    if articles.is_empty() {
+                                        println!("No new articles found.");
+                                    } else {
+                                        println!("Processed {} new articles.", articles.len());
+                                    }
+                                }
+                                Err(e) => {
+                                    println!("Error during run_once: {:?}", e);
+                                }
                             }
-                        }
-                        Err(e) => {
-                            println!("Error during run_once: {:?}", e);
-                        }
-                    }
-                })
-            })?).await?;
+                        })
+                    },
+                )?)
+                .await?;
 
             // 2. 予約投稿の定期実行ジョブ
             let executor_clone = std::sync::Arc::clone(&executor);
-            sched.add(tokio_cron_scheduler::Job::new_async("0 * * * * *", move |uuid, _| {
-                let exec = std::sync::Arc::clone(&executor_clone);
-                Box::pin(async move {
-                    println!("Cron job triggered (UUID: {}) - Checking scheduled posts...", uuid);
-                    if let Err(e) = exec.execute_pending_posts().await {
-                        println!("Error executing scheduled posts: {:?}", e);
-                    }
-                })
-            })?).await?;
+            sched
+                .add(tokio_cron_scheduler::Job::new_async(
+                    "0 * * * * *",
+                    move |uuid, _| {
+                        let exec = std::sync::Arc::clone(&executor_clone);
+                        Box::pin(async move {
+                            println!(
+                                "Cron job triggered (UUID: {}) - Checking scheduled posts...",
+                                uuid
+                            );
+                            if let Err(e) = exec.execute_pending_posts().await {
+                                println!("Error executing scheduled posts: {:?}", e);
+                            }
+                        })
+                    },
+                )?)
+                .await?;
 
             sched.start().await?;
 
@@ -239,7 +266,14 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
             }
             println!("Done. Total {} new articles processed.", total);
         }
-        Commands::Post { text, sns, instance_url, token, media, link } => {
+        Commands::Post {
+            text,
+            sns,
+            instance_url,
+            token,
+            media,
+            link,
+        } => {
             let mut sns_clients: Vec<std::sync::Arc<dyn SnsClient + Send + Sync>> = Vec::new();
 
             // フィルタ条件の構築
@@ -268,10 +302,19 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
             // 1. config.ymlの設定をパースしてフィルタリング
             for sns_conf in &config_data.sns {
                 match sns_conf {
-                    config::SnsConfig::Mastodon { instance_url: conf_url, access_token: conf_token, name, .. } => {
+                    config::SnsConfig::Mastodon {
+                        instance_url: conf_url,
+                        access_token: conf_token,
+                        name,
+                        ..
+                    } => {
                         let lower_name = name.to_lowercase();
-                        let is_targeted = is_implicit_all || has_all || included.contains("mastodon") || included.contains(&lower_name);
-                        let is_excluded = excluded.contains("mastodon") || excluded.contains(&lower_name);
+                        let is_targeted = is_implicit_all
+                            || has_all
+                            || included.contains("mastodon")
+                            || included.contains(&lower_name);
+                        let is_excluded =
+                            excluded.contains("mastodon") || excluded.contains(&lower_name);
                         if is_targeted && !is_excluded {
                             let url = instance_url.clone().unwrap_or_else(|| conf_url.clone());
                             let tok = token.clone().unwrap_or_else(|| conf_token.clone());
@@ -280,10 +323,19 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
                             }
                         }
                     }
-                    config::SnsConfig::Misskey { instance_url: conf_url, access_token: conf_token, name, .. } => {
+                    config::SnsConfig::Misskey {
+                        instance_url: conf_url,
+                        access_token: conf_token,
+                        name,
+                        ..
+                    } => {
                         let lower_name = name.to_lowercase();
-                        let is_targeted = is_implicit_all || has_all || included.contains("misskey") || included.contains(&lower_name);
-                        let is_excluded = excluded.contains("misskey") || excluded.contains(&lower_name);
+                        let is_targeted = is_implicit_all
+                            || has_all
+                            || included.contains("misskey")
+                            || included.contains(&lower_name);
+                        let is_excluded =
+                            excluded.contains("misskey") || excluded.contains(&lower_name);
                         if is_targeted && !is_excluded {
                             let url = instance_url.clone().unwrap_or_else(|| conf_url.clone());
                             let tok = token.clone().unwrap_or_else(|| conf_token.clone());
@@ -292,10 +344,19 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
                             }
                         }
                     }
-                    config::SnsConfig::Bluesky { identifier: conf_id, password: conf_pw, name, .. } => {
+                    config::SnsConfig::Bluesky {
+                        identifier: conf_id,
+                        password: conf_pw,
+                        name,
+                        ..
+                    } => {
                         let lower_name = name.to_lowercase();
-                        let is_targeted = is_implicit_all || has_all || included.contains("bluesky") || included.contains(&lower_name);
-                        let is_excluded = excluded.contains("bluesky") || excluded.contains(&lower_name);
+                        let is_targeted = is_implicit_all
+                            || has_all
+                            || included.contains("bluesky")
+                            || included.contains(&lower_name);
+                        let is_excluded =
+                            excluded.contains("bluesky") || excluded.contains(&lower_name);
                         if is_targeted && !is_excluded {
                             let id = instance_url.clone().unwrap_or_else(|| conf_id.clone());
                             let pw = token.clone().unwrap_or_else(|| conf_pw.clone());
@@ -304,12 +365,27 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
                             }
                         }
                     }
-                    config::SnsConfig::X { consumer_key, consumer_secret, access_token, access_token_secret, name } => {
+                    config::SnsConfig::X {
+                        consumer_key,
+                        consumer_secret,
+                        access_token,
+                        access_token_secret,
+                        name,
+                    } => {
                         let lower_name = name.to_lowercase();
-                        let is_targeted = is_implicit_all || has_all || included.contains("x") || included.contains(&lower_name);
+                        let is_targeted = is_implicit_all
+                            || has_all
+                            || included.contains("x")
+                            || included.contains(&lower_name);
                         let is_excluded = excluded.contains("x") || excluded.contains(&lower_name);
                         if is_targeted && !is_excluded {
-                            if let Ok(client) = XClient::new(consumer_key.clone(), consumer_secret.clone(), access_token.clone(), access_token_secret.clone(), name.clone()) {
+                            if let Ok(client) = XClient::new(
+                                consumer_key.clone(),
+                                consumer_secret.clone(),
+                                access_token.clone(),
+                                access_token_secret.clone(),
+                                name.clone(),
+                            ) {
                                 sns_clients.push(std::sync::Arc::new(client));
                             }
                         }
@@ -323,22 +399,36 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
                 if let Some(ref sns_val) = sns {
                     let first_sns = sns_val.split(',').next().unwrap_or("").trim();
                     if first_sns == "mastodon" {
-                        let url = instance_url.clone().expect("instance_url must be provided via CLI or config.yml");
-                        let tok = token.clone().expect("token must be provided via CLI or config.yml");
+                        let url = instance_url
+                            .clone()
+                            .expect("instance_url must be provided via CLI or config.yml");
+                        let tok = token
+                            .clone()
+                            .expect("token must be provided via CLI or config.yml");
                         let client = MastodonClient::new(url, tok, "CLI_User".to_string())?;
                         sns_clients.push(std::sync::Arc::new(client));
                     } else if first_sns == "misskey" {
-                        let url = instance_url.clone().expect("instance_url must be provided via CLI or config.yml");
-                        let tok = token.clone().expect("token must be provided via CLI or config.yml");
+                        let url = instance_url
+                            .clone()
+                            .expect("instance_url must be provided via CLI or config.yml");
+                        let tok = token
+                            .clone()
+                            .expect("token must be provided via CLI or config.yml");
                         let client = MisskeyClient::new(url, tok, "CLI_User".to_string())?;
                         sns_clients.push(std::sync::Arc::new(client));
                     } else if first_sns == "bluesky" {
-                        let id = instance_url.clone().expect("identifier must be provided via CLI (instance_url) or config.yml");
-                        let pw = token.clone().expect("password must be provided via CLI (token) or config.yml");
+                        let id = instance_url.clone().expect(
+                            "identifier must be provided via CLI (instance_url) or config.yml",
+                        );
+                        let pw = token
+                            .clone()
+                            .expect("password must be provided via CLI (token) or config.yml");
                         let client = BlueskyClient::new(id, pw, "CLI_User".to_string())?;
                         sns_clients.push(std::sync::Arc::new(client));
                     } else if first_sns == "x" {
-                        println!("X (Twitter) requires consumer credentials in config.yml. Cannot post without configuration.");
+                        println!(
+                            "X (Twitter) requires consumer credentials in config.yml. Cannot post without configuration."
+                        );
                     }
                 }
             }
@@ -386,13 +476,15 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
                             media_paths: media.clone(),
                             link_url: final_link,
                             sensitive: cli.sensitive,
-                        }
+                        },
                     ));
                 }
             }
 
             if !length_errors.is_empty() {
-                println!("Error: 送信テキストがSNSの文字数上限を超えています。送信を中止しました。");
+                println!(
+                    "Error: 送信テキストがSNSの文字数上限を超えています。送信を中止しました。"
+                );
                 for err in length_errors {
                     println!("  - {}", err);
                 }
@@ -401,13 +493,25 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
 
             // 4. 選択されたすべてのSNSへ投稿する
             for (client, content) in client_post_contents {
-                println!("Posting to {} ({})...", client.name(), client.account_name());
+                println!(
+                    "Posting to {} ({})...",
+                    client.name(),
+                    client.account_name()
+                );
                 match client.post(&content).await {
                     Ok(result) => {
                         if result.success {
-                            println!("Successfully posted to {}! ID: {:?}", client.name(), result.post_id);
+                            println!(
+                                "Successfully posted to {}! ID: {:?}",
+                                client.name(),
+                                result.post_id
+                            );
                         } else {
-                            println!("Failed to post to {}: {:?}", client.name(), result.error_message);
+                            println!(
+                                "Failed to post to {}: {:?}",
+                                client.name(),
+                                result.error_message
+                            );
                         }
                     }
                     Err(e) => {
@@ -436,23 +540,56 @@ fn build_sns_clients(
     let mut sns_clients: Vec<std::sync::Arc<dyn SnsClient + Send + Sync>> = Vec::new();
     for sns_conf in &config_data.sns {
         match sns_conf {
-            config::SnsConfig::Mastodon { instance_url, access_token, name, .. } => {
-                if let Ok(client) = MastodonClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
+            config::SnsConfig::Mastodon {
+                instance_url,
+                access_token,
+                name,
+                ..
+            } => {
+                if let Ok(client) =
+                    MastodonClient::new(instance_url.clone(), access_token.clone(), name.clone())
+                {
                     sns_clients.push(std::sync::Arc::new(client));
                 }
             }
-            config::SnsConfig::Misskey { instance_url, access_token, name, .. } => {
-                if let Ok(client) = MisskeyClient::new(instance_url.clone(), access_token.clone(), name.clone()) {
+            config::SnsConfig::Misskey {
+                instance_url,
+                access_token,
+                name,
+                ..
+            } => {
+                if let Ok(client) =
+                    MisskeyClient::new(instance_url.clone(), access_token.clone(), name.clone())
+                {
                     sns_clients.push(std::sync::Arc::new(client));
                 }
             }
-            config::SnsConfig::Bluesky { identifier, password, name, .. } => {
-                if let Ok(client) = BlueskyClient::new(identifier.clone(), password.clone(), name.clone()) {
+            config::SnsConfig::Bluesky {
+                identifier,
+                password,
+                name,
+                ..
+            } => {
+                if let Ok(client) =
+                    BlueskyClient::new(identifier.clone(), password.clone(), name.clone())
+                {
                     sns_clients.push(std::sync::Arc::new(client));
                 }
             }
-            config::SnsConfig::X { consumer_key, consumer_secret, access_token, access_token_secret, name } => {
-                if let Ok(client) = XClient::new(consumer_key.clone(), consumer_secret.clone(), access_token.clone(), access_token_secret.clone(), name.clone()) {
+            config::SnsConfig::X {
+                consumer_key,
+                consumer_secret,
+                access_token,
+                access_token_secret,
+                name,
+            } => {
+                if let Ok(client) = XClient::new(
+                    consumer_key.clone(),
+                    consumer_secret.clone(),
+                    access_token.clone(),
+                    access_token_secret.clone(),
+                    name.clone(),
+                ) {
                     sns_clients.push(std::sync::Arc::new(client));
                 }
             }
@@ -526,42 +663,107 @@ pub fn list_sns(config: &config::Config) {
     for (i, sns_conf) in config.sns.iter().enumerate() {
         let num = i + 1;
         match sns_conf {
-            config::SnsConfig::Mastodon { name, instance_url, access_token } => {
+            config::SnsConfig::Mastodon {
+                name,
+                instance_url,
+                access_token,
+            } => {
                 println!("{}. {}", num, name);
                 println!("   SNS種別: mastodon");
                 println!("   インスタンス: {}", instance_url);
                 let has_creds = !access_token.is_empty();
-                println!("   認証情報: {}", if has_creds { "設定済み" } else { "不完全" });
+                println!(
+                    "   認証情報: {}",
+                    if has_creds {
+                        "設定済み"
+                    } else {
+                        "不完全"
+                    }
+                );
             }
-            config::SnsConfig::Misskey { name, instance_url, access_token, .. } => {
+            config::SnsConfig::Misskey {
+                name,
+                instance_url,
+                access_token,
+                ..
+            } => {
                 println!("{}. {}", num, name);
                 println!("   SNS種別: misskey");
                 println!("   インスタンス: {}", instance_url);
                 let has_creds = !access_token.is_empty();
-                println!("   認証情報: {}", if has_creds { "設定済み" } else { "不完全" });
+                println!(
+                    "   認証情報: {}",
+                    if has_creds {
+                        "設定済み"
+                    } else {
+                        "不完全"
+                    }
+                );
             }
-            config::SnsConfig::Bluesky { name, identifier, password } => {
+            config::SnsConfig::Bluesky {
+                name,
+                identifier,
+                password,
+            } => {
                 println!("{}. {}", num, name);
                 println!("   SNS種別: bluesky");
                 let has_creds = !identifier.is_empty() && !password.is_empty();
-                println!("   認証情報: {}", if has_creds { "設定済み" } else { "不完全" });
+                println!(
+                    "   認証情報: {}",
+                    if has_creds {
+                        "設定済み"
+                    } else {
+                        "不完全"
+                    }
+                );
             }
-            config::SnsConfig::X { name, consumer_key, consumer_secret, access_token, access_token_secret } => {
+            config::SnsConfig::X {
+                name,
+                consumer_key,
+                consumer_secret,
+                access_token,
+                access_token_secret,
+            } => {
                 println!("{}. {}", num, name);
                 println!("   SNS種別: x");
                 let has_creds = !consumer_key.is_empty()
                     && !consumer_secret.is_empty()
                     && !access_token.is_empty()
                     && !access_token_secret.is_empty();
-                println!("   認証情報: {}", if has_creds { "設定済み" } else { "不完全" });
+                println!(
+                    "   認証情報: {}",
+                    if has_creds {
+                        "設定済み"
+                    } else {
+                        "不完全"
+                    }
+                );
             }
-            config::SnsConfig::Threads { name, user_id, access_token } => {
+            config::SnsConfig::Threads {
+                name,
+                user_id,
+                access_token,
+            } => {
                 println!("{}. {}", num, name);
                 println!("   SNS種別: threads");
                 let has_creds = !user_id.is_empty() && !access_token.is_empty();
-                println!("   認証情報: {}", if has_creds { "設定済み" } else { "不完全" });
+                println!(
+                    "   認証情報: {}",
+                    if has_creds {
+                        "設定済み"
+                    } else {
+                        "不完全"
+                    }
+                );
             }
-            config::SnsConfig::Tumblr { name, consumer_key, consumer_secret, oauth_token, oauth_secret, blog_identifier } => {
+            config::SnsConfig::Tumblr {
+                name,
+                consumer_key,
+                consumer_secret,
+                oauth_token,
+                oauth_secret,
+                blog_identifier,
+            } => {
                 println!("{}. {}", num, name);
                 println!("   SNS種別: tumblr");
                 println!("   ブログID: {}", blog_identifier);
@@ -569,7 +771,14 @@ pub fn list_sns(config: &config::Config) {
                     && !consumer_secret.is_empty()
                     && !oauth_token.is_empty()
                     && !oauth_secret.is_empty();
-                println!("   認証情報: {}", if has_creds { "設定済み" } else { "不完全" });
+                println!(
+                    "   認証情報: {}",
+                    if has_creds {
+                        "設定済み"
+                    } else {
+                        "不完全"
+                    }
+                );
             }
             config::SnsConfig::Unknown => {
                 println!("{}. Unknown", num);
@@ -667,7 +876,11 @@ blog:
             &self.account
         }
         async fn post(&self, _content: &PostContent) -> anyhow::Result<PostResult> {
-            Ok(PostResult { success: true, post_id: None, error_message: None })
+            Ok(PostResult {
+                success: true,
+                post_id: None,
+                error_message: None,
+            })
         }
         fn max_characters(&self) -> usize {
             500
@@ -675,11 +888,17 @@ blog:
     }
 
     fn dummy(kind: &str, account: &str) -> std::sync::Arc<dyn SnsClient + Send + Sync> {
-        std::sync::Arc::new(DummyClient { kind: kind.to_string(), account: account.to_string() })
+        std::sync::Arc::new(DummyClient {
+            kind: kind.to_string(),
+            account: account.to_string(),
+        })
     }
 
     fn names(clients: &[std::sync::Arc<dyn SnsClient + Send + Sync>]) -> Vec<String> {
-        clients.iter().map(|c| c.account_name().to_string()).collect()
+        clients
+            .iter()
+            .map(|c| c.account_name().to_string())
+            .collect()
     }
 
     fn sample() -> Vec<std::sync::Arc<dyn SnsClient + Send + Sync>> {
@@ -718,7 +937,10 @@ blog:
     #[test]
     fn test_filter_exclude() {
         let result = filter_sns_clients(sample(), Some("-x"));
-        assert_eq!(names(&result), vec!["bluesky", "mastodon-social", "misskey-io"]);
+        assert_eq!(
+            names(&result),
+            vec!["bluesky", "mastodon-social", "misskey-io"]
+        );
     }
 
     #[test]
