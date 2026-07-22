@@ -292,4 +292,130 @@ mod tests {
             Utc.with_ymd_and_hms(2024, 1, 3, 10, 0, 0).unwrap()
         );
     }
+
+    mod http {
+        use super::*;
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        const RSS_BODY: &str = r#"<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <title>テストブログ</title>
+    <item>
+      <title>記事1</title>
+      <link>https://example.com/1</link>
+      <pubDate>Mon, 01 Jan 2026 00:00:00 +0900</pubDate>
+    </item>
+  </channel>
+</rss>"#;
+
+        /// 取得と解析に成功する。
+        #[tokio::test]
+        async fn test_fetch_articles_success() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/feed.xml"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_string(RSS_BODY)
+                        .insert_header("content-type", "application/rss+xml"),
+                )
+                .mount(&server)
+                .await;
+
+            let fetcher = DefaultFeedFetcher::new();
+            let articles = fetcher
+                .fetch_articles(&format!("{}/feed.xml", server.uri()), "テスト")
+                .await
+                .expect("取得に失敗");
+
+            assert_eq!(articles.len(), 1);
+            assert_eq!(articles[0].title, "記事1");
+            assert_eq!(articles[0].link, "https://example.com/1");
+        }
+
+        /// verbose 指定でも結果は同じ。
+        #[tokio::test]
+        async fn test_fetch_articles_verbose_success() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/feed.xml"))
+                .respond_with(ResponseTemplate::new(200).set_body_string(RSS_BODY))
+                .mount(&server)
+                .await;
+
+            let articles = DefaultFeedFetcher::new()
+                .fetch_articles_verbose(&format!("{}/feed.xml", server.uri()), "テスト", true)
+                .await
+                .expect("取得に失敗");
+
+            assert_eq!(articles.len(), 1);
+        }
+
+        /// HTTPエラーが続くとリトライを尽くして Err になる。
+        ///
+        /// リトライ間の待機は tokio の時間を進めて省略する。
+        #[tokio::test(start_paused = true)]
+        async fn test_fetch_articles_fails_after_retries() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/feed.xml"))
+                .respond_with(ResponseTemplate::new(500))
+                .mount(&server)
+                .await;
+
+            let result = DefaultFeedFetcher::new()
+                .fetch_articles(&format!("{}/feed.xml", server.uri()), "テスト")
+                .await;
+
+            assert!(result.is_err());
+            let msg = result.unwrap_err().to_string();
+            assert!(msg.contains("HTTP status"), "実際の値: {}", msg);
+        }
+
+        /// 404 でもリトライ対象として扱われる。
+        #[tokio::test(start_paused = true)]
+        async fn test_fetch_articles_fails_on_404() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/missing.xml"))
+                .respond_with(ResponseTemplate::new(404))
+                .mount(&server)
+                .await;
+
+            assert!(
+                DefaultFeedFetcher::new()
+                    .fetch_articles(&format!("{}/missing.xml", server.uri()), "テスト")
+                    .await
+                    .is_err()
+            );
+        }
+
+        /// フィードとして解釈できない本文はエラーになる。
+        #[tokio::test(start_paused = true)]
+        async fn test_fetch_articles_fails_on_unparsable_body() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/broken.xml"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_string("これはフィードではありません"),
+                )
+                .mount(&server)
+                .await;
+
+            assert!(
+                DefaultFeedFetcher::new()
+                    .fetch_articles_verbose(&format!("{}/broken.xml", server.uri()), "テスト", true)
+                    .await
+                    .is_err()
+            );
+        }
+
+        /// Default 実装は new と同じものを返す。
+        #[test]
+        fn test_default_impl() {
+            let _ = DefaultFeedFetcher::default();
+        }
+    }
 }

@@ -154,56 +154,56 @@ design.md 第2節の通り、テストを書く前にルータ構築の抽出が
 
 ### Task 3.1: `build_router()` の抽出
 
-- [ ] `src/web/mod.rs` の `start_server()` からルータ構築部分を `build_router(state: Arc<AppState>) -> Router` として切り出す
-- [ ] 抽出はコードの移動のみとし、ロジックを変更しない
-- [ ] `start_server()` が `build_router()` を呼ぶ形に書き換える
-- [ ] doc comment を付与する
-- [ ] 既存の認証ミドルウェアテストが通ることを確認(回帰確認)
-- [ ] `cargo run -- serve` で実際にWeb UIが動作することを確認
+- [x] `src/web/mod.rs` の `start_server()` からルータ構築部分を `build_router(state: Arc<AppState>) -> Router` として切り出す
+- [x] 抽出はコードの移動のみとし、ロジックを変更しない
+- [x] `start_server()` が `build_router()` を呼ぶ形に書き換える
+- [x] doc comment を付与する
+- [x] 既存の認証ミドルウェアテストが通ることを確認(回帰確認)
+- [x] `cargo run -- serve` で実際にWeb UIが動作することを確認
 
 ### Task 3.2: テストフィクスチャの整備
 
-- [ ] `setup_test_router()` がダミーハンドラではなく `build_router()` を使うよう変更
-- [ ] ストアのパスを `data/test_scheduled_posts.json` から `tempfile::TempDir` 配下へ変更
-- [ ] `TempDir` の生存期間がテスト終了まで保たれるよう戻り値で保持する
-- [ ] 変更後に `routes.rs` のカバレッジが0%から上昇することを `just cov` で確認
+- [x] `setup_test_router()` がダミーハンドラではなく `build_router()` を使うよう変更
+- [x] ストアのパスを `data/test_scheduled_posts.json` から `tempfile::TempDir` 配下へ変更
+- [x] `TempDir` の生存期間がテスト終了まで保たれるよう戻り値で保持する
+- [x] 変更後に `routes.rs` のカバレッジが0%から上昇することを `just cov` で確認
 
 ### Task 3.3: 認証まわりのテスト
 
-- [ ] `GET /login` がログインページを返すことを検証
-- [ ] `POST /login` の正常系(正しい資格情報)を検証
-- [ ] `POST /login` の異常系(誤った資格情報)を検証
-- [ ] `GET /logout` でセッションが破棄されることを検証
-- [ ] 未認証で `/api/*` へアクセスした場合に認証エラーとなることを検証
+- [x] `GET /login` がログインページを返すことを検証
+- [x] `POST /login` の正常系(正しい資格情報)を検証
+- [x] `POST /login` の異常系(誤った資格情報)を検証
+- [x] `GET /logout` でセッションが破棄されることを検証
+- [x] 未認証で `/api/*` へアクセスした場合に認証エラーとなることを検証
 
 ### Task 3.4: 設定・スロット系APIのテスト
 
-- [ ] `GET /api/config` の正常系を検証
-- [ ] `GET /api/next-slots` が投稿枠を返すことを検証
+- [x] `GET /api/config` の正常系を検証
+- [x] `GET /api/next-slots` が投稿枠を返すことを検証
 
 ### Task 3.5: 予約投稿API のテスト
 
-- [ ] `GET /api/schedules` の正常系(空・複数件)を検証
-- [ ] `PUT /api/schedules/{id}` の正常系と存在しないID の場合を検証
-- [ ] `DELETE /api/schedules/{id}` の正常系と存在しないID の場合を検証
-- [ ] `POST /api/schedules/{id}/post-now` の挙動を検証
+- [x] `GET /api/schedules` の正常系(空・複数件)を検証
+- [x] `PUT /api/schedules/{id}` の正常系と存在しないID の場合を検証
+- [x] `DELETE /api/schedules/{id}` の正常系と存在しないID の場合を検証
+- [x] `POST /api/schedules/{id}/post-now` の挙動を検証
 
 ### Task 3.6: 投稿・アップロードAPI のテスト
 
-- [ ] `POST /api/post` の正常系を検証(SNS送信はモックすること)
-- [ ] `POST /api/upload` のマルチパート送信を検証
-- [ ] ボディサイズ上限(10MB)を超えた場合の挙動を検証
+- [x] `POST /api/post` の正常系を検証(SNS送信はモックすること)
+- [x] `POST /api/upload` のマルチパート送信を検証
+- [x] ボディサイズ上限(10MB)を超えた場合の挙動を検証
 
 ### Task 3.7: MCPエンドポイントのテスト
 
-- [ ] `GET /api/mcp/sse` の接続確立を検証
-- [ ] `POST /api/mcp/message` の正常系を検証
+- [x] `GET /api/mcp/sse` の接続確立を検証
+- [x] `POST /api/mcp/message` の正常系を検証
 
 ### Task 3.8: 閾値の80%への引き上げ
 
-- [ ] `just cov` で実測値を確認し80%以上であることを確認
-- [ ] `coverage-threshold.txt` を `80` へ更新
-- [ ] CIが成功することを確認
+- [x] `just cov` で実測値を確認し80%以上であることを確認
+- [x] `coverage-threshold.txt` を `80` へ更新 — 実測80.20%
+- [x] CIが成功することを確認
 
 **Phase 3 完了条件:** 閾値が80となり、CIが成功する。
 

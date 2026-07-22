@@ -290,4 +290,115 @@ mod tests {
         let result = resizer.resize_image_data(&garbage, "x");
         assert!(result.is_err());
     }
+
+    /// SNSごとの上限値が仕様どおり返る。
+    #[test]
+    fn test_get_sns_limits_per_sns() {
+        let resizer = ImageResizer::new(false);
+
+        let bluesky = resizer.get_sns_limits("bluesky");
+        assert_eq!(bluesky.max_file_size, 1024 * 1024);
+        assert_eq!(bluesky.max_width, 2000);
+
+        let x = resizer.get_sns_limits("x");
+        assert_eq!(x.max_file_size, 5 * 1024 * 1024);
+        assert_eq!(x.max_width, 4096);
+
+        let mastodon = resizer.get_sns_limits("mastodon");
+        assert_eq!(mastodon.max_file_size, 10 * 1024 * 1024);
+        assert_eq!(mastodon.max_width, 1920);
+
+        let misskey = resizer.get_sns_limits("misskey");
+        assert_eq!(misskey.max_file_size, 10 * 1024 * 1024);
+        assert_eq!(misskey.max_width, 2048);
+    }
+
+    /// 未知のSNS名では Bluesky 相当の既定値が使われる。
+    #[test]
+    fn test_get_sns_limits_defaults_for_unknown() {
+        let resizer = ImageResizer::new(false);
+
+        let unknown = resizer.get_sns_limits("知らないSNS");
+        let bluesky = resizer.get_sns_limits("bluesky");
+
+        assert_eq!(unknown.max_file_size, bluesky.max_file_size);
+        assert_eq!(unknown.max_width, bluesky.max_width);
+        assert_eq!(unknown.max_height, bluesky.max_height);
+        assert_eq!(unknown.default_quality, bluesky.default_quality);
+    }
+
+    /// ファイル経由でもリサイズできる。
+    #[test]
+    fn test_resize_image_file() {
+        use std::io::Write;
+
+        let mut file = tempfile::NamedTempFile::new().expect("一時ファイルの作成に失敗");
+        file.write_all(&create_dummy_image(100, 100))
+            .expect("書き込みに失敗");
+
+        let resizer = ImageResizer::new(false);
+        let result = resizer
+            .resize_image_file(file.path().to_str().unwrap(), "mastodon")
+            .expect("リサイズに失敗");
+
+        assert!(!result.is_empty());
+        assert!(
+            image::guess_format(&result).is_ok(),
+            "画像として解釈できること"
+        );
+    }
+
+    /// 存在しないファイルは Err になる。
+    #[test]
+    fn test_resize_image_file_missing() {
+        let resizer = ImageResizer::new(false);
+
+        assert!(
+            resizer
+                .resize_image_file("/存在しないパス/x.png", "mastodon")
+                .is_err()
+        );
+    }
+
+    /// デバッグ出力を有効にしても結果は変わらない。
+    #[test]
+    fn test_debug_mode_produces_same_result() {
+        let data = create_dummy_image(3000, 3000);
+
+        let quiet = ImageResizer::new(false)
+            .resize_image_data(&data, "bluesky")
+            .unwrap();
+        let verbose = ImageResizer::new(true)
+            .resize_image_data(&data, "bluesky")
+            .unwrap();
+
+        assert_eq!(quiet.len(), verbose.len());
+    }
+
+    /// 各SNS向けにリサイズしても、いずれも画像として成立する。
+    #[test]
+    fn test_resize_for_each_sns() {
+        let data = create_dummy_image(3000, 3000);
+        let resizer = ImageResizer::new(false);
+
+        for sns in ["bluesky", "x", "mastodon", "misskey"] {
+            let result = resizer
+                .resize_image_data(&data, sns)
+                .unwrap_or_else(|e| panic!("{} のリサイズに失敗: {:?}", sns, e));
+
+            let limits = resizer.get_sns_limits(sns);
+            assert!(
+                result.len() <= limits.max_file_size,
+                "{} は上限{}バイト以内に収まるべき: {}バイト",
+                sns,
+                limits.max_file_size,
+                result.len()
+            );
+
+            let decoded = image::load_from_memory(&result)
+                .unwrap_or_else(|e| panic!("{} の結果が復号できない: {:?}", sns, e));
+            assert!(decoded.width() <= limits.max_width);
+            assert!(decoded.height() <= limits.max_height);
+        }
+    }
 }

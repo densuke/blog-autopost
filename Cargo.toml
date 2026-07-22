@@ -30,6 +30,8 @@ tokio-stream = { version = "0.1.17", features = ["sync"] }
 libc = "0.2"
 
 [dev-dependencies]
+# test-util はテストで tokio の時間を進めるために使う(リトライ待機の省略)
+tokio = { version = "1.52.3", features = ["full", "test-util"] }
 wiremock = "0.6.2"
 tower = { version = "0.5.3", features = ["util"] }
 

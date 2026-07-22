@@ -2,10 +2,6 @@ pub mod routes;
 
 use crate::config::Config;
 use crate::scheduled::{JsonScheduledPostStore, ScheduledPostExecutor};
-use crate::sns::{
-    bluesky::BlueskyClient, mastodon::MastodonClient, misskey::MisskeyClient, traits::SnsClient,
-    x::XClient,
-};
 use crate::timing::TimingManager;
 use axum::{
     Router,
@@ -30,70 +26,57 @@ pub struct AppState {
     >,
 }
 
+/// アプリケーションのルータを構築する。
+///
+/// サーバの起動処理(ポートのバインドと待ち受け)とは分離してあり、
+/// テストから `tower::ServiceExt::oneshot` を使って本物のハンドラを
+/// 直接検証できるようにしている。
+pub fn build_router(state: Arc<AppState>) -> Router {
+    // CORS設定
+    let cors = CorsLayer::permissive();
+
+    // ルーティング設定
+    let api_routes = Router::new()
+        .route("/config", get(routes::get_config))
+        .route("/post", post(routes::manual_post))
+        .route("/upload", post(routes::upload_media))
+        .route("/next-slots", get(routes::get_next_slots))
+        .route("/schedules", get(routes::get_schedules))
+        .route(
+            "/schedules/{id}",
+            put(routes::update_schedule).delete(routes::delete_schedule),
+        )
+        .route("/schedules/{id}/post-now", post(routes::post_now_schedule))
+        .route("/mcp/sse", get(routes::mcp_sse_handler))
+        .route("/mcp/message", post(routes::mcp_message_handler))
+        .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
+
+    Router::new()
+        .nest("/api", api_routes)
+        .route(
+            "/login",
+            get(routes::get_login_page).post(routes::login_submit),
+        )
+        .route("/logout", get(routes::logout))
+        .fallback_service(ServeDir::new("static").append_index_html_on_directories(true))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
+        .layer(cors)
+        .with_state(state)
+}
+
 pub async fn start_server(config: Config, config_path: String, port: u16) -> anyhow::Result<()> {
     let timing_manager = TimingManager::new(&config);
     let store = Arc::new(JsonScheduledPostStore::new("data/scheduled_posts.json"));
 
     // SnsClient のリストを生成 (予約投稿のバックグラウンド実行用)
-    let mut sns_clients: Vec<Arc<dyn SnsClient + Send + Sync>> = Vec::new();
-    for sns_conf in &config.sns {
-        match sns_conf {
-            crate::config::SnsConfig::Mastodon {
-                instance_url,
-                access_token,
-                name,
-                ..
-            } => {
-                if let Ok(client) =
-                    MastodonClient::new(instance_url.clone(), access_token.clone(), name.clone())
-                {
-                    sns_clients.push(Arc::new(client));
-                }
-            }
-            crate::config::SnsConfig::Misskey {
-                instance_url,
-                access_token,
-                name,
-                ..
-            } => {
-                if let Ok(client) =
-                    MisskeyClient::new(instance_url.clone(), access_token.clone(), name.clone())
-                {
-                    sns_clients.push(Arc::new(client));
-                }
-            }
-            crate::config::SnsConfig::Bluesky {
-                identifier,
-                password,
-                name,
-                ..
-            } => {
-                if let Ok(client) =
-                    BlueskyClient::new(identifier.clone(), password.clone(), name.clone())
-                {
-                    sns_clients.push(Arc::new(client));
-                }
-            }
-            crate::config::SnsConfig::X {
-                consumer_key,
-                consumer_secret,
-                access_token,
-                access_token_secret,
-                name,
-            } => {
-                if let Ok(client) = XClient::new(
-                    consumer_key.clone(),
-                    consumer_secret.clone(),
-                    access_token.clone(),
-                    access_token_secret.clone(),
-                    name.clone(),
-                ) {
-                    sns_clients.push(Arc::new(client));
-                }
-            }
-            _ => {}
-        }
-    }
+    let sns_clients = crate::sns::build_clients_from_config(&config);
 
     // 予約投稿のバックグラウンド実行ループを起動 (30秒間隔)
     let executor = Arc::new(ScheduledPostExecutor::new(
@@ -124,43 +107,7 @@ pub async fn start_server(config: Config, config_path: String, port: u16) -> any
         mcp_sessions,
     });
 
-    // CORS設定
-    let cors = CorsLayer::permissive();
-
-    // ルーティング設定
-    let api_routes = Router::new()
-        .route("/config", get(routes::get_config))
-        .route("/post", post(routes::manual_post))
-        .route("/upload", post(routes::upload_media))
-        .route("/next-slots", get(routes::get_next_slots))
-        .route("/schedules", get(routes::get_schedules))
-        .route(
-            "/schedules/{id}",
-            put(routes::update_schedule).delete(routes::delete_schedule),
-        )
-        .route("/schedules/{id}/post-now", post(routes::post_now_schedule))
-        .route("/mcp/sse", get(routes::mcp_sse_handler))
-        .route("/mcp/message", post(routes::mcp_message_handler))
-        .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            auth_middleware,
-        ));
-
-    let app = Router::new()
-        .nest("/api", api_routes)
-        .route(
-            "/login",
-            get(routes::get_login_page).post(routes::login_submit),
-        )
-        .route("/logout", get(routes::logout))
-        .fallback_service(ServeDir::new("static").append_index_html_on_directories(true))
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            auth_middleware,
-        ))
-        .layer(cors)
-        .with_state(state);
+    let app = build_router(state);
 
     let addr = format!("0.0.0.0:{}", port);
     println!("Web UI listening on http://{}", addr);
@@ -258,7 +205,6 @@ mod tests {
         Router,
         body::Body,
         http::{Request, StatusCode},
-        routing::get,
     };
     use tower::ServiceExt; // for oneshot
 
@@ -281,9 +227,36 @@ mod tests {
         assert!(!is_public_path("/login/extra"));
     }
 
-    // ヘルパー: テスト用の AppState と Router を作成
-    async fn setup_test_router(secret_key: Option<String>) -> (Router, Arc<AppState>) {
-        let config = Config {
+    pub(crate) const TEST_USERNAME: &str = "admin";
+    pub(crate) const TEST_PASSWORD: &str = "password";
+
+    /// テスト用の一時作業領域とアプリケーション状態。
+    ///
+    /// `TempDir` はドロップ時に実体ごと削除されるため、テスト終了まで
+    /// 保持し続ける必要がある。
+    pub(crate) struct TestApp {
+        _dir: tempfile::TempDir,
+        pub state: Arc<AppState>,
+        pub router: Router,
+    }
+
+    /// 本物のルータを備えたテスト環境を作る。
+    ///
+    /// ダミーハンドラではなく `build_router` を使うため、`routes` 配下の
+    /// 実装がそのまま検証対象になる。予約投稿の保存先は一時ディレクトリへ
+    /// 向けており、実際の `data/` には触れない。
+    pub(crate) fn setup_test_app(secret_key: Option<String>) -> TestApp {
+        setup_test_app_with_config(secret_key, |_| {})
+    }
+
+    /// 設定を調整できる版のテスト環境。
+    pub(crate) fn setup_test_app_with_config(
+        secret_key: Option<String>,
+        customize: impl FnOnce(&mut Config),
+    ) -> TestApp {
+        let dir = tempfile::TempDir::new().expect("一時ディレクトリの作成に失敗");
+
+        let mut config = Config {
             announcement_text: None,
             blog: None,
             sns: vec![],
@@ -292,16 +265,18 @@ mod tests {
             allowed_timings_tolerance_minutes: None,
             allowed_timings: None,
             web_auth: Some(WebAuthConfig {
-                username: "admin".to_string(),
-                password: "hashed_password".to_string(),
+                username: TEST_USERNAME.to_string(),
+                // テストの実行時間を抑えるためコストを最低にしてハッシュ化する
+                password: bcrypt::hash(TEST_PASSWORD, 4).expect("ハッシュ化に失敗"),
                 secret_key,
             }),
             extra: HashMap::new(),
         };
+        customize(&mut config);
 
         let timing_manager = TimingManager::new(&config);
         let store = Arc::new(JsonScheduledPostStore::new(
-            "data/test_scheduled_posts.json",
+            dir.path().join("scheduled_posts.json"),
         ));
         let sessions = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
         let mcp_sessions = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
@@ -310,30 +285,27 @@ mod tests {
             config,
             timing_manager,
             store,
-            config_path: "config.yaml".to_string(),
+            config_path: dir.path().join("config.yml").to_string_lossy().into_owned(),
             sessions,
             mcp_sessions,
         });
 
-        // 認証付きAPIルートと未認証ルートを設定
-        let api_routes = Router::new()
-            .route("/config", get(|| async { "config data" }))
-            .layer(axum::middleware::from_fn_with_state(
-                state.clone(),
-                auth_middleware,
-            ));
+        let router = build_router(state.clone());
 
-        let app = Router::new()
-            .nest("/api", api_routes)
-            .route("/login", get(|| async { "login page" }))
-            .fallback(|| async { "fallback page" })
-            .layer(axum::middleware::from_fn_with_state(
-                state.clone(),
-                auth_middleware,
-            ))
-            .with_state(state.clone());
+        TestApp {
+            _dir: dir,
+            state,
+            router,
+        }
+    }
 
-        (app, state)
+    /// 旧来の呼び出し形に合わせたヘルパー。
+    async fn setup_test_router(secret_key: Option<String>) -> (Router, Arc<AppState>) {
+        let app = setup_test_app(secret_key);
+        // TestApp をここで落とすと一時ディレクトリが消えるため、
+        // 使い捨ての用途に限定する(認証ミドルウェアの検証のみ)。
+        let TestApp { state, router, .. } = app;
+        (router, state)
     }
 
     #[tokio::test]

@@ -1,82 +1,32 @@
 //! 設定からSNSクライアントを構築し、`--sns` 指定で絞り込む。
 
 use blog_autopost_rs::config;
-use blog_autopost_rs::sns::{
-    bluesky::BlueskyClient, mastodon::MastodonClient, misskey::MisskeyClient, traits::SnsClient,
-    x::XClient,
-};
+use blog_autopost_rs::sns::traits::SnsClient;
 
 use crate::commands::sns_selector::SnsSelector;
 
 /// 設定から SNS クライアントのリストを構築する。
 ///
-/// Run / Check の両コマンドで共通して使用する。生成に失敗したアカウントは
-/// スキップされ、未対応の設定が見つかった場合は警告を表示する。
+/// Run / Check の両コマンドで共通して使用する。
+///
+/// クライアントを構築できなかった設定はスキップされる。理由は
+/// 未対応の種別(Threads / Tumblr / 不明な設定)の場合と、対応している種別だが
+/// クライアントの生成に失敗した場合の2通りがあり、ここでは区別せずに
+/// 件数だけを警告する。CLIから設定の誤りに気づけるようにするための表示。
 pub fn build_sns_clients(
     config_data: &config::Config,
 ) -> Vec<std::sync::Arc<dyn SnsClient + Send + Sync>> {
-    let mut sns_clients: Vec<std::sync::Arc<dyn SnsClient + Send + Sync>> = Vec::new();
-    for sns_conf in &config_data.sns {
-        match sns_conf {
-            config::SnsConfig::Mastodon {
-                instance_url,
-                access_token,
-                name,
-                ..
-            } => {
-                if let Ok(client) =
-                    MastodonClient::new(instance_url.clone(), access_token.clone(), name.clone())
-                {
-                    sns_clients.push(std::sync::Arc::new(client));
-                }
-            }
-            config::SnsConfig::Misskey {
-                instance_url,
-                access_token,
-                name,
-                ..
-            } => {
-                if let Ok(client) =
-                    MisskeyClient::new(instance_url.clone(), access_token.clone(), name.clone())
-                {
-                    sns_clients.push(std::sync::Arc::new(client));
-                }
-            }
-            config::SnsConfig::Bluesky {
-                identifier,
-                password,
-                name,
-                ..
-            } => {
-                if let Ok(client) =
-                    BlueskyClient::new(identifier.clone(), password.clone(), name.clone())
-                {
-                    sns_clients.push(std::sync::Arc::new(client));
-                }
-            }
-            config::SnsConfig::X {
-                consumer_key,
-                consumer_secret,
-                access_token,
-                access_token_secret,
-                name,
-            } => {
-                if let Ok(client) = XClient::new(
-                    consumer_key.clone(),
-                    consumer_secret.clone(),
-                    access_token.clone(),
-                    access_token_secret.clone(),
-                    name.clone(),
-                ) {
-                    sns_clients.push(std::sync::Arc::new(client));
-                }
-            }
-            _ => {
-                println!("Unknown or unsupported SNS configuration found.");
-            }
-        }
+    let clients = blog_autopost_rs::sns::build_clients_from_config(config_data);
+
+    let skipped = config_data.sns.len() - clients.len();
+    if skipped > 0 {
+        println!(
+            "警告: {} 件のSNS設定をスキップしました(未対応の種別、またはクライアントの生成に失敗)",
+            skipped
+        );
     }
-    sns_clients
+
+    clients
 }
 
 /// SNS クライアントのリストを `--sns` 指定で絞り込む。
