@@ -2,10 +2,6 @@ pub mod routes;
 
 use crate::config::Config;
 use crate::scheduled::{JsonScheduledPostStore, ScheduledPostExecutor};
-use crate::sns::{
-    bluesky::BlueskyClient, mastodon::MastodonClient, misskey::MisskeyClient, traits::SnsClient,
-    x::XClient,
-};
 use crate::timing::TimingManager;
 use axum::{
     Router,
@@ -80,65 +76,7 @@ pub async fn start_server(config: Config, config_path: String, port: u16) -> any
     let store = Arc::new(JsonScheduledPostStore::new("data/scheduled_posts.json"));
 
     // SnsClient のリストを生成 (予約投稿のバックグラウンド実行用)
-    let mut sns_clients: Vec<Arc<dyn SnsClient + Send + Sync>> = Vec::new();
-    for sns_conf in &config.sns {
-        match sns_conf {
-            crate::config::SnsConfig::Mastodon {
-                instance_url,
-                access_token,
-                name,
-                ..
-            } => {
-                if let Ok(client) =
-                    MastodonClient::new(instance_url.clone(), access_token.clone(), name.clone())
-                {
-                    sns_clients.push(Arc::new(client));
-                }
-            }
-            crate::config::SnsConfig::Misskey {
-                instance_url,
-                access_token,
-                name,
-                ..
-            } => {
-                if let Ok(client) =
-                    MisskeyClient::new(instance_url.clone(), access_token.clone(), name.clone())
-                {
-                    sns_clients.push(Arc::new(client));
-                }
-            }
-            crate::config::SnsConfig::Bluesky {
-                identifier,
-                password,
-                name,
-                ..
-            } => {
-                if let Ok(client) =
-                    BlueskyClient::new(identifier.clone(), password.clone(), name.clone())
-                {
-                    sns_clients.push(Arc::new(client));
-                }
-            }
-            crate::config::SnsConfig::X {
-                consumer_key,
-                consumer_secret,
-                access_token,
-                access_token_secret,
-                name,
-            } => {
-                if let Ok(client) = XClient::new(
-                    consumer_key.clone(),
-                    consumer_secret.clone(),
-                    access_token.clone(),
-                    access_token_secret.clone(),
-                    name.clone(),
-                ) {
-                    sns_clients.push(Arc::new(client));
-                }
-            }
-            _ => {}
-        }
-    }
+    let sns_clients = crate::sns::build_clients_from_config(&config);
 
     // 予約投稿のバックグラウンド実行ループを起動 (30秒間隔)
     let executor = Arc::new(ScheduledPostExecutor::new(

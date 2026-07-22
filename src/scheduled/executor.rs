@@ -155,9 +155,38 @@ mod tests {
     use chrono::{Duration, Local};
     use tempfile::NamedTempFile;
 
+    /// モックの応答パターン。
+    #[derive(Clone, Copy)]
+    enum MockBehavior {
+        /// 投稿に成功する
+        Success,
+        /// 投稿は届いたが失敗した(success:false)
+        Failure,
+        /// 送信そのものが Err になる
+        Error,
+    }
+
     struct MockSnsClient {
         name: String,
         account_name: String,
+        behavior: MockBehavior,
+        /// 受け取った投稿内容を記録する
+        received: std::sync::Mutex<Vec<PostContent>>,
+    }
+
+    impl MockSnsClient {
+        fn new(account_name: &str, behavior: MockBehavior) -> Self {
+            Self {
+                name: "mock".to_string(),
+                account_name: account_name.to_string(),
+                behavior,
+                received: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+
+        fn success(account_name: &str) -> Self {
+            Self::new(account_name, MockBehavior::Success)
+        }
     }
 
     #[async_trait]
@@ -170,17 +199,48 @@ mod tests {
             &self.account_name
         }
 
-        async fn post(&self, _content: &PostContent) -> Result<PostResult> {
-            Ok(PostResult {
-                success: true,
-                post_id: Some("mock_post_id".to_string()),
-                error_message: None,
-            })
+        async fn post(&self, content: &PostContent) -> Result<PostResult> {
+            self.received.lock().unwrap().push(content.clone());
+            match self.behavior {
+                MockBehavior::Success => Ok(PostResult {
+                    success: true,
+                    post_id: Some("mock_post_id".to_string()),
+                    error_message: None,
+                }),
+                MockBehavior::Failure => Ok(PostResult {
+                    success: false,
+                    post_id: None,
+                    error_message: Some("投稿が拒否されました".to_string()),
+                }),
+                MockBehavior::Error => Err(anyhow::anyhow!("送信中にネットワークエラー")),
+            }
         }
 
         fn max_characters(&self) -> usize {
             140
         }
+    }
+
+    /// 一時ファイル上のストアを作る。NamedTempFile は戻り値で保持すること。
+    fn temp_store() -> (Arc<JsonScheduledPostStore>, NamedTempFile) {
+        let temp_file = NamedTempFile::new().unwrap();
+        let store = Arc::new(JsonScheduledPostStore::new(temp_file.path()));
+        (store, temp_file)
+    }
+
+    /// 実行対象となる過去日時の予約を1件作る。
+    async fn seed_due_post(
+        store: &JsonScheduledPostStore,
+        content: &str,
+        targets: Vec<String>,
+    ) -> ScheduledPost {
+        let post = ScheduledPost::new(
+            content.to_string(),
+            Local::now() - Duration::minutes(5),
+            vec![],
+            targets,
+        );
+        store.create_post(post).await.unwrap()
     }
 
     #[tokio::test]
@@ -210,11 +270,8 @@ mod tests {
         store.create_post(post1.clone()).await.unwrap();
         store.create_post(post2.clone()).await.unwrap();
 
-        let client = MockSnsClient {
-            name: "mock".to_string(),
-            account_name: "mock-main".to_string(),
-        };
-        let clients: Vec<Arc<dyn SnsClient + Send + Sync>> = vec![Arc::new(client)];
+        let clients: Vec<Arc<dyn SnsClient + Send + Sync>> =
+            vec![Arc::new(MockSnsClient::success("mock-main"))];
 
         let executor = ScheduledPostExecutor::new(store.clone(), clients, false);
         executor.execute_pending_posts().await.unwrap();
@@ -226,5 +283,190 @@ mod tests {
         // 2はまだ予約済みのままであるはず
         let p2 = store.get_post_by_id(&post2.id).await.unwrap().unwrap();
         assert_eq!(p2.status, "予約済み");
+    }
+
+    /// 投稿が失敗した場合はステータスが「失敗」になり、理由が記録される。
+    #[tokio::test]
+    async fn test_failed_post_is_marked_failed() {
+        let (store, _tmp) = temp_store();
+        let post = seed_due_post(&store, "失敗する投稿", vec!["mock-main".to_string()]).await;
+
+        let clients: Vec<Arc<dyn SnsClient + Send + Sync>> = vec![Arc::new(MockSnsClient::new(
+            "mock-main",
+            MockBehavior::Failure,
+        ))];
+        ScheduledPostExecutor::new(store.clone(), clients, false)
+            .execute_pending_posts()
+            .await
+            .unwrap();
+
+        let updated = store.get_post_by_id(&post.id).await.unwrap().unwrap();
+        assert_eq!(updated.status, "失敗");
+        let msg = updated.error_message.expect("失敗理由が記録されるはず");
+        assert!(msg.contains("mock-main"), "実際の値: {}", msg);
+        assert!(msg.contains("投稿が拒否されました"), "実際の値: {}", msg);
+    }
+
+    /// 送信自体がエラーになった場合も「失敗」として記録される。
+    #[tokio::test]
+    async fn test_errored_post_is_marked_failed() {
+        let (store, _tmp) = temp_store();
+        let post = seed_due_post(&store, "エラーになる投稿", vec!["mock-main".to_string()]).await;
+
+        let clients: Vec<Arc<dyn SnsClient + Send + Sync>> = vec![Arc::new(MockSnsClient::new(
+            "mock-main",
+            MockBehavior::Error,
+        ))];
+        ScheduledPostExecutor::new(store.clone(), clients, false)
+            .execute_pending_posts()
+            .await
+            .unwrap();
+
+        let updated = store.get_post_by_id(&post.id).await.unwrap().unwrap();
+        assert_eq!(updated.status, "失敗");
+        assert!(
+            updated
+                .error_message
+                .unwrap()
+                .contains("ネットワークエラー")
+        );
+    }
+
+    /// 対象SNSのクライアントが見つからない場合も「失敗」になる。
+    #[tokio::test]
+    async fn test_missing_client_is_marked_failed() {
+        let (store, _tmp) = temp_store();
+        let post = seed_due_post(&store, "宛先不明", vec!["存在しないSNS".to_string()]).await;
+
+        let clients: Vec<Arc<dyn SnsClient + Send + Sync>> =
+            vec![Arc::new(MockSnsClient::success("mock-main"))];
+        ScheduledPostExecutor::new(store.clone(), clients, false)
+            .execute_pending_posts()
+            .await
+            .unwrap();
+
+        let updated = store.get_post_by_id(&post.id).await.unwrap().unwrap();
+        assert_eq!(updated.status, "失敗");
+        assert!(
+            updated
+                .error_message
+                .unwrap()
+                .contains("SnsClient not found")
+        );
+    }
+
+    /// 一部のSNSだけ失敗した場合も全体としては「失敗」になる。
+    #[tokio::test]
+    async fn test_partial_failure_marks_whole_post_failed() {
+        let (store, _tmp) = temp_store();
+        let post = seed_due_post(
+            &store,
+            "片方だけ失敗",
+            vec!["ok-account".to_string(), "ng-account".to_string()],
+        )
+        .await;
+
+        let clients: Vec<Arc<dyn SnsClient + Send + Sync>> = vec![
+            Arc::new(MockSnsClient::success("ok-account")),
+            Arc::new(MockSnsClient::new("ng-account", MockBehavior::Failure)),
+        ];
+        ScheduledPostExecutor::new(store.clone(), clients, false)
+            .execute_pending_posts()
+            .await
+            .unwrap();
+
+        let updated = store.get_post_by_id(&post.id).await.unwrap().unwrap();
+        assert_eq!(updated.status, "失敗");
+        let msg = updated.error_message.unwrap();
+        assert!(msg.contains("ng-account"), "実際の値: {}", msg);
+        assert!(
+            !msg.contains("ok-account"),
+            "成功した方は記録しない: {}",
+            msg
+        );
+    }
+
+    /// ドライランでは実際に送信せず、投稿済みとして扱う。
+    #[tokio::test]
+    async fn test_dry_run_does_not_post() {
+        let (store, _tmp) = temp_store();
+        let post = seed_due_post(&store, "ドライラン", vec!["mock-main".to_string()]).await;
+
+        let client = Arc::new(MockSnsClient::new("mock-main", MockBehavior::Error));
+        let clients: Vec<Arc<dyn SnsClient + Send + Sync>> = vec![client.clone()];
+        ScheduledPostExecutor::new(store.clone(), clients, true)
+            .execute_pending_posts()
+            .await
+            .unwrap();
+
+        // Error を返すモックだが、ドライランなので呼ばれず成功扱いになる
+        assert!(
+            client.received.lock().unwrap().is_empty(),
+            "送信してはいけない"
+        );
+        let updated = store.get_post_by_id(&post.id).await.unwrap().unwrap();
+        assert_eq!(updated.status, "投稿済み");
+    }
+
+    /// media_files のURLは image_url、ローカルパスは media_paths として渡される。
+    #[tokio::test]
+    async fn test_media_files_are_split_by_kind() {
+        let (store, _tmp) = temp_store();
+        let mut post = ScheduledPost::new(
+            "メディア付き".to_string(),
+            Local::now() - Duration::minutes(5),
+            vec![
+                "https://example.com/a.png".to_string(),
+                "data/uploads/b.png".to_string(),
+            ],
+            vec!["mock-main".to_string()],
+        );
+        post.link_url = Some("https://example.com/article".to_string());
+        store.create_post(post).await.unwrap();
+
+        let client = Arc::new(MockSnsClient::success("mock-main"));
+        let clients: Vec<Arc<dyn SnsClient + Send + Sync>> = vec![client.clone()];
+        ScheduledPostExecutor::new(store.clone(), clients, false)
+            .execute_pending_posts()
+            .await
+            .unwrap();
+
+        let received = client.received.lock().unwrap();
+        assert_eq!(received.len(), 1);
+        assert_eq!(
+            received[0].image_url.as_deref(),
+            Some("https://example.com/a.png")
+        );
+        assert_eq!(
+            received[0].media_paths.as_deref(),
+            Some(["data/uploads/b.png".to_string()].as_slice())
+        );
+        assert_eq!(
+            received[0].link_url.as_deref(),
+            Some("https://example.com/article")
+        );
+    }
+
+    /// 「投稿済み」の予約は再実行されない。
+    #[tokio::test]
+    async fn test_already_posted_is_skipped() {
+        let (store, _tmp) = temp_store();
+        let mut post = ScheduledPost::new(
+            "既に投稿済み".to_string(),
+            Local::now() - Duration::minutes(5),
+            vec![],
+            vec!["mock-main".to_string()],
+        );
+        post.status = "投稿済み".to_string();
+        store.create_post(post).await.unwrap();
+
+        let client = Arc::new(MockSnsClient::success("mock-main"));
+        let clients: Vec<Arc<dyn SnsClient + Send + Sync>> = vec![client.clone()];
+        ScheduledPostExecutor::new(store.clone(), clients, false)
+            .execute_pending_posts()
+            .await
+            .unwrap();
+
+        assert!(client.received.lock().unwrap().is_empty());
     }
 }

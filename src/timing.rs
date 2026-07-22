@@ -323,4 +323,167 @@ mod tests {
         assert_eq!(slot2.time().hour(), 18);
         assert_eq!(slot2.time().minute(), 0);
     }
+
+    /// 曜日指定の展開を検証する。
+    #[test]
+    fn test_expand_wildcard() {
+        assert_eq!(TimingManager::expand_wildcard("*").len(), 7);
+        assert_eq!(
+            TimingManager::expand_wildcard("Weekday"),
+            vec![
+                Weekday::Mon,
+                Weekday::Tue,
+                Weekday::Wed,
+                Weekday::Thu,
+                Weekday::Fri
+            ]
+        );
+        assert_eq!(
+            TimingManager::expand_wildcard("Weekend"),
+            vec![Weekday::Sat, Weekday::Sun]
+        );
+        assert_eq!(TimingManager::expand_wildcard("mon"), vec![Weekday::Mon]);
+        assert!(TimingManager::expand_wildcard("知らない曜日").is_empty());
+    }
+
+    /// 曜日名は大文字小文字と省略形の双方を受け付ける。
+    #[test]
+    fn test_parse_weekday() {
+        assert_eq!(TimingManager::parse_weekday("Monday"), Some(Weekday::Mon));
+        assert_eq!(TimingManager::parse_weekday("MON"), Some(Weekday::Mon));
+        assert_eq!(TimingManager::parse_weekday("sunday"), Some(Weekday::Sun));
+        assert_eq!(TimingManager::parse_weekday("sat"), Some(Weekday::Sat));
+        assert_eq!(TimingManager::parse_weekday("nope"), None);
+    }
+
+    /// タイミング未設定のSNSでは has_timings が偽になる。
+    #[test]
+    fn test_has_timings() {
+        let manager = TimingManager::new(&test_config());
+
+        assert!(manager.has_timings("mstdn-main"));
+        assert!(!manager.has_timings("設定されていないSNS"));
+    }
+
+    /// 未設定のSNSに対する許可時刻は空になる。
+    #[test]
+    fn test_get_allowed_times_for_unknown_sns() {
+        let manager = TimingManager::new(&test_config());
+
+        assert!(
+            manager
+                .get_allowed_times("設定されていないSNS", Weekday::Mon)
+                .is_empty()
+        );
+    }
+
+    /// 解釈できない時刻表記は無視される。
+    #[test]
+    fn test_invalid_time_format_is_ignored() {
+        let mut config = test_config();
+        // SNS固有設定を外し、既定の指定だけが効くようにする
+        config.allowed_timings = None;
+        config.default_allowed_timings = Some(vec![(
+            "*".to_string(),
+            vec!["09:00".to_string(), "25:99".to_string(), "あさ".to_string()],
+        )]);
+
+        let manager = TimingManager::new(&config);
+        let times = manager.get_allowed_times("mstdn-main", Weekday::Mon);
+
+        assert_eq!(times.len(), 1, "不正な表記は無視されるはず: {:?}", times);
+        assert_eq!(times[0].hour(), 9);
+    }
+
+    /// 曜日別の指定が既定の指定へ追加される。
+    #[test]
+    fn test_per_sns_timings_are_merged() {
+        let mut config = test_config();
+        let mut per_sns = HashMap::new();
+        per_sns.insert(
+            "mstdn-main".to_string(),
+            vec![("Weekend".to_string(), vec!["12:00".to_string()])],
+        );
+        config.allowed_timings = Some(per_sns);
+
+        let manager = TimingManager::new(&config);
+
+        let saturday = manager.get_allowed_times("mstdn-main", Weekday::Sat);
+        assert!(
+            saturday.iter().any(|t| t.hour() == 12),
+            "土曜には12:00が含まれるはず: {:?}",
+            saturday
+        );
+    }
+
+    /// タイミング未設定のSNSは「制限なしモード」として扱われ、
+    /// 許容範囲の直後の時刻が枠として返る。
+    #[tokio::test]
+    async fn test_find_next_slot_without_timings_uses_unrestricted_mode() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let store = JsonScheduledPostStore::new(temp_file.path());
+        let manager = TimingManager::new(&test_config());
+        let tolerance = 5;
+        let finder = SlotFinder::new(&manager, &store, tolerance);
+
+        let base = Local::now();
+        let slot = finder
+            .find_next_available_slot("設定されていないSNS", Some(base), 7)
+            .await
+            .expect("エラーにはならない")
+            .expect("制限なしモードでは必ず枠が返る");
+
+        assert_eq!(slot, base + Duration::minutes(tolerance + 1));
+    }
+
+    /// 探索日数が0なら枠は見つからない。
+    #[tokio::test]
+    async fn test_find_next_slot_with_zero_days() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let store = JsonScheduledPostStore::new(temp_file.path());
+        let manager = TimingManager::new(&test_config());
+        let finder = SlotFinder::new(&manager, &store, 5);
+
+        let slot = finder
+            .find_next_available_slot("mstdn-main", None, 0)
+            .await
+            .unwrap();
+
+        assert!(slot.is_none());
+    }
+
+    /// 既存の予約と重なる枠は避けて次の枠が選ばれる。
+    #[tokio::test]
+    async fn test_find_next_slot_avoids_occupied() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let store = JsonScheduledPostStore::new(temp_file.path());
+        let manager = TimingManager::new(&test_config());
+        let finder = SlotFinder::new(&manager, &store, 5);
+
+        // まず1つ目の枠を取得して埋める
+        let first = finder
+            .find_next_available_slot("mstdn-main", None, 7)
+            .await
+            .unwrap()
+            .expect("枠が見つかるはず");
+
+        store
+            .create_post(ScheduledPost::new(
+                "先客".to_string(),
+                first,
+                vec![],
+                vec!["mstdn-main".to_string()],
+            ))
+            .await
+            .unwrap();
+
+        let second = finder
+            .find_next_available_slot("mstdn-main", None, 7)
+            .await
+            .unwrap()
+            .expect("次の枠が見つかるはず");
+
+        assert_ne!(first, second, "埋まった枠は避けるはず");
+        assert!(second > first);
+    }
 }

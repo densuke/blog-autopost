@@ -48,6 +48,84 @@ pub async fn download_image(
     Ok(Some((bytes, content_type)))
 }
 
+/// 設定から SNS クライアントのリストを構築する。
+///
+/// 対応していない種別(Threads / Tumblr / 不明な設定)はスキップする。
+/// クライアントの生成に失敗したアカウントもスキップされ、残りの構築は継続する。
+///
+/// CLI と Web UI の双方から使うため、ここに置いている。
+pub fn build_clients_from_config(
+    config: &crate::config::Config,
+) -> Vec<std::sync::Arc<dyn traits::SnsClient + Send + Sync>> {
+    use crate::config::SnsConfig;
+    use std::sync::Arc;
+
+    let mut clients: Vec<Arc<dyn traits::SnsClient + Send + Sync>> = Vec::new();
+
+    for sns_conf in &config.sns {
+        match sns_conf {
+            SnsConfig::Mastodon {
+                instance_url,
+                access_token,
+                name,
+            } => {
+                if let Ok(client) = mastodon::MastodonClient::new(
+                    instance_url.clone(),
+                    access_token.clone(),
+                    name.clone(),
+                ) {
+                    clients.push(Arc::new(client));
+                }
+            }
+            SnsConfig::Misskey {
+                instance_url,
+                access_token,
+                name,
+                ..
+            } => {
+                if let Ok(client) = misskey::MisskeyClient::new(
+                    instance_url.clone(),
+                    access_token.clone(),
+                    name.clone(),
+                ) {
+                    clients.push(Arc::new(client));
+                }
+            }
+            SnsConfig::Bluesky {
+                identifier,
+                password,
+                name,
+            } => {
+                if let Ok(client) =
+                    bluesky::BlueskyClient::new(identifier.clone(), password.clone(), name.clone())
+                {
+                    clients.push(Arc::new(client));
+                }
+            }
+            SnsConfig::X {
+                consumer_key,
+                consumer_secret,
+                access_token,
+                access_token_secret,
+                name,
+            } => {
+                if let Ok(client) = x::XClient::new(
+                    consumer_key.clone(),
+                    consumer_secret.clone(),
+                    access_token.clone(),
+                    access_token_secret.clone(),
+                    name.clone(),
+                ) {
+                    clients.push(Arc::new(client));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    clients
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,6 +278,119 @@ mod tests {
                     .await
                     .is_err()
             );
+        }
+    }
+
+    mod build_clients {
+        use super::*;
+        use crate::config::{Config, SnsConfig};
+        use std::collections::HashMap;
+
+        fn config_with(sns: Vec<SnsConfig>) -> Config {
+            Config {
+                announcement_text: None,
+                blog: None,
+                sns,
+                templates: HashMap::new(),
+                default_allowed_timings: None,
+                allowed_timings_tolerance_minutes: None,
+                allowed_timings: None,
+                web_auth: None,
+                extra: HashMap::new(),
+            }
+        }
+
+        #[test]
+        fn test_empty_config_builds_nothing() {
+            assert!(build_clients_from_config(&config_with(vec![])).is_empty());
+        }
+
+        /// 対応する4種がすべて構築され、順序も設定どおりになる。
+        #[test]
+        fn test_builds_all_supported_kinds() {
+            let clients = build_clients_from_config(&config_with(vec![
+                SnsConfig::Mastodon {
+                    name: "mstdn-main".to_string(),
+                    instance_url: "https://mstdn.example.com".to_string(),
+                    access_token: "t".to_string(),
+                },
+                SnsConfig::Misskey {
+                    name: "misskey-main".to_string(),
+                    instance_url: "https://misskey.example.com".to_string(),
+                    access_token: "t".to_string(),
+                    is_sensitive: None,
+                },
+                SnsConfig::Bluesky {
+                    name: "bsky-main".to_string(),
+                    identifier: "id".to_string(),
+                    password: "pw".to_string(),
+                },
+                SnsConfig::X {
+                    name: "x-main".to_string(),
+                    consumer_key: "ck".to_string(),
+                    consumer_secret: "cs".to_string(),
+                    access_token: "at".to_string(),
+                    access_token_secret: "ats".to_string(),
+                },
+            ]));
+
+            let kinds: Vec<&str> = clients.iter().map(|c| c.name()).collect();
+            assert_eq!(kinds, vec!["mastodon", "misskey", "bluesky", "x"]);
+
+            let accounts: Vec<&str> = clients.iter().map(|c| c.account_name()).collect();
+            assert_eq!(
+                accounts,
+                vec!["mstdn-main", "misskey-main", "bsky-main", "x-main"]
+            );
+        }
+
+        /// 移植対象外や不明な設定はスキップされ、残りの構築は継続する。
+        #[test]
+        fn test_skips_unsupported_kinds() {
+            let clients = build_clients_from_config(&config_with(vec![
+                SnsConfig::Threads {
+                    name: "threads-main".to_string(),
+                    user_id: "u".to_string(),
+                    access_token: "t".to_string(),
+                },
+                SnsConfig::Tumblr {
+                    name: "tumblr-main".to_string(),
+                    consumer_key: "ck".to_string(),
+                    consumer_secret: "cs".to_string(),
+                    oauth_token: "ot".to_string(),
+                    oauth_secret: "os".to_string(),
+                    blog_identifier: "b".to_string(),
+                },
+                SnsConfig::Unknown,
+                SnsConfig::Mastodon {
+                    name: "mstdn-main".to_string(),
+                    instance_url: "https://mstdn.example.com".to_string(),
+                    access_token: "t".to_string(),
+                },
+            ]));
+
+            assert_eq!(clients.len(), 1);
+            assert_eq!(clients[0].account_name(), "mstdn-main");
+        }
+
+        /// 同じ種別の複数アカウントもそれぞれ構築される。
+        #[test]
+        fn test_builds_multiple_accounts_of_same_kind() {
+            let clients = build_clients_from_config(&config_with(vec![
+                SnsConfig::Mastodon {
+                    name: "mstdn-main".to_string(),
+                    instance_url: "https://a.example.com".to_string(),
+                    access_token: "t".to_string(),
+                },
+                SnsConfig::Mastodon {
+                    name: "mstdn-sub".to_string(),
+                    instance_url: "https://b.example.com".to_string(),
+                    access_token: "t".to_string(),
+                },
+            ]));
+
+            assert_eq!(clients.len(), 2);
+            assert_eq!(clients[1].account_name(), "mstdn-sub");
         }
     }
 }
