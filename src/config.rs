@@ -108,7 +108,7 @@ blog:
 sns:
   - type: mastodon
     name: "mstdn-main"
-    instance_url: "https://mstdn.jp"
+    instance_url: "https://mstdn.example.com"
     access_token: "dummy"
 default_allowed_timings:
   - ["*", ["09:00", "12:00"]]
@@ -133,7 +133,7 @@ allowed_timings:
                 access_token,
                 ..
             } => {
-                assert_eq!(instance_url, "https://mstdn.jp");
+                assert_eq!(instance_url, "https://mstdn.example.com");
                 assert_eq!(access_token, "dummy");
             }
             _ => panic!("Expected Mastodon config"),
