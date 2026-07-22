@@ -65,8 +65,14 @@ cargo run -- --config custom_config.yml run
 # 全テスト実行
 just test          # cargo test
 
+# カバレッジのサマリ表示
+just cov           # cargo llvm-cov --summary-only
+
 # カバレッジ付きテスト（HTMLレポート生成）
-just test-cov      # cargo tarpaulin --out Html
+just test-cov      # cargo llvm-cov --html
+
+# カバレッジ閾値の検査（CIと同じ判定）
+just cov-check
 
 # 特定テストのみ実行
 cargo test article::store
@@ -159,8 +165,11 @@ X と Mastodon はURLを実長に関わらず23文字として数えるため、
 - 1トピック1コミットとする(cherry-pick可能なレベル)
 - コミットメッセージも日本語で行うこと
 - 公開API・構造体・トレイトには doc comment (`///`) を必ず記述すること
-- コードカバレッジは全体で70%以上、新規コードは90%以上を目指すこと
+- コードカバレッジは全体で80%以上の維持を目標とし、新規コードは90%以上を目指すこと
     - カバレッジ対応はタスク内のサブタスク時は不要、タスク終了時にまとめてチェックする
+    - 下限は `coverage-threshold.txt` で管理し、CIが判定する
+    - **閾値は引き下げてはならない**。テスト追加で上回ったら同じPR内で引き上げる(ラチェット方式)
+    - 引き上げ後の値は実測値から2ポイント引いた値を目安とする
 - コミットの際は `cargo fmt` と `cargo clippy` による検査を行うこと
 - 微小な修正でなければ必ずブランチを切って作業を行うこと、mainへのマージは勝手に行わず勝手に問い合わせること(PRにする場合もありえます)
 
