@@ -19,6 +19,6 @@
     }
   },
   "ready_for_implementation": true,
-  "tracking_issue": null,
+  "tracking_issue": 78,
   "notes": "2026-07-22の再調査により未実装であることが判明した。詳細は requirements.md の「状態の訂正」を参照。"
 }
