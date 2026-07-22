@@ -18,7 +18,7 @@ pub async fn run(action: ScheduleAction, config_data: &Config) -> anyhow::Result
 ///
 /// `run` は既定のパスを渡してこの関数を呼ぶ。テストからは一時ディレクトリを
 /// 渡すことで、実際の `data/` を汚さずに検証できる。
-pub async fn run_with_paths(
+async fn run_with_paths(
     action: ScheduleAction,
     config_data: &Config,
     store_path: &str,
@@ -342,6 +342,16 @@ mod tests {
             JsonScheduledPostStore::new(self.store_path.clone())
         }
 
+        /// 一時作業領域のパス。テスト用の入力ファイルを置く場所として使う。
+        ///
+        /// `_dir` は生存期間の保持だけが役割なので直接は触らず、
+        /// `store_path` の親から辿る。
+        fn work_dir(&self) -> &std::path::Path {
+            std::path::Path::new(&self.store_path)
+                .parent()
+                .expect("store_path には必ず親ディレクトリがある")
+        }
+
         async fn run(&self, action: ScheduleAction, config: &Config) -> anyhow::Result<()> {
             run_with_paths(action, config, &self.store_path, &self.uploads_dir).await
         }
@@ -567,7 +577,7 @@ mod tests {
     #[tokio::test]
     async fn test_add_copies_media_to_uploads_dir() {
         let env = TestEnv::new();
-        let src = env._dir.path().join("元画像.png");
+        let src = env.work_dir().join("元画像.png");
         std::fs::write(&src, b"dummy image").expect("テスト画像の作成に失敗");
 
         let action = ScheduleAction::Add {
