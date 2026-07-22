@@ -241,7 +241,9 @@
                 snsAccounts = Array.isArray(data.sns_accounts) && data.sns_accounts.length > 0
                     ? data.sns_accounts
                     : (data.active_sns || []).map(label => ({
-                        name: label.match(/\(([^)]+)\)$/)?.[1] || label,
+                        // 貪欲マッチで末尾の括弧の中身を丸ごと取る。
+                        // アカウント名自体が ) を含む場合(例 "Mastodon (my(test))")に対応する
+                        name: label.match(/\((.+)\)$/)?.[1] || label,
                         sns_type: '',
                         label
                     }));
