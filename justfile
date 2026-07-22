@@ -40,9 +40,23 @@ run-web:
 touch-rss-posted *args='':
     cargo run -- touch {{args}}
 
-# カバレッジ付きテスト (cargo-tarpaulinによるHTMLレポート生成)
+# カバレッジ付きテスト (cargo-llvm-covによるHTMLレポート生成)
+# レポートは target/llvm-cov/html/index.html に出力される。
 test-cov:
-    cargo tarpaulin --out Html
+    cargo llvm-cov --html
+
+# カバレッジのサマリのみ表示
+cov:
+    cargo llvm-cov --summary-only
+
+# カバレッジが閾値(coverage-threshold.txt)を満たすか検査
+# CIと同じ判定をローカルで行う。
+cov-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    threshold=$(cat coverage-threshold.txt)
+    echo "カバレッジ閾値: ${threshold}%"
+    cargo llvm-cov --all-features --workspace --fail-under-regions "${threshold}" --summary-only
 
 # x86_64 Linux (musl/静的リンク) 向けリリースビルド
 # 要: cross (cargo install cross) と起動中のDocker。
@@ -100,7 +114,9 @@ help:
     @echo "  just dry-run                       # ドライラン実行"
     @echo "  just debug-dry-run                 # デバッグ付きドライラン"
     @echo "  just test                          # テスト実行"
-    @echo "  just test-cov                      # カバレッジ付きテスト"
+    @echo "  just cov                           # カバレッジのサマリ表示"
+    @echo "  just test-cov                      # カバレッジ付きテスト(HTMLレポート)"
+    @echo "  just cov-check                     # カバレッジ閾値の検査(CIと同じ判定)"
     @echo ""
     @echo "環境構築:"
     @echo "  just sync                          # 依存関係の同期"

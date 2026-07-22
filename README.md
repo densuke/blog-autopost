@@ -246,13 +246,32 @@ just test
 ```
 
 ### カバレッジの測定
-カバレッジを測定するには、`cargo-llvm-cov` または `cargo-tarpaulin` の利用を推奨します。
+カバレッジの測定には `cargo-llvm-cov` を使用します。
 
 ```bash
-# cargo-llvm-cov を使用する場合 (インストールの必要あり: cargo install cargo-llvm-cov)
-cargo llvm-cov --html
+# インストール (初回のみ)
+cargo install cargo-llvm-cov
 
-# cargo-tarpaulin を使用する場合
-cargo tarpaulin --out Html
+# サマリのみ表示
+just cov
+
+# HTMLレポートを生成
+just test-cov
+
+# 閾値を満たすか検査 (CIと同じ判定)
+just cov-check
 ```
-カバレッジの結果は `tarpaulin-report.html` または `target/llvm-cov/html-details/index.html` として生成され、Webブラウザで詳細を確認できます。
+
+HTMLレポートは `target/llvm-cov/html/index.html` に生成され、Webブラウザで詳細を確認できます。
+
+### カバレッジ閾値の運用
+
+カバレッジの下限は `coverage-threshold.txt` の1行で管理しており、CIがこの値を読んで
+判定します。閾値を下回るとCIが失敗します。
+
+**閾値は引き下げないでください。** テストを追加してカバレッジが閾値を明確に上回ったら、
+同じPRの中で閾値も引き上げます(ラチェット方式)。引き上げ後の値は、計測の揺らぎで
+CIが不安定にならないよう実測値から2ポイント引いた値を目安とします。
+
+最終的な目標は80%です。段階的な計画は `.kiro/specs/test-coverage-improvement/` を
+参照してください。

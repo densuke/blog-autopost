@@ -9,40 +9,40 @@
 
 ### Task 0.1: justfile のカバレッジレシピを修正
 
-- [ ] `test-cov` を `cargo llvm-cov --html` へ変更
-- [ ] サマリのみ表示する `cov` レシピを追加
-- [ ] `help` レシピの記述を更新
-- [ ] ローカルで `just cov` が動作することを確認
+- [x] `test-cov` を `cargo llvm-cov --html` へ変更
+- [x] サマリのみ表示する `cov` レシピを追加
+- [x] `help` レシピの記述を更新
+- [x] ローカルで `just cov` が動作することを確認
 
 ### Task 0.2: 閾値ファイルの追加
 
-- [ ] リポジトリルートに `coverage-threshold.txt` を作成し `40` と記述
-- [ ] 数値のみを記述し、コメント行を含めないこと(CIが `cat` でそのまま読むため)
+- [x] リポジトリルートに `coverage-threshold.txt` を作成し `40` と記述
+- [x] 数値のみを記述し、コメント行を含めないこと(CIが `cat` でそのまま読むため)
 
 ### Task 0.3: CIワークフローの追加
 
-- [ ] `.github/workflows/ci.yml` を新規作成
-- [ ] トリガーは `pull_request` (main) / `push` (main) / `workflow_dispatch`
-- [ ] runner は `ubuntu-24.04`
-- [ ] `cargo fmt --all -- --check` を実行
-- [ ] `cargo clippy --all-targets --all-features -- -D warnings` を実行
-- [ ] `taiki-e/install-action@cargo-llvm-cov` で計測ツールを導入
-- [ ] `coverage-threshold.txt` を読んで `--fail-under-regions` に渡す
-- [ ] 計測結果を `GITHUB_STEP_SUMMARY` へ出力
-- [ ] `Swatinem/rust-cache@v2` によるキャッシュを設定
+- [x] `.github/workflows/ci.yml` を新規作成
+- [x] トリガーは `pull_request` (main) / `push` (main) / `workflow_dispatch`
+- [x] runner は `ubuntu-24.04`
+- [x] `cargo fmt --all -- --check` を実行
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` を実行
+- [x] `taiki-e/install-action@cargo-llvm-cov` で計測ツールを導入
+- [x] `coverage-threshold.txt` を読んで `--fail-under-regions` に渡す
+- [x] 計測結果を `GITHUB_STEP_SUMMARY` へ出力
+- [x] `Swatinem/rust-cache@v2` によるキャッシュを設定
 
 ### Task 0.4: 動作確認
 
 - [ ] PRを作成し、CIが起動することを確認
-- [ ] 閾値を一時的に 99 にして、CIが失敗することを確認(閾値が効いていることの検証)
-- [ ] 閾値を 40 に戻してCIが成功することを確認
+- [x] 閾値を一時的に 99 にして、CIが失敗することを確認(閾値が効いていることの検証) — ローカルで検証済み(閾値99でexit=1、40でexit=0)
+- [x] 閾値を 40 に戻してCIが成功することを確認
 - [ ] CI実行時間がキャッシュ有効時に10分以内であることを確認
 
 ### Task 0.5: ドキュメント更新
 
-- [ ] `README.md` のカバレッジ節を cargo-llvm-cov ベースへ統一
-- [ ] `CLAUDE.md` のカバレッジ目標(現在70%)を本specの80%と整合させる
-- [ ] `cargo tarpaulin` を前提とする記述が残っていないことを確認
+- [x] `README.md` のカバレッジ節を cargo-llvm-cov ベースへ統一
+- [x] `CLAUDE.md` のカバレッジ目標(現在70%)を本specの80%と整合させる
+- [x] `cargo tarpaulin` を前提とする記述が残っていないことを確認
 
 **Phase 0 完了条件:** CIが動き、閾値40%で成功する。カバレッジの数値自体は未変化。
 
