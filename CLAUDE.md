@@ -151,7 +151,7 @@ X と Mastodon はURLを実長に関わらず23文字として数えるため、
 |---|---|
 | `scheduled-post-timing-extension` | 完了 - 各SNSの投稿タイミング設定を複数化し予約投稿機能を拡張 |
 | `unified-post-form-ui` | 完了 - すぐに投稿・時間指定予約・次のタイミング投稿を1つのフォームに統合 |
-| `responsive-design-layout` | **未実装** - 広い画面での2カラムレイアウト対応。2026-07-22に完了判定の誤りが判明し差し戻し |
+| `responsive-design-layout` | 実装済み - 広い画面(1024px以上)で左に投稿フォーム、右に予約一覧の2カラム表示 (#78) |
 | `dark-mode-system-integration` | 一部実装 - システム連動(`prefers-color-scheme`)のみ。手動切替UIは未実装 |
 | `reserved-post-sns-selection-fix` | 未着手 - 予約投稿編集時にSNSを全て選び直せないバグ |
 | `test-coverage-improvement` | 完了 - カバレッジ80%達成(42.06% → 80.76%)。以降は閾値80での維持が目的 (#59 #61 #62 #63) |
