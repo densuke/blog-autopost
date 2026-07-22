@@ -3,21 +3,23 @@
   "created_at": "2025-10-18T00:00:00Z",
   "updated_at": "2026-07-22T00:00:00+09:00",
   "language": "ja",
-  "phase": "requirements-generated",
+  "phase": "completed",
   "approvals": {
     "requirements": {
       "generated": true,
-      "approved": false
+      "approved": true
     },
     "design": {
-      "generated": false,
-      "approved": false
+      "generated": true,
+      "approved": true
     },
     "tasks": {
-      "generated": false,
-      "approved": false
+      "generated": true,
+      "approved": true
     }
   },
-  "ready_for_implementation": false,
-  "tracking_issue": 57
+  "ready_for_implementation": true,
+  "tracking_issue": 57,
+  "implementation_completed": true,
+  "notes": "PR #69 で修正。編集モーダルのSNS一覧を /api/config 由来の snsAccounts から生成するようにした。"
 }
