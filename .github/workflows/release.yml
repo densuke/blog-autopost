@@ -28,7 +28,7 @@ jobs:
       new_tag: ${{ steps.decide.outputs.new_tag }}
     steps:
       - name: ソースの取得
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -89,7 +89,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: ソースの取得(確定コミット)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.sha }}
 
