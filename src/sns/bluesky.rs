@@ -6,11 +6,16 @@ use serde_json::json;
 use super::models::{PostContent, PostResult};
 use super::traits::SnsClient;
 
+/// Bluesky の XRPC エンドポイントのベースURL(本番)
+const DEFAULT_BASE_URL: &str = "https://bsky.social";
+
 pub struct BlueskyClient {
     client: Client,
     identifier: String,
     password: String,
     account_name: String,
+    /// XRPC のベースURL。テストでモックサーバへ差し替える。
+    base_url: String,
 }
 
 impl BlueskyClient {
@@ -21,12 +26,23 @@ impl BlueskyClient {
             identifier,
             password,
             account_name,
+            base_url: DEFAULT_BASE_URL.to_string(),
         })
+    }
+
+    /// ベースURLを差し替えた BlueskyClient を返す。
+    ///
+    /// 本番のURLは bsky.social で固定されているため、テストから
+    /// モックサーバを向けるための入口として用意している。
+    #[cfg(test)]
+    fn with_base_url(mut self, base_url: String) -> Self {
+        self.base_url = base_url;
+        self
     }
 
     /// セッションを作成し、DIDとAccess Tokenを取得する
     async fn create_session(&self) -> anyhow::Result<(String, String)> {
-        let url = "https://bsky.social/xrpc/com.atproto.server.createSession";
+        let url = format!("{}/xrpc/com.atproto.server.createSession", self.base_url);
         let payload = json!({
             "identifier": self.identifier,
             "password": self.password,
@@ -58,7 +74,7 @@ impl BlueskyClient {
         let resizer = crate::image_resizer::ImageResizer::new(false);
         let resized_bytes = resizer.resize_image_data(&bytes, "bluesky")?;
 
-        let url = "https://bsky.social/xrpc/com.atproto.repo.uploadBlob";
+        let url = format!("{}/xrpc/com.atproto.repo.uploadBlob", self.base_url);
 
         let response = self
             .client
@@ -199,7 +215,7 @@ impl SnsClient for BlueskyClient {
         }
 
         // 3. レコードを作成して投稿
-        let url = "https://bsky.social/xrpc/com.atproto.repo.createRecord";
+        let url = format!("{}/xrpc/com.atproto.repo.createRecord", self.base_url);
         let now = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
         let mut record = json!({
@@ -411,6 +427,233 @@ fn first_url_in_text(text: &str) -> Option<String> {
     build_link_facets(text)
         .into_iter()
         .find_map(|f| f["features"][0]["uri"].as_str().map(|s| s.to_string()))
+}
+
+#[cfg(test)]
+mod http_tests {
+    use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn client_for(server: &MockServer) -> BlueskyClient {
+        BlueskyClient::new(
+            "test.bsky.social".to_string(),
+            "app-password".to_string(),
+            "bsky-main".to_string(),
+        )
+        .expect("クライアントの生成に失敗")
+        .with_base_url(server.uri())
+    }
+
+    fn text_content(text: &str) -> PostContent {
+        PostContent {
+            text: text.to_string(),
+            ..Default::default()
+        }
+    }
+
+    /// セッション作成のモックを登録する。
+    async fn mount_session(server: &MockServer) {
+        Mock::given(method("POST"))
+            .and(path("/xrpc/com.atproto.server.createSession"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "did": "did:plc:test",
+                "accessJwt": "jwt-token"
+            })))
+            .mount(server)
+            .await;
+    }
+
+    #[test]
+    fn test_client_metadata() {
+        let client =
+            BlueskyClient::new("id".to_string(), "pw".to_string(), "bsky-main".to_string())
+                .unwrap();
+
+        assert_eq!(client.name(), "bluesky");
+        assert_eq!(client.account_name(), "bsky-main");
+        assert_eq!(client.max_characters(), 300);
+        assert_eq!(client.base_url, DEFAULT_BASE_URL);
+    }
+
+    /// Bluesky はURLを実際の文字数で数える(既定の実装)。
+    #[test]
+    fn test_url_char_weight_is_actual_length() {
+        let client =
+            BlueskyClient::new("id".to_string(), "pw".to_string(), "a".to_string()).unwrap();
+
+        let url = "https://example.com/article/1";
+        assert_eq!(client.url_char_weight(url), url.chars().count());
+    }
+
+    #[tokio::test]
+    async fn test_post_success() {
+        let server = MockServer::start().await;
+        mount_session(&server).await;
+        Mock::given(method("POST"))
+            .and(path("/xrpc/com.atproto.repo.createRecord"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "uri": "at://did:plc:test/app.bsky.feed.post/abc"
+            })))
+            .mount(&server)
+            .await;
+
+        let result = client_for(&server)
+            .post(&text_content("テスト投稿"))
+            .await
+            .expect("投稿でエラーが発生した");
+
+        assert!(result.success);
+        assert_eq!(
+            result.post_id.as_deref(),
+            Some("at://did:plc:test/app.bsky.feed.post/abc")
+        );
+    }
+
+    /// セッション作成に失敗した場合も、他のSNSと同様に
+    /// Err ではなく success:false の PostResult として返る。
+    #[tokio::test]
+    async fn test_post_returns_failure_when_session_fails() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/xrpc/com.atproto.server.createSession"))
+            .respond_with(ResponseTemplate::new(401).set_body_string("Invalid identifier"))
+            .mount(&server)
+            .await;
+
+        let result = client_for(&server)
+            .post(&text_content("テスト"))
+            .await
+            .expect("ログイン失敗は PostResult で表現される");
+
+        assert!(!result.success);
+        assert!(result.post_id.is_none());
+        let msg = result.error_message.expect("エラーメッセージが必要");
+        assert!(msg.contains("Login error"), "実際の値: {}", msg);
+        assert!(msg.contains("Bluesky login failed"), "実際の値: {}", msg);
+    }
+
+    /// 投稿APIがエラーを返した場合は success:false になる。
+    #[tokio::test]
+    async fn test_post_returns_failure_on_error_response() {
+        let server = MockServer::start().await;
+        mount_session(&server).await;
+        Mock::given(method("POST"))
+            .and(path("/xrpc/com.atproto.repo.createRecord"))
+            .respond_with(ResponseTemplate::new(400).set_body_string("InvalidRequest"))
+            .mount(&server)
+            .await;
+
+        let result = client_for(&server)
+            .post(&text_content("テスト"))
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        assert_eq!(result.error_message.as_deref(), Some("InvalidRequest"));
+    }
+
+    /// 応答に uri が含まれない場合でも success:true のまま post_id が None になる。
+    #[tokio::test]
+    async fn test_post_success_without_uri() {
+        let server = MockServer::start().await;
+        mount_session(&server).await;
+        Mock::given(method("POST"))
+            .and(path("/xrpc/com.atproto.repo.createRecord"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+            .mount(&server)
+            .await;
+
+        let result = client_for(&server)
+            .post(&text_content("テスト"))
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(result.post_id.is_none());
+    }
+
+    /// 読み込めないローカルメディアを指定しても投稿自体は継続する。
+    #[tokio::test]
+    async fn test_post_continues_when_local_media_missing() {
+        let server = MockServer::start().await;
+        mount_session(&server).await;
+        Mock::given(method("POST"))
+            .and(path("/xrpc/com.atproto.repo.createRecord"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "uri": "at://did:plc:test/app.bsky.feed.post/nolocal"
+            })))
+            .mount(&server)
+            .await;
+
+        let content = PostContent {
+            text: "テスト".to_string(),
+            media_paths: Some(vec!["/存在しないパス/image.png".to_string()]),
+            ..Default::default()
+        };
+
+        let result = client_for(&server).post(&content).await.unwrap();
+
+        assert!(result.success);
+    }
+
+    /// 画像の添付に成功すると blob をアップロードしてから投稿される。
+    #[tokio::test]
+    async fn test_post_with_image_uploads_blob() {
+        let server = MockServer::start().await;
+        mount_session(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path("/image.png"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_bytes(tiny_png())
+                    .insert_header("content-type", "image/png"),
+            )
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/xrpc/com.atproto.repo.uploadBlob"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "blob": { "$type": "blob", "ref": { "$link": "blobref" }, "mimeType": "image/jpeg", "size": 100 }
+            })))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/xrpc/com.atproto.repo.createRecord"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "uri": "at://did:plc:test/app.bsky.feed.post/img"
+            })))
+            .mount(&server)
+            .await;
+
+        let content = PostContent {
+            text: "画像付き".to_string(),
+            image_url: Some(format!("{}/image.png", server.uri())),
+            ..Default::default()
+        };
+
+        let result = client_for(&server).post(&content).await.unwrap();
+
+        assert!(result.success);
+        assert_eq!(
+            result.post_id.as_deref(),
+            Some("at://did:plc:test/app.bsky.feed.post/img")
+        );
+    }
+
+    /// テスト用の 1x1 PNG バイト列を作る。
+    fn tiny_png() -> Vec<u8> {
+        use image::{ImageFormat, RgbaImage};
+        let img = RgbaImage::new(1, 1);
+        let mut buf = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut buf, ImageFormat::Png)
+            .expect("PNGの生成に失敗");
+        buf.into_inner()
+    }
 }
 
 #[cfg(test)]

@@ -2064,6 +2064,434 @@ mod tests {
 
     // --- GET /login (ページ) ---
 
+    // --- POST /api/post (即時投稿) ---
+
+    /// Mastodonの投稿先をモックサーバへ向けたテスト環境を作る。
+    fn app_with_mock_mastodon(server: &wiremock::MockServer) -> TestApp {
+        let uri = server.uri();
+        setup_test_app_with_config(Some(SECRET.to_string()), move |config| {
+            config.sns = vec![crate::config::SnsConfig::Mastodon {
+                name: "mstdn-main".to_string(),
+                instance_url: uri,
+                access_token: "t".to_string(),
+            }];
+        })
+    }
+
+    fn post_json(uri: &str, payload: serde_json::Value) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header("X-Api-Key", SECRET)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(payload.to_string()))
+            .unwrap()
+    }
+
+    /// 即時投稿が成功すると success:true と結果が返る。
+    #[tokio::test]
+    async fn test_manual_post_immediate_success() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/v1/statuses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "url": "https://mstdn.example.com/@u/1" })),
+            )
+            .mount(&server)
+            .await;
+
+        let app = app_with_mock_mastodon(&server);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(post_json(
+                "/api/post",
+                serde_json::json!({ "text": "即時投稿のテスト" }),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = json_body(response).await;
+        assert_eq!(body["success"], true);
+        assert_eq!(body["results"][0]["success"], true);
+        assert_eq!(
+            body["results"][0]["post_id"],
+            "https://mstdn.example.com/@u/1"
+        );
+    }
+
+    /// 投稿先がエラーを返した場合は success:false になる。
+    #[tokio::test]
+    async fn test_manual_post_immediate_failure() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/v1/statuses"))
+            .respond_with(ResponseTemplate::new(500).set_body_string("internal error"))
+            .mount(&server)
+            .await;
+
+        let app = app_with_mock_mastodon(&server);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(post_json(
+                "/api/post",
+                serde_json::json!({ "text": "失敗する投稿" }),
+            ))
+            .await
+            .unwrap();
+
+        let body = json_body(response).await;
+        assert_eq!(body["success"], false);
+        assert_eq!(body["results"][0]["success"], false);
+    }
+
+    /// targets で投稿先を絞り込める。該当しなければ投稿されない。
+    #[tokio::test]
+    async fn test_manual_post_filters_by_targets() {
+        use wiremock::MockServer;
+
+        let server = MockServer::start().await;
+        let app = app_with_mock_mastodon(&server);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(post_json(
+                "/api/post",
+                serde_json::json!({
+                    "text": "対象外",
+                    "targets": ["Misskey (misskey-main)"]
+                }),
+            ))
+            .await
+            .unwrap();
+
+        let body = json_body(response).await;
+        assert_eq!(
+            body["results"].as_array().unwrap().len(),
+            0,
+            "対象が一致しないので投稿されないはず"
+        );
+    }
+
+    // --- POST /api/post (予約投稿) ---
+
+    /// schedule_type=custom で日時を指定すると予約が作られる。
+    #[tokio::test]
+    async fn test_manual_post_schedules_custom_time() {
+        use wiremock::MockServer;
+
+        let server = MockServer::start().await;
+        let app = app_with_mock_mastodon(&server);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(post_json(
+                "/api/post",
+                serde_json::json!({
+                    "text": "予約投稿のテスト",
+                    "targets": ["Mastodon (mstdn-main)"],
+                    "schedule_type": "custom",
+                    "scheduled_at": "2026-09-01T09:00:00+09:00"
+                }),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = json_body(response).await;
+        assert_eq!(body["success"], true);
+
+        let posts = app.state.store.get_all_posts().await.unwrap();
+        assert_eq!(posts.len(), 1);
+        assert_eq!(posts[0].content, "予約投稿のテスト");
+        assert_eq!(posts[0].target_sns, vec!["mstdn-main"]);
+    }
+
+    /// schedule_type=custom で scheduled_at が無い場合は失敗する。
+    #[tokio::test]
+    async fn test_manual_post_schedule_without_time() {
+        use wiremock::MockServer;
+
+        let server = MockServer::start().await;
+        let app = app_with_mock_mastodon(&server);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(post_json(
+                "/api/post",
+                serde_json::json!({
+                    "text": "時刻なし",
+                    "targets": ["Mastodon (mstdn-main)"],
+                    "schedule_type": "custom"
+                }),
+            ))
+            .await
+            .unwrap();
+
+        let body = json_body(response).await;
+        assert_eq!(body["success"], false);
+        assert!(app.state.store.get_all_posts().await.unwrap().is_empty());
+    }
+
+    /// 不正な日時形式では予約されない。
+    #[tokio::test]
+    async fn test_manual_post_schedule_invalid_datetime() {
+        use wiremock::MockServer;
+
+        let server = MockServer::start().await;
+        let app = app_with_mock_mastodon(&server);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(post_json(
+                "/api/post",
+                serde_json::json!({
+                    "text": "不正な日時",
+                    "targets": ["Mastodon (mstdn-main)"],
+                    "schedule_type": "custom",
+                    "scheduled_at": "めちゃくちゃな日時"
+                }),
+            ))
+            .await
+            .unwrap();
+
+        let body = json_body(response).await;
+        assert_eq!(body["success"], false);
+        assert!(app.state.store.get_all_posts().await.unwrap().is_empty());
+    }
+
+    /// 予約時に targets が空だと失敗する。
+    #[tokio::test]
+    async fn test_manual_post_schedule_without_targets() {
+        use wiremock::MockServer;
+
+        let server = MockServer::start().await;
+        let app = app_with_mock_mastodon(&server);
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(post_json(
+                "/api/post",
+                serde_json::json!({
+                    "text": "対象なし",
+                    "schedule_type": "custom",
+                    "scheduled_at": "2026-09-01T09:00:00+09:00"
+                }),
+            ))
+            .await
+            .unwrap();
+
+        let body = json_body(response).await;
+        assert_eq!(body["success"], false);
+    }
+
+    /// schedule_type=next では次の空き枠が自動で選ばれる。
+    #[tokio::test]
+    async fn test_manual_post_schedules_next_slot() {
+        use wiremock::MockServer;
+
+        let server = MockServer::start().await;
+        let uri = server.uri();
+        let app = setup_test_app_with_config(Some(SECRET.to_string()), move |config| {
+            config.default_allowed_timings = Some(vec![(
+                "*".to_string(),
+                vec!["09:00".to_string(), "18:00".to_string()],
+            )]);
+            config.sns = vec![crate::config::SnsConfig::Mastodon {
+                name: "mstdn-main".to_string(),
+                instance_url: uri,
+                access_token: "t".to_string(),
+            }];
+        });
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(post_json(
+                "/api/post",
+                serde_json::json!({
+                    "text": "次の枠へ予約",
+                    "targets": ["Mastodon (mstdn-main)"],
+                    "schedule_type": "next"
+                }),
+            ))
+            .await
+            .unwrap();
+
+        let body = json_body(response).await;
+        assert_eq!(body["success"], true, "実際の応答: {}", body);
+
+        let posts = app.state.store.get_all_posts().await.unwrap();
+        assert_eq!(posts.len(), 1);
+        let hhmm = posts[0].scheduled_at.format("%H:%M").to_string();
+        assert!(hhmm == "09:00" || hhmm == "18:00", "実際の時刻: {}", hhmm);
+    }
+
+    // --- POST /api/schedules/{id}/post-now ---
+
+    /// 予約を即時投稿すると、投稿先へ送信され結果が返る。
+    #[tokio::test]
+    async fn test_post_now_schedule_success() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/v1/statuses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "url": "https://mstdn.example.com/@u/9" })),
+            )
+            .mount(&server)
+            .await;
+
+        let app = app_with_mock_mastodon(&server);
+
+        // 対象SNSを設定名に合わせて予約を作る
+        let post = ScheduledPost::new(
+            "即時送信する予約".to_string(),
+            chrono::Local::now() + chrono::Duration::hours(1),
+            vec![],
+            vec!["mstdn-main".to_string()],
+        );
+        let id = app.state.store.create_post(post).await.unwrap().id;
+
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/api/schedules/{}/post-now", id))
+            .header("X-Api-Key", SECRET)
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = json_body(response).await;
+        assert_eq!(body["success"], true, "実際の応答: {}", body);
+    }
+
+    /// 存在しない予約の即時投稿は404を返す。
+    #[tokio::test]
+    async fn test_post_now_schedule_not_found() {
+        let app = app_with_auth();
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/schedules/post-does-not-exist/post-now")
+            .header("X-Api-Key", SECRET)
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    // --- MCP ---
+
+    /// MCPのメッセージ受付は 202 Accepted を返す(処理は非同期)。
+    #[tokio::test]
+    async fn test_mcp_message_returns_accepted() {
+        let app = app_with_auth();
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/mcp/message?session_id=test-session")
+            .header("X-Api-Key", SECRET)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "method": "initialize",
+                    "id": 1
+                })
+                .to_string(),
+            ))
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+    }
+
+    /// tools/list も同様に受け付けられる。
+    #[tokio::test]
+    async fn test_mcp_message_tools_list() {
+        let app = app_with_auth();
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/mcp/message?session_id=test-session")
+            .header("X-Api-Key", SECRET)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "method": "tools/list",
+                    "id": 2
+                })
+                .to_string(),
+            ))
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+    }
+
+    // --- POST /api/upload ---
+
+    /// 許可されていない形式のファイルは拒否される。
+    #[tokio::test]
+    async fn test_upload_rejects_disallowed_mime() {
+        let app = app_with_auth();
+
+        let boundary = "X-BOUNDARY";
+        let body = format!(
+            "--{b}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.txt\"\r\nContent-Type: text/plain\r\n\r\nhello\r\n--{b}--\r\n",
+            b = boundary
+        );
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/upload")
+            .header("X-Api-Key", SECRET)
+            .header(
+                header::CONTENT_TYPE,
+                format!("multipart/form-data; boundary={}", boundary),
+            )
+            .body(Body::from(body))
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = json_body(response).await;
+        assert_eq!(json["success"], false);
+        let err = json["error"].as_str().expect("エラーメッセージが必要");
+        assert!(
+            err.contains("許可されていないファイル形式"),
+            "実際の値: {}",
+            err
+        );
+    }
+
     /// static/login.html が存在すればHTMLを返す。
     /// テスト実行時のカレントディレクトリによって結果が変わるため、
     /// 200 か 404 のいずれかであることのみを確認する。
