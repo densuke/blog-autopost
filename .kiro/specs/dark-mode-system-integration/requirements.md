@@ -69,3 +69,22 @@ Web UI の実体は `static/` 配下である。`src/web/mod.rs` のルータは
 - リロード後も選択が保たれる
 - 「自動」でOS設定に追従する
 - `cargo fmt` / `cargo clippy --all-targets -- -D warnings` / `cargo test` が通る
+
+---
+
+## 実装完了 (2026-07-22)
+
+PR #70 でテーマ手動切替UIを実装し、PR #76 でテーマ適用スクリプトとslate色定義を
+`static/theme.js` / `static/theme.css` へ共通化した。
+
+### 完了条件の確認
+
+| 条件 | 状態 | 根拠 |
+|---|---|---|
+| 3状態の切替UIがヘッダに存在する | 達成 | `static/index.html` のヘッダに `class="theme-btn"` かつ `data-theme-value` が `auto` / `light` / `dark` の `<button>` が3つ並ぶ |
+| リロード後も選択が保たれる | 達成 | 選択時に `localStorage.setItem(THEME_KEY, pref)` で保存し、`static/theme.js` が `localStorage.getItem(KEY)`(`blog-autopost-theme`)で復元する |
+| 「自動」でOS設定に追従する | 達成 | `static/theme.js` が `matchMedia('(prefers-color-scheme: dark)')` を参照。さらに `static/index.html` が同メディアクエリの `change` を購読し、「自動」選択時のみOS設定の変更へ追従する |
+| fmt / clippy / test が通る | 達成 | CIで検証済み |
+
+関連Issue #58 はクローズ済み。
+
