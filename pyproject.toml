@@ -44,7 +44,7 @@ dev = [
     "pytest-timeout",
     "types-pyyaml>=6.0.12.20250915",
     "types-requests>=2.33.0.20260712",
-    "coverage>=7.15.1",
+    "coverage>=7.15.2",
 ]
 
 [tool.setuptools.package-dir]
