@@ -23,8 +23,13 @@ jobs:
         id: meta
         uses: dependabot/fetch-metadata@v3
 
+      # checkout v7 は pull_request_target / workflow_run 配下での
+      # fork PR のチェックアウトを既定で拒否する(allow-unsafe-pr-checkout で
+      # 明示的に opt-in しない限り)。dependabot のPRは同一リポジトリ内の
+      # ブランチ(dependabot/...)から作られ fork ではないため影響を受けない。
+      # fork からのPRをここで扱うようにする場合は、この制限を思い出すこと。
       - name: ソースの取得(PRのhead)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 

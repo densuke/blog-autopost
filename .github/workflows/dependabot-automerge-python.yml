@@ -21,8 +21,11 @@ jobs:
         id: meta
         uses: dependabot/fetch-metadata@v3
 
+      # checkout v7 は pull_request_target 配下での fork PR のチェックアウトを
+      # 既定で拒否する。dependabot のPRは同一リポジトリ内のブランチから作られ
+      # fork ではないため影響を受けない。詳細は dependabot-automerge.yml を参照。
       - name: ソースの取得(PRのhead)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
