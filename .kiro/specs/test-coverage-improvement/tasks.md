@@ -71,8 +71,8 @@
 
 - [x] `wiremock` で投稿エンドポイントをモック
 - [x] 正常系: 投稿成功時に `PostResult` が期待通り
-- [x] 異常系: 401応答時に `Err`
-- [x] 異常系: 500応答時に `Err`
+- [x] 異常系: 401応答時に `success:false` の `PostResult` を返す
+- [x] 異常系: 500応答時に `success:false` の `PostResult` を返す
 - [x] `max_characters()` の返値を検証
 - [x] 実ネットワークへ接続していないことを確認
 
