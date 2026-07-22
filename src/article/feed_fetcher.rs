@@ -43,7 +43,7 @@ impl DefaultFeedFetcher {
             let published_parsed = entry
                 .published
                 .or(entry.updated)
-                .unwrap_or_else(|| chrono::Utc::now());
+                .unwrap_or_else(chrono::Utc::now);
 
             // 概要欄(summary / content / media:description)からハッシュタグを抽出する。
             // YouTubeはタイトルにタグが無く media:description にタグが入ることがある。
@@ -52,11 +52,11 @@ impl DefaultFeedFetcher {
                 description.push_str(&summary.content);
                 description.push(' ');
             }
-            if let Some(content) = &entry.content {
-                if let Some(body) = &content.body {
-                    description.push_str(body);
-                    description.push(' ');
-                }
+            if let Some(content) = &entry.content
+                && let Some(body) = &content.body
+            {
+                description.push_str(body);
+                description.push(' ');
             }
             for media in &entry.media {
                 if let Some(desc) = &media.description {

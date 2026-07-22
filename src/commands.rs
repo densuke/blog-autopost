@@ -287,8 +287,8 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
                     if part.is_empty() {
                         continue;
                     }
-                    if part.starts_with('-') {
-                        excluded.insert(part[1..].to_string());
+                    if let Some(name) = part.strip_prefix('-') {
+                        excluded.insert(name.to_string());
                     } else if part == "all" {
                         has_all = true;
                     } else {
@@ -378,16 +378,17 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
                             || included.contains("x")
                             || included.contains(&lower_name);
                         let is_excluded = excluded.contains("x") || excluded.contains(&lower_name);
-                        if is_targeted && !is_excluded {
-                            if let Ok(client) = XClient::new(
+                        if is_targeted
+                            && !is_excluded
+                            && let Ok(client) = XClient::new(
                                 consumer_key.clone(),
                                 consumer_secret.clone(),
                                 access_token.clone(),
                                 access_token_secret.clone(),
                                 name.clone(),
-                            ) {
-                                sns_clients.push(std::sync::Arc::new(client));
-                            }
+                            )
+                        {
+                            sns_clients.push(std::sync::Arc::new(client));
                         }
                     }
                     _ => {}
@@ -395,41 +396,41 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
             }
 
             // 2. config.ymlにマッチするものがなかった場合、CLI引数からの直接指定でフォールバック
-            if sns_clients.is_empty() {
-                if let Some(ref sns_val) = sns {
-                    let first_sns = sns_val.split(',').next().unwrap_or("").trim();
-                    if first_sns == "mastodon" {
-                        let url = instance_url
-                            .clone()
-                            .expect("instance_url must be provided via CLI or config.yml");
-                        let tok = token
-                            .clone()
-                            .expect("token must be provided via CLI or config.yml");
-                        let client = MastodonClient::new(url, tok, "CLI_User".to_string())?;
-                        sns_clients.push(std::sync::Arc::new(client));
-                    } else if first_sns == "misskey" {
-                        let url = instance_url
-                            .clone()
-                            .expect("instance_url must be provided via CLI or config.yml");
-                        let tok = token
-                            .clone()
-                            .expect("token must be provided via CLI or config.yml");
-                        let client = MisskeyClient::new(url, tok, "CLI_User".to_string())?;
-                        sns_clients.push(std::sync::Arc::new(client));
-                    } else if first_sns == "bluesky" {
-                        let id = instance_url.clone().expect(
-                            "identifier must be provided via CLI (instance_url) or config.yml",
-                        );
-                        let pw = token
-                            .clone()
-                            .expect("password must be provided via CLI (token) or config.yml");
-                        let client = BlueskyClient::new(id, pw, "CLI_User".to_string())?;
-                        sns_clients.push(std::sync::Arc::new(client));
-                    } else if first_sns == "x" {
-                        println!(
-                            "X (Twitter) requires consumer credentials in config.yml. Cannot post without configuration."
-                        );
-                    }
+            if sns_clients.is_empty()
+                && let Some(ref sns_val) = sns
+            {
+                let first_sns = sns_val.split(',').next().unwrap_or("").trim();
+                if first_sns == "mastodon" {
+                    let url = instance_url
+                        .clone()
+                        .expect("instance_url must be provided via CLI or config.yml");
+                    let tok = token
+                        .clone()
+                        .expect("token must be provided via CLI or config.yml");
+                    let client = MastodonClient::new(url, tok, "CLI_User".to_string())?;
+                    sns_clients.push(std::sync::Arc::new(client));
+                } else if first_sns == "misskey" {
+                    let url = instance_url
+                        .clone()
+                        .expect("instance_url must be provided via CLI or config.yml");
+                    let tok = token
+                        .clone()
+                        .expect("token must be provided via CLI or config.yml");
+                    let client = MisskeyClient::new(url, tok, "CLI_User".to_string())?;
+                    sns_clients.push(std::sync::Arc::new(client));
+                } else if first_sns == "bluesky" {
+                    let id = instance_url
+                        .clone()
+                        .expect("identifier must be provided via CLI (instance_url) or config.yml");
+                    let pw = token
+                        .clone()
+                        .expect("password must be provided via CLI (token) or config.yml");
+                    let client = BlueskyClient::new(id, pw, "CLI_User".to_string())?;
+                    sns_clients.push(std::sync::Arc::new(client));
+                } else if first_sns == "x" {
+                    println!(
+                        "X (Twitter) requires consumer credentials in config.yml. Cannot post without configuration."
+                    );
                 }
             }
 
@@ -452,11 +453,9 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
                 let is_link_card_sns = client.name() == "bluesky";
 
                 let mut current_len = final_text.chars().count();
-                if !is_link_card_sns {
-                    if let Some(ref l) = final_link {
-                        // URLの文字数はSNSごとの重みで計算する(X/Mastodonは一律23文字)
-                        current_len += 1 + client.url_char_weight(l); // +1 for space
-                    }
+                if !is_link_card_sns && let Some(ref l) = final_link {
+                    // URLの文字数はSNSごとの重みで計算する(X/Mastodonは一律23文字)
+                    current_len += 1 + client.url_char_weight(l); // +1 for space
                 }
 
                 if current_len > max_len {

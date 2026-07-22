@@ -20,6 +20,12 @@ pub struct Runner<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExt
 }
 
 impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor> Runner<F, S, T, I> {
+    /// Runner を構築する。
+    ///
+    /// 4つの依存(フィード取得・記事保存・テキスト最適化・画像抽出)と
+    /// 実行時オプションを受け取るため引数が多いが、いずれも省略できない。
+    /// ビルダー化は利用箇所が1つのみで割に合わないため見送っている。
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         fetcher: F,
         store: S,
@@ -72,17 +78,17 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor> Runne
             );
         }
 
-        if let Some(limit) = self.limit {
-            if new_articles.len() > limit {
-                if self.debug {
-                    println!(
-                        "[DEBUG] Limiting new articles to {} (original: {}).",
-                        limit,
-                        new_articles.len()
-                    );
-                }
-                new_articles.truncate(limit);
+        if let Some(limit) = self.limit
+            && new_articles.len() > limit
+        {
+            if self.debug {
+                println!(
+                    "[DEBUG] Limiting new articles to {} (original: {}).",
+                    limit,
+                    new_articles.len()
+                );
             }
+            new_articles.truncate(limit);
         }
 
         if new_articles.is_empty() {
@@ -92,10 +98,10 @@ impl<F: FeedFetcher, S: ArticleStore, T: TextOptimizer, I: ImageExtractor> Runne
         // 3. SNSへの投稿ロジック
         for article in &mut new_articles {
             // 画像がなければ抽出しようと試みる
-            if article.image_url.is_none() {
-                if let Ok(Some(img_url)) = self.image_extractor.extract_image(&article.link).await {
-                    article.image_url = Some(img_url);
-                }
+            if article.image_url.is_none()
+                && let Ok(Some(img_url)) = self.image_extractor.extract_image(&article.link).await
+            {
+                article.image_url = Some(img_url);
             }
 
             // 記事のリンクはそのまま使用する。

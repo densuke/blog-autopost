@@ -85,10 +85,10 @@ pub async fn manual_post(
             _ => continue,
         };
 
-        if let Some(ref selected) = payload.targets {
-            if !selected.contains(&target_name) {
-                continue;
-            }
+        if let Some(ref selected) = payload.targets
+            && !selected.contains(&target_name)
+        {
+            continue;
         }
 
         match sns_conf {
@@ -298,10 +298,10 @@ pub async fn manual_post(
             };
 
             let mut media_files = payload.media_paths.clone().unwrap_or_default();
-            if media_files.is_empty() {
-                if let Some(img_url) = &payload.image_url {
-                    media_files.push(img_url.clone());
-                }
+            if media_files.is_empty()
+                && let Some(img_url) = &payload.image_url
+            {
+                media_files.push(img_url.clone());
             }
             let mut post = ScheduledPost::new(
                 payload.text.clone(),
@@ -776,24 +776,24 @@ pub async fn login_submit(
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    if needs_hash_migration {
-        if let Ok(hashed) = bcrypt::hash(&payload.password, bcrypt::DEFAULT_COST) {
-            println!(
-                "Plaintext password detected in configuration. Automatically migrating to bcrypt hash."
-            );
-            let config_path = state.config_path.clone();
-            let mut updated_config = state.config.clone();
-            if let Some(ref mut c_auth) = updated_config.web_auth {
-                c_auth.password = hashed;
-            }
-            match serde_yaml::to_string(&updated_config) {
-                Ok(yaml) => {
-                    if let Err(e) = std::fs::write(&config_path, yaml) {
-                        println!("Failed to write updated config: {:?}", e);
-                    }
+    if needs_hash_migration
+        && let Ok(hashed) = bcrypt::hash(&payload.password, bcrypt::DEFAULT_COST)
+    {
+        println!(
+            "Plaintext password detected in configuration. Automatically migrating to bcrypt hash."
+        );
+        let config_path = state.config_path.clone();
+        let mut updated_config = state.config.clone();
+        if let Some(ref mut c_auth) = updated_config.web_auth {
+            c_auth.password = hashed;
+        }
+        match serde_yaml::to_string(&updated_config) {
+            Ok(yaml) => {
+                if let Err(e) = std::fs::write(&config_path, yaml) {
+                    println!("Failed to write updated config: {:?}", e);
                 }
-                Err(e) => println!("Failed to serialize config to YAML: {:?}", e),
             }
+            Err(e) => println!("Failed to serialize config to YAML: {:?}", e),
         }
     }
 
@@ -824,16 +824,16 @@ pub async fn logout(
     State(state): State<Arc<AppState>>,
     req: axum::http::Request<axum::body::Body>,
 ) -> impl axum::response::IntoResponse {
-    if let Some(cookie_header) = req.headers().get(axum::http::header::COOKIE) {
-        if let Ok(cookie_str) = cookie_header.to_str() {
-            for cookie in cookie_str.split(';') {
-                let parts: Vec<&str> = cookie.trim().split('=').collect();
-                if parts.len() == 2 && parts[0] == "session_id" {
-                    let session_id = parts[1];
-                    let mut sessions = state.sessions.write().await;
-                    sessions.remove(session_id);
-                    break;
-                }
+    if let Some(cookie_header) = req.headers().get(axum::http::header::COOKIE)
+        && let Ok(cookie_str) = cookie_header.to_str()
+    {
+        for cookie in cookie_str.split(';') {
+            let parts: Vec<&str> = cookie.trim().split('=').collect();
+            if parts.len() == 2 && parts[0] == "session_id" {
+                let session_id = parts[1];
+                let mut sessions = state.sessions.write().await;
+                sessions.remove(session_id);
+                break;
             }
         }
     }
@@ -1271,7 +1271,7 @@ async fn handle_tool_call(
                         p.target_sns
                     ));
                 }
-                return Ok(out);
+                Ok(out)
             } else if let Some(at_str) = at {
                 let parsed_time = if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(at_str) {
                     dt.with_timezone(&chrono::Local)
@@ -1297,16 +1297,16 @@ async fn handle_tool_call(
                 );
                 post.link_url = link;
                 let created = state.store.create_post(post).await?;
-                return Ok(format!(
+                Ok(format!(
                     "Successfully scheduled post:\n  ID: {}\n  Time: {}\n  SNS: {:?}",
                     created.id,
                     created.scheduled_at.format("%Y-%m-%d %H:%M:%S"),
                     created.target_sns
-                ));
+                ))
             } else {
-                return Err(anyhow::anyhow!(
+                Err(anyhow::anyhow!(
                     "Either 'at' or 'auto_slot' must be specified"
-                ));
+                ))
             }
         }
         "update_schedule" => {

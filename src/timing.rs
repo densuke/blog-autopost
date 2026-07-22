@@ -64,10 +64,10 @@ impl TimingManager {
 
     /// 指定されたSNSの指定された曜日に許可された時刻リストを取得
     pub fn get_allowed_times(&self, sns_name: &str, weekday: Weekday) -> Vec<NaiveTime> {
-        if let Some(timings) = self.sns_timings.get(sns_name) {
-            if let Some(times) = timings.get(&weekday) {
-                return times.iter().cloned().collect();
-            }
+        if let Some(timings) = self.sns_timings.get(sns_name)
+            && let Some(times) = timings.get(&weekday)
+        {
+            return times.iter().cloned().collect();
         }
         Vec::new()
     }
@@ -85,9 +85,7 @@ impl TimingManager {
                 .collect();
 
             for day in weekdays {
-                map.entry(day)
-                    .or_insert_with(BTreeSet::new)
-                    .extend(times.clone());
+                map.entry(day).or_default().extend(times.clone());
             }
         }
     }
@@ -200,10 +198,9 @@ impl<'a> SlotFinder<'a> {
             for time in allowed_times {
                 if let Some(candidate_dt) =
                     check_date.and_time(time).and_local_timezone(Local).single()
+                    && candidate_dt > min_time
                 {
-                    if candidate_dt > min_time {
-                        candidates.push(candidate_dt);
-                    }
+                    candidates.push(candidate_dt);
                 }
             }
         }

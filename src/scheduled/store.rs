@@ -169,7 +169,7 @@ impl JsonScheduledPostStore {
             }
 
             let ref_time = p.updated_at;
-            if ref_time <= cutoff { false } else { true }
+            ref_time > cutoff
         });
 
         let deleted_count = orig_len - posts.len();

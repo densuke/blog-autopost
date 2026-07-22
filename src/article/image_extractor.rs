@@ -9,6 +9,12 @@ pub struct OgpImageExtractor {
     twitter_image_regex: Regex,
 }
 
+impl Default for OgpImageExtractor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OgpImageExtractor {
     pub fn new() -> Self {
         Self {
@@ -26,12 +32,12 @@ impl OgpImageExtractor {
     /// 動画など画像でないURLは除外する(厳密な判定はダウンロード時に行う)。
     fn extract_from_html(&self, html: &str) -> Option<String> {
         for regex in [&self.og_image_regex, &self.twitter_image_regex] {
-            if let Some(captures) = regex.captures(html) {
-                if let Some(m) = captures.get(1) {
-                    let url = m.as_str().to_string();
-                    if is_probable_image_url(&url) {
-                        return Some(url);
-                    }
+            if let Some(captures) = regex.captures(html)
+                && let Some(m) = captures.get(1)
+            {
+                let url = m.as_str().to_string();
+                if is_probable_image_url(&url) {
+                    return Some(url);
                 }
             }
         }

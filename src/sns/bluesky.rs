@@ -167,35 +167,35 @@ impl SnsClient for BlueskyClient {
             .or_else(|| first_url_in_text(&content.text));
 
         let mut embed_external = None;
-        if embed_blobs.is_empty() {
-            if let Some(link_url) = &card_url {
-                let ogp = fetch_ogp(&self.client, link_url).await;
-                let thumb_blob = if let Some(thumb_url) = ogp.image_url {
-                    match super::download_image(&self.client, &thumb_url).await {
-                        Ok(Some((bytes, mime))) => {
-                            self.upload_blob_data(bytes, &mime, &access_jwt).await.ok()
-                        }
-                        Ok(None) | Err(_) => None,
+        if embed_blobs.is_empty()
+            && let Some(link_url) = &card_url
+        {
+            let ogp = fetch_ogp(&self.client, link_url).await;
+            let thumb_blob = if let Some(thumb_url) = ogp.image_url {
+                match super::download_image(&self.client, &thumb_url).await {
+                    Ok(Some((bytes, mime))) => {
+                        self.upload_blob_data(bytes, &mime, &access_jwt).await.ok()
                     }
-                } else {
-                    None
-                };
-
-                let mut external = json!({
-                    "uri": link_url,
-                    "title": ogp.title.unwrap_or_else(|| "ブログ記事".to_string()),
-                    "description": ogp.description.unwrap_or_default(),
-                });
-
-                if let Some(blob) = thumb_blob {
-                    external["thumb"] = blob;
+                    Ok(None) | Err(_) => None,
                 }
+            } else {
+                None
+            };
 
-                embed_external = Some(json!({
-                    "$type": "app.bsky.embed.external",
-                    "external": external
-                }));
+            let mut external = json!({
+                "uri": link_url,
+                "title": ogp.title.unwrap_or_else(|| "ブログ記事".to_string()),
+                "description": ogp.description.unwrap_or_default(),
+            });
+
+            if let Some(blob) = thumb_blob {
+                external["thumb"] = blob;
             }
+
+            embed_external = Some(json!({
+                "$type": "app.bsky.embed.external",
+                "external": external
+            }));
         }
 
         // 3. レコードを作成して投稿
