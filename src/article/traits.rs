@@ -4,8 +4,7 @@ use async_trait::async_trait;
 /// フィードURLから記事リストを取得するインターフェース
 #[async_trait]
 pub trait FeedFetcher {
-    async fn fetch_articles(&self, feed_url: &str, feed_name: &str)
-    -> anyhow::Result<Vec<Article>>;
+    async fn fetch_articles(&self, feed_url: &str, feed_name: &str) -> anyhow::Result<Vec<Article>>;
 }
 
 /// 既読記事の保存や、新着記事のみを抽出するインターフェース
