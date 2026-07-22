@@ -186,49 +186,39 @@ async fn auth_middleware(
     let mut authenticated = false;
 
     // 1. APIキー (Bearerトークン or X-Api-Key) による認証のチェック
-    if let Some(auth_header) = req.headers().get(axum::http::header::AUTHORIZATION) {
-        if let Ok(auth_str) = auth_header.to_str() {
-            if auth_str.starts_with("Bearer ") {
-                let token = &auth_str[7..];
-                if let Some(ref config_auth) = state.config.web_auth {
-                    if let Some(ref secret) = config_auth.secret_key {
-                        if token == secret {
-                            authenticated = true;
-                        }
-                    }
-                }
-            }
-        }
+    if let Some(auth_header) = req.headers().get(axum::http::header::AUTHORIZATION)
+        && let Ok(auth_str) = auth_header.to_str()
+        && let Some(token) = auth_str.strip_prefix("Bearer ")
+        && let Some(ref config_auth) = state.config.web_auth
+        && let Some(ref secret) = config_auth.secret_key
+        && token == secret
+    {
+        authenticated = true;
     }
 
-    if !authenticated {
-        if let Some(api_key_header) = req.headers().get("X-Api-Key") {
-            if let Ok(api_key) = api_key_header.to_str() {
-                if let Some(ref config_auth) = state.config.web_auth {
-                    if let Some(ref secret) = config_auth.secret_key {
-                        if api_key == secret {
-                            authenticated = true;
-                        }
-                    }
-                }
-            }
-        }
+    if !authenticated
+        && let Some(api_key_header) = req.headers().get("X-Api-Key")
+        && let Ok(api_key) = api_key_header.to_str()
+        && let Some(ref config_auth) = state.config.web_auth
+        && let Some(ref secret) = config_auth.secret_key
+        && api_key == secret
+    {
+        authenticated = true;
     }
 
     // 2. Cookieセッションによる認証のチェック
-    if !authenticated {
-        if let Some(cookie_header) = req.headers().get(axum::http::header::COOKIE) {
-            if let Ok(cookie_str) = cookie_header.to_str() {
-                for cookie in cookie_str.split(';') {
-                    let parts: Vec<&str> = cookie.trim().split('=').collect();
-                    if parts.len() == 2 && parts[0] == "session_id" {
-                        let session_id = parts[1];
-                        let sessions = state.sessions.read().await;
-                        if sessions.contains_key(session_id) {
-                            authenticated = true;
-                            break;
-                        }
-                    }
+    if !authenticated
+        && let Some(cookie_header) = req.headers().get(axum::http::header::COOKIE)
+        && let Ok(cookie_str) = cookie_header.to_str()
+    {
+        for cookie in cookie_str.split(';') {
+            let parts: Vec<&str> = cookie.trim().split('=').collect();
+            if parts.len() == 2 && parts[0] == "session_id" {
+                let session_id = parts[1];
+                let sessions = state.sessions.read().await;
+                if sessions.contains_key(session_id) {
+                    authenticated = true;
+                    break;
                 }
             }
         }

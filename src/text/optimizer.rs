@@ -4,6 +4,12 @@ use async_trait::async_trait;
 
 pub struct DefaultTextOptimizer;
 
+impl Default for DefaultTextOptimizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DefaultTextOptimizer {
     pub fn new() -> Self {
         Self

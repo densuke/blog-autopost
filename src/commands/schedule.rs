@@ -20,8 +20,8 @@ pub async fn run(action: ScheduleAction, config_data: &Config) -> anyhow::Result
             filtered_posts.sort_by_key(|p| p.scheduled_at);
 
             println!(
-                "{:<25} {:<20} {:<20} {:<10} {}",
-                "ID", "Scheduled At", "SNS", "Status", "Content Preview"
+                "{:<25} {:<20} {:<20} {:<10} Content Preview",
+                "ID", "Scheduled At", "SNS", "Status"
             );
             println!("{}", "-".repeat(100));
             for post in filtered_posts {
@@ -173,7 +173,7 @@ pub async fn run(action: ScheduleAction, config_data: &Config) -> anyhow::Result
                 }
                 return Ok(());
             } else if let Some(at_str) = at {
-                let parsed_time = if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&at_str) {
+                if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&at_str) {
                     dt.with_timezone(&chrono::Local)
                 } else if let Ok(dt) =
                     chrono::NaiveDateTime::parse_from_str(&at_str, "%Y-%m-%d %H:%M:%S")
@@ -188,8 +188,7 @@ pub async fn run(action: ScheduleAction, config_data: &Config) -> anyhow::Result
                         "Error: Invalid datetime format. Use RFC3339 (e.g., 2026-06-20T15:00:00+09:00) or 'YYYY-MM-DD HH:MM:SS'"
                     );
                     return Ok(());
-                };
-                parsed_time
+                }
             } else {
                 println!("Error: Either --at or --auto-slot must be specified.");
                 return Ok(());

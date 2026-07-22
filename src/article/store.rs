@@ -162,7 +162,10 @@ mod tests {
         let a2 = create_dummy_article("Title 2", "http://example.com/2");
 
         // Save initially
-        store.save_articles(&[a1.clone()]).await.unwrap();
+        store
+            .save_articles(std::slice::from_ref(&a1))
+            .await
+            .unwrap();
 
         // Check new articles
         let articles = vec![a1.clone(), a2.clone()];
@@ -212,7 +215,10 @@ mod tests {
         let store = JsonArticleStore::new(temp_file.path());
 
         let a1 = create_dummy_article("Title 1", "http://example.com/1");
-        store.save_articles(&[a1.clone()]).await.unwrap();
+        store
+            .save_articles(std::slice::from_ref(&a1))
+            .await
+            .unwrap();
 
         // Save a modified version of a1 with the same link
         let mut a1_modified = a1.clone();

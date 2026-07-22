@@ -1,6 +1,15 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// 投稿タイミングの定義。
+///
+/// 曜日などのキーと、その日に許可される時刻のリストの組を並べたもの。
+/// 例: `("mon", ["09:00", "18:00"])`
+pub type AllowedTimings = Vec<(String, Vec<String>)>;
+
+/// SNSごとの投稿タイミング定義。キーはSNSの設定名。
+pub type AllowedTimingsBySns = HashMap<String, AllowedTimings>;
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct Config {
     pub announcement_text: Option<String>,
@@ -9,9 +18,9 @@ pub struct Config {
     pub sns: Vec<SnsConfig>,
     #[serde(default)]
     pub templates: HashMap<String, String>,
-    pub default_allowed_timings: Option<Vec<(String, Vec<String>)>>,
+    pub default_allowed_timings: Option<AllowedTimings>,
     pub allowed_timings_tolerance_minutes: Option<i64>,
-    pub allowed_timings: Option<HashMap<String, Vec<(String, Vec<String>)>>>,
+    pub allowed_timings: Option<AllowedTimingsBySns>,
     pub web_auth: Option<WebAuthConfig>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_yaml::Value>,
