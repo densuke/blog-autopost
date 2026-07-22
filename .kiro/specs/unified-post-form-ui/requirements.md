@@ -251,3 +251,28 @@ document.getElementById('post-button').addEventListener('click', () => {
 
 - Current UI: タブ形式で「時間指定の予約投稿」「次のタイミングで投稿」を切り替え
 - 問題: タブ選択時にUI レイアウトが大きく変動
+
+---
+
+## 実装との差異メモ (2026-07-22)
+
+本specは設計時の想定として `name="post_method"`、値を `immediate` / `scheduled` /
+`next_timing` と記述しているが、**実際の実装は異なる命名になっている**。
+機能としては要件を満たしているため、完了判定は変更しない。
+
+| 項目 | spec の記述 | `static/index.html` の実装 |
+|---|---|---|
+| ラジオの name | `post_method` | `schedule-type` |
+| 値(すぐに投稿) | `immediate` | `now` |
+| 値(時間指定) | `scheduled` | `custom` |
+| 値(次のタイミング) | `next_timing` | `next` |
+| 条件付き表示の制御 | `setMethod()` / `postState` | `toggleCustomDate(bool)` |
+| 日時入力欄のID | `scheduled-controls-area` | `custom-date-container` |
+
+APIへ送るキーは `schedule_type` で、値は `now` / `custom` / `next`。
+`src/web/routes.rs` の `ManualPostRequest.schedule_type` が受け取る。
+
+**注意**: `post_method` という名前は、配信されない死にコードだった
+`src/web/templates/index.html` 側で使われていたもの。実装を確認する際は
+必ず `static/index.html` を見ること。
+
