@@ -3,7 +3,7 @@
   "created_at": "2025-10-17T10:47:25+09:00",
   "updated_at": "2026-07-22T00:00:00+09:00",
   "language": "ja",
-  "phase": "completed",
+  "phase": "tasks",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -15,9 +15,10 @@
     },
     "tasks": {
       "generated": true,
-      "approved": true
+      "approved": false
     }
   },
   "ready_for_implementation": true,
-  "implementation_completed": true
+  "tracking_issue": 78,
+  "notes": "2026-07-22の再調査により未実装であることが判明した。詳細は requirements.md の「状態の訂正」を参照。"
 }
