@@ -4,30 +4,126 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Blog Autopost RS - Dashboard</title>
+    <!-- テーマの早期適用 (描画前に確定させてちらつきを防ぐ) -->
+    <script>
+        (function () {
+            var KEY = 'blog-autopost-theme';
+            var pref = null;
+            try { pref = localStorage.getItem(KEY); } catch (e) { pref = null; }
+            if (pref !== 'light' && pref !== 'dark') { pref = 'auto'; }
+            var dark = pref === 'dark' || (pref === 'auto' &&
+                window.matchMedia('(prefers-color-scheme: dark)').matches);
+            var root = document.documentElement;
+            root.setAttribute('data-theme-pref', pref);
+            root.setAttribute('data-theme', dark ? 'dark' : 'light');
+        })();
+    </script>
     <!-- Tailwind CSS & DaisyUI -->
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.10.2/dist/full.min.css" rel="stylesheet" type="text/css" />
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // slate 系の色を CSS 変数経由にして、テーマ毎に明暗を入れ替えられるようにする
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        slate: [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]
+                            .reduce(function (acc, key) {
+                                acc[key] = 'rgb(var(--c-slate-' + key + ') / <alpha-value>)';
+                                return acc;
+                            }, {})
+                    }
+                }
+            }
+        };
+    </script>
     <style>
+        /* ダーク: slate の標準ランプをそのまま使う */
+        :root {
+            color-scheme: dark;
+            --c-slate-50: 248 250 252;
+            --c-slate-100: 241 245 249;
+            --c-slate-200: 226 232 240;
+            --c-slate-300: 203 213 225;
+            --c-slate-400: 148 163 184;
+            --c-slate-500: 100 116 139;
+            --c-slate-600: 71 85 105;
+            --c-slate-700: 51 65 85;
+            --c-slate-800: 30 41 59;
+            --c-slate-900: 15 23 42;
+            --c-slate-950: 2 6 23;
+            --page-gradient: linear-gradient(to bottom right, #0f172a, #4c1d95, #0f172a);
+            --glass-bg: rgba(30, 41, 59, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --log-text: #4ade80;
+        }
+
+        /* ライト: ランプを反転させ、既存のクラス指定をそのまま活かす */
+        html[data-theme="light"] {
+            color-scheme: light;
+            --c-slate-50: 2 6 23;
+            --c-slate-100: 15 23 42;
+            --c-slate-200: 30 41 59;
+            --c-slate-300: 51 65 85;
+            --c-slate-400: 71 85 105;
+            --c-slate-500: 100 116 139;
+            --c-slate-600: 148 163 184;
+            --c-slate-700: 203 213 225;
+            --c-slate-800: 226 232 240;
+            --c-slate-900: 241 245 249;
+            --c-slate-950: 248 250 252;
+            --page-gradient: linear-gradient(to bottom right, #f8fafc, #ede9fe, #f8fafc);
+            --glass-bg: rgba(255, 255, 255, 0.72);
+            --glass-border: rgba(15, 23, 42, 0.08);
+            --log-text: #15803d;
+        }
+
+        /* Tailwind の bg-gradient-* クラスより後勝ちさせる必要があるため !important を付ける */
+        body {
+            background-image: var(--page-gradient) !important;
+        }
+
         .glass-panel {
-            background: rgba(30, 41, 59, 0.7);
+            background: var(--glass-bg);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--glass-border);
         }
+
+        /* id セレクタで Tailwind のクラスより優先させる */
+        #log-area {
+            color: var(--log-text);
+        }
+
+        /* ライト時にコントラストが不足するアクセント色を補正する */
+        html[data-theme="light"] .text-purple-400 { color: rgb(126 34 206); }
+        html[data-theme="light"] .text-emerald-400 { color: rgb(4 120 87); }
+        html[data-theme="light"] .text-sky-400 { color: rgb(2 132 199); }
+        html[data-theme="light"] .text-red-400 { color: rgb(185 28 28); }
     </style>
 </head>
 <body class="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-slate-100 p-4 md:p-8">
 
     <div class="max-w-4xl mx-auto space-y-8">
         <!-- Header -->
-        <header class="relative text-center space-y-2">
-            <div class="absolute right-0 top-0">
+        <header class="space-y-2">
+            <div class="flex flex-wrap items-center justify-end gap-2">
+                <div class="join" role="group" aria-label="テーマ切替">
+                    <button type="button" class="btn btn-xs join-item theme-btn" data-theme-value="auto"
+                            title="システム設定に連動" onclick="setTheme('auto')">自動</button>
+                    <button type="button" class="btn btn-xs join-item theme-btn" data-theme-value="light"
+                            title="ライトモード" onclick="setTheme('light')">ライト</button>
+                    <button type="button" class="btn btn-xs join-item theme-btn" data-theme-value="dark"
+                            title="ダークモード" onclick="setTheme('dark')">ダーク</button>
+                </div>
                 <a href="/logout" class="btn btn-sm btn-outline btn-error">Logout</a>
             </div>
-            <h1 class="text-4xl md:text-5xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-600">
-                AutoPost Dashboard
-            </h1>
-            <p id="blog-name" class="text-slate-400 text-lg">Loading config...</p>
+            <div class="text-center space-y-2">
+                <h1 class="text-4xl md:text-5xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-600">
+                    AutoPost Dashboard
+                </h1>
+                <p id="blog-name" class="text-slate-400 text-lg">Loading config...</p>
+            </div>
         </header>
 
         <!-- Main Panel -->
@@ -48,14 +144,14 @@
                     <label class="label">
                         <span class="label-text text-slate-300">Post Content</span>
                     </label>
-                    <textarea id="post-text" class="textarea textarea-bordered h-32 bg-slate-800/50 text-white placeholder-slate-400" placeholder="Hello from Web UI!"></textarea>
+                    <textarea id="post-text" class="textarea textarea-bordered h-32 bg-slate-800/50 text-slate-50 placeholder-slate-400" placeholder="Hello from Web UI!"></textarea>
                 </div>
 
                 <div class="form-control mt-4">
                     <label class="label">
                         <span class="label-text text-slate-300 font-semibold">Link URL (Optional)</span>
                     </label>
-                    <input type="text" id="link-url" placeholder="https://example.com/my-post (リンクカードになります)" class="input input-bordered w-full bg-slate-800/50 text-white placeholder-slate-500 border-slate-700 focus:border-purple-500 transition-colors" />
+                    <input type="text" id="link-url" placeholder="https://example.com/my-post (リンクカードになります)" class="input input-bordered w-full bg-slate-800/50 text-slate-50 placeholder-slate-500 border-slate-700 focus:border-purple-500 transition-colors" />
                 </div>
 
                 <div class="form-control mt-4">
@@ -111,7 +207,7 @@
                     <label class="label">
                         <span class="label-text text-slate-300">Scheduled At</span>
                     </label>
-                    <input type="datetime-local" id="scheduled-at" class="input input-bordered w-full bg-slate-800/50 text-white" />
+                    <input type="datetime-local" id="scheduled-at" class="input input-bordered w-full bg-slate-800/50 text-slate-50" />
                 </div>
 
                 <div class="card-actions justify-end mt-6">
@@ -180,21 +276,21 @@
                 <label class="label">
                     <span class="label-text text-slate-300">Content</span>
                 </label>
-                <textarea id="edit-post-text" class="textarea textarea-bordered h-28 bg-slate-800 text-white border-slate-700" placeholder="Post content"></textarea>
+                <textarea id="edit-post-text" class="textarea textarea-bordered h-28 bg-slate-800 text-slate-50 border-slate-700" placeholder="Post content"></textarea>
             </div>
             
             <div class="form-control mb-4">
                 <label class="label">
                     <span class="label-text text-slate-300">Scheduled At</span>
                 </label>
-                <input type="datetime-local" id="edit-scheduled-at" class="input input-bordered bg-slate-800 text-white border-slate-700" />
+                <input type="datetime-local" id="edit-scheduled-at" class="input input-bordered bg-slate-800 text-slate-50 border-slate-700" />
             </div>
             
             <div class="form-control mb-4">
                 <label class="label">
                     <span class="label-text text-slate-300">Link URL (Optional)</span>
                 </label>
-                <input type="text" id="edit-link-url" class="input input-bordered bg-slate-800 text-white border-slate-700" placeholder="https://example.com" />
+                <input type="text" id="edit-link-url" class="input input-bordered bg-slate-800 text-slate-50 border-slate-700" placeholder="https://example.com" />
             </div>
 
             <div class="form-control mb-4">
@@ -210,7 +306,7 @@
                 <label class="label">
                     <span class="label-text text-slate-300">Status</span>
                 </label>
-                <select id="edit-status" class="select select-bordered bg-slate-800 text-white border-slate-700">
+                <select id="edit-status" class="select select-bordered bg-slate-800 text-slate-50 border-slate-700">
                     <option value="予約済み">予約済み</option>
                     <option value="投稿済み">投稿済み</option>
                     <option value="失敗">失敗</option>
@@ -225,6 +321,46 @@
     </dialog>
 
     <script>
+        // ==================== テーマ切替 (自動/ライト/ダーク) ====================
+        const THEME_KEY = 'blog-autopost-theme';
+        const darkMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+        // 現在の選択値 (auto / light / dark) を返す
+        function currentThemePreference() {
+            return document.documentElement.getAttribute('data-theme-pref') || 'auto';
+        }
+
+        // 選択値から実際の配色を決めて DOM に反映する
+        function applyTheme(pref) {
+            const root = document.documentElement;
+            const dark = pref === 'dark' || (pref === 'auto' && darkMediaQuery.matches);
+            root.setAttribute('data-theme-pref', pref);
+            root.setAttribute('data-theme', dark ? 'dark' : 'light');
+
+            document.querySelectorAll('.theme-btn').forEach(btn => {
+                const active = btn.dataset.themeValue === pref;
+                btn.classList.toggle('btn-primary', active);
+                btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+            });
+        }
+
+        // 選択値を保存して反映する (localStorage が使えなくても表示は切り替える)
+        function setTheme(pref) {
+            try {
+                localStorage.setItem(THEME_KEY, pref);
+            } catch (e) {
+                console.warn('Failed to persist theme preference', e);
+            }
+            applyTheme(pref);
+        }
+
+        // 「自動」のときだけ OS 設定の変更に追従する
+        darkMediaQuery.addEventListener('change', () => {
+            if (currentThemePreference() === 'auto') {
+                applyTheme('auto');
+            }
+        });
+
         // 設定をロードしてヘッダーに表示
         async function loadConfig() {
             try {
@@ -866,6 +1002,7 @@
         }
 
         // Initialize
+        applyTheme(currentThemePreference());
         loadConfig();
         loadSchedules();
         setupMediaDropAndPaste();
