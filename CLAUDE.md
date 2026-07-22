@@ -146,7 +146,7 @@ X と Mastodon はURLを実長に関わらず23文字として数えるため、
 | `unified-post-form-ui` | 完了 - すぐに投稿・時間指定予約・次のタイミング投稿を1つのフォームに統合 |
 | `dark-mode-system-integration` | 一部実装 - システム連動(`prefers-color-scheme`)のみ。手動切替UIは未実装 |
 | `reserved-post-sns-selection-fix` | 未着手 - 予約投稿編集時にSNSを全て選び直せないバグ |
-| `test-coverage-improvement` | 要再作成 - Python版前提のため Rust版として作り直しが必要 |
+| `test-coverage-improvement` | 仕様策定済み - カバレッジ80%維持のCI基盤整備と段階的なテスト拡充 (#59 #61 #62 #63) |
 
 ## 注意事項
 
