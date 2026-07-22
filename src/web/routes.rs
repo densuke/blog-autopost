@@ -1543,3 +1543,544 @@ async fn handle_tool_call(
         _ => Err(anyhow::anyhow!("Unknown tool name: {}", name)),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::scheduled::ScheduledPost;
+    use crate::web::tests::{
+        TEST_PASSWORD, TEST_USERNAME, TestApp, setup_test_app, setup_test_app_with_config,
+    };
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode, header};
+    use tower::ServiceExt;
+
+    const SECRET: &str = "test-secret-token";
+
+    fn app_with_auth() -> TestApp {
+        setup_test_app(Some(SECRET.to_string()))
+    }
+
+    /// APIキー付きのGETリクエストを作る。
+    fn api_get(uri: &str) -> Request<Body> {
+        Request::builder()
+            .uri(uri)
+            .header("X-Api-Key", SECRET)
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    /// 応答ボディをJSONとして読み出す。
+    async fn json_body(response: axum::response::Response) -> serde_json::Value {
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("ボディの読み出しに失敗");
+        serde_json::from_slice(&bytes).expect("JSONとして解釈できない")
+    }
+
+    /// 予約を1件用意し、そのIDを返す。
+    async fn seed(app: &TestApp, content: &str) -> String {
+        let post = ScheduledPost::new(
+            content.to_string(),
+            chrono::Local::now() + chrono::Duration::hours(1),
+            vec![],
+            vec!["bluesky".to_string()],
+        );
+        app.state
+            .store
+            .create_post(post)
+            .await
+            .expect("予約の作成に失敗")
+            .id
+    }
+
+    // --- GET /api/config ---
+
+    /// SNS未設定・blog未設定の場合は既定値が返る。
+    #[tokio::test]
+    async fn test_get_config_defaults() {
+        let app = app_with_auth();
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(api_get("/api/config"))
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = json_body(response).await;
+        assert_eq!(body["blog_name"], "Unknown Blog");
+        assert_eq!(body["active_sns"].as_array().unwrap().len(), 0);
+    }
+
+    /// 設定済みのブログ名とSNS一覧が返る。
+    #[tokio::test]
+    async fn test_get_config_with_blog_and_sns() {
+        use crate::config::{BlogConfig, SnsConfig};
+        use std::collections::HashMap;
+
+        let app = setup_test_app_with_config(Some(SECRET.to_string()), |config| {
+            config.blog = Some(vec![BlogConfig {
+                name: "テストブログ".to_string(),
+                feed_url: "https://example.com/feed".to_string(),
+                extra: HashMap::new(),
+            }]);
+            config.sns = vec![
+                SnsConfig::Mastodon {
+                    name: "mstdn-main".to_string(),
+                    instance_url: "https://mstdn.example.com".to_string(),
+                    access_token: "t".to_string(),
+                },
+                SnsConfig::Bluesky {
+                    name: "bsky-main".to_string(),
+                    identifier: "id".to_string(),
+                    password: "pw".to_string(),
+                },
+                SnsConfig::Unknown,
+            ];
+        });
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(api_get("/api/config"))
+            .await
+            .unwrap();
+
+        let body = json_body(response).await;
+        assert_eq!(body["blog_name"], "テストブログ");
+        let sns = body["active_sns"].as_array().unwrap();
+        assert_eq!(sns[0], "Mastodon (mstdn-main)");
+        assert_eq!(sns[1], "Bluesky (bsky-main)");
+        assert_eq!(sns[2], "Unknown");
+    }
+
+    // --- GET /api/schedules ---
+
+    #[tokio::test]
+    async fn test_get_schedules_empty() {
+        let app = app_with_auth();
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(api_get("/api/schedules"))
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(json_body(response).await.as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_get_schedules_returns_created_posts() {
+        let app = app_with_auth();
+        seed(&app, "予約1").await;
+        seed(&app, "予約2").await;
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(api_get("/api/schedules"))
+            .await
+            .unwrap();
+
+        let body = json_body(response).await;
+        let posts = body.as_array().unwrap();
+        assert_eq!(posts.len(), 2);
+        assert_eq!(posts[0]["content"], "予約1");
+    }
+
+    // --- PUT /api/schedules/{id} ---
+
+    #[tokio::test]
+    async fn test_update_schedule_success() {
+        let app = app_with_auth();
+        let id = seed(&app, "変更前").await;
+
+        let payload = serde_json::json!({
+            "content": "変更後",
+            "scheduled_at": "2026-09-01T09:00:00+09:00",
+            "target_sns": ["mastodon", "bluesky"],
+            "status": "投稿済み",
+            "media_files": ["a.png"],
+            "link_url": "https://example.com/a"
+        });
+
+        let request = Request::builder()
+            .method("PUT")
+            .uri(format!("/api/schedules/{}", id))
+            .header("X-Api-Key", SECRET)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(payload.to_string()))
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = json_body(response).await;
+        assert_eq!(body["content"], "変更後");
+        assert_eq!(body["status"], "投稿済み");
+        assert_eq!(body["target_sns"][0], "mastodon");
+        assert_eq!(body["media_files"][0], "a.png");
+        assert_eq!(body["link_url"], "https://example.com/a");
+    }
+
+    /// 存在しないIDの更新は404を返す。
+    #[tokio::test]
+    async fn test_update_schedule_not_found() {
+        let app = app_with_auth();
+
+        let payload = serde_json::json!({
+            "content": "x",
+            "scheduled_at": "2026-09-01T09:00:00+09:00",
+            "target_sns": ["mastodon"],
+            "status": "予約済み"
+        });
+
+        let request = Request::builder()
+            .method("PUT")
+            .uri("/api/schedules/post-does-not-exist")
+            .header("X-Api-Key", SECRET)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(payload.to_string()))
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    /// 日時の形式が不正な場合は400を返す。
+    #[tokio::test]
+    async fn test_update_schedule_invalid_datetime() {
+        let app = app_with_auth();
+        let id = seed(&app, "変更前").await;
+
+        let payload = serde_json::json!({
+            "content": "x",
+            "scheduled_at": "めちゃくちゃな日時",
+            "target_sns": ["mastodon"],
+            "status": "予約済み"
+        });
+
+        let request = Request::builder()
+            .method("PUT")
+            .uri(format!("/api/schedules/{}", id))
+            .header("X-Api-Key", SECRET)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(payload.to_string()))
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    // --- DELETE /api/schedules/{id} ---
+
+    #[tokio::test]
+    async fn test_delete_schedule_success() {
+        let app = app_with_auth();
+        let id = seed(&app, "消す予約").await;
+
+        let request = Request::builder()
+            .method("DELETE")
+            .uri(format!("/api/schedules/{}", id))
+            .header("X-Api-Key", SECRET)
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert!(app.state.store.get_all_posts().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_delete_schedule_not_found() {
+        let app = app_with_auth();
+
+        let request = Request::builder()
+            .method("DELETE")
+            .uri("/api/schedules/post-does-not-exist")
+            .header("X-Api-Key", SECRET)
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    // --- GET /api/next-slots ---
+
+    #[tokio::test]
+    async fn test_get_next_slots() {
+        let app = setup_test_app_with_config(Some(SECRET.to_string()), |config| {
+            config.default_allowed_timings = Some(vec![(
+                "*".to_string(),
+                vec!["09:00".to_string(), "18:00".to_string()],
+            )]);
+            config.sns = vec![crate::config::SnsConfig::Mastodon {
+                name: "mstdn-main".to_string(),
+                instance_url: "https://mstdn.example.com".to_string(),
+                access_token: "t".to_string(),
+            }];
+        });
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(api_get("/api/next-slots"))
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = json_body(response).await;
+
+        // 応答は {"slots": {"<SNS名>": "<RFC3339の日時>"}} の形
+        let slots = body["slots"].as_object().expect("slotsはオブジェクト");
+        let slot = slots
+            .get("mstdn-main")
+            .expect("設定したSNSの枠が含まれるはず");
+        let slot_str = slot.as_str().expect("枠が見つかるはずなので日時文字列");
+        assert!(
+            chrono::DateTime::parse_from_rfc3339(slot_str).is_ok(),
+            "RFC3339として解釈できること: {}",
+            slot_str
+        );
+        // 設定した 09:00 / 18:00 のいずれかの枠が返る
+        assert!(
+            slot_str.contains("T09:00:00") || slot_str.contains("T18:00:00"),
+            "設定したタイミングの枠であること: {}",
+            slot_str
+        );
+    }
+
+    /// SNSが未設定なら枠も空になる。
+    #[tokio::test]
+    async fn test_get_next_slots_without_sns() {
+        let app = app_with_auth();
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(api_get("/api/next-slots"))
+            .await
+            .unwrap();
+
+        let body = json_body(response).await;
+        assert!(body["slots"].as_object().unwrap().is_empty());
+    }
+
+    // --- 認証 ---
+
+    /// APIキーが無いと401になる。
+    #[tokio::test]
+    async fn test_api_requires_auth() {
+        let app = app_with_auth();
+
+        for uri in ["/api/config", "/api/schedules", "/api/next-slots"] {
+            let request = Request::builder().uri(uri).body(Body::empty()).unwrap();
+            let response = app.router.clone().oneshot(request).await.unwrap();
+
+            assert_eq!(
+                response.status(),
+                StatusCode::UNAUTHORIZED,
+                "{} は認証が必要なはず",
+                uri
+            );
+        }
+    }
+
+    /// 誤ったAPIキーでも401になる。
+    #[tokio::test]
+    async fn test_api_rejects_wrong_key() {
+        let app = app_with_auth();
+
+        let request = Request::builder()
+            .uri("/api/config")
+            .header("X-Api-Key", "wrong-key")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    // --- POST /login ---
+
+    /// 正しい資格情報でログインするとセッションが作られ、Cookieが返る。
+    #[tokio::test]
+    async fn test_login_success_sets_session_cookie() {
+        let app = app_with_auth();
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/login")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(format!(
+                "username={}&password={}",
+                TEST_USERNAME, TEST_PASSWORD
+            )))
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers().get(header::LOCATION).unwrap(), "/");
+
+        let cookie = response
+            .headers()
+            .get(header::SET_COOKIE)
+            .expect("Set-Cookieが必要")
+            .to_str()
+            .unwrap();
+        assert!(
+            cookie.starts_with("session_id=sess_"),
+            "実際の値: {}",
+            cookie
+        );
+        assert!(cookie.contains("HttpOnly"), "HttpOnly属性が必要");
+
+        assert_eq!(app.state.sessions.read().await.len(), 1);
+    }
+
+    /// パスワードが違うと401になり、セッションは作られない。
+    #[tokio::test]
+    async fn test_login_with_wrong_password() {
+        let app = app_with_auth();
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/login")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(format!(
+                "username={}&password=wrong",
+                TEST_USERNAME
+            )))
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert!(app.state.sessions.read().await.is_empty());
+    }
+
+    /// ユーザー名が違うと401になる。
+    #[tokio::test]
+    async fn test_login_with_wrong_username() {
+        let app = app_with_auth();
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/login")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(format!(
+                "username=someone&password={}",
+                TEST_PASSWORD
+            )))
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    /// web_auth 未設定の場合は500になる。
+    #[tokio::test]
+    async fn test_login_without_web_auth_config() {
+        let app = setup_test_app_with_config(None, |config| {
+            config.web_auth = None;
+        });
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/login")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from("username=admin&password=password"))
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    /// 平文パスワードの設定でログインすると、bcryptハッシュへ自動移行される。
+    #[tokio::test]
+    async fn test_login_migrates_plaintext_password() {
+        let app = setup_test_app_with_config(None, |config| {
+            if let Some(ref mut auth) = config.web_auth {
+                auth.password = "plaintext".to_string();
+            }
+        });
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/login")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from("username=admin&password=plaintext"))
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+
+        // 設定ファイルがbcryptハッシュへ書き換えられている
+        let written = std::fs::read_to_string(&app.state.config_path)
+            .expect("設定ファイルが書き出されているはず");
+        assert!(
+            written.contains("$2b$") || written.contains("$2y$") || written.contains("$2a$"),
+            "bcryptハッシュへ移行されるはず: {}",
+            written
+        );
+        assert!(!written.contains("plaintext"), "平文が残ってはいけない");
+    }
+
+    // --- GET /logout ---
+
+    /// ログアウトするとセッションが破棄される。
+    #[tokio::test]
+    async fn test_logout_removes_session() {
+        let app = app_with_auth();
+        {
+            let mut sessions = app.state.sessions.write().await;
+            sessions.insert("my-session".to_string(), "admin".to_string());
+        }
+
+        let request = Request::builder()
+            .uri("/logout")
+            .header(header::COOKIE, "session_id=my-session")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert!(app.state.sessions.read().await.is_empty());
+    }
+
+    // --- GET /login (ページ) ---
+
+    /// static/login.html が存在すればHTMLを返す。
+    /// テスト実行時のカレントディレクトリによって結果が変わるため、
+    /// 200 か 404 のいずれかであることのみを確認する。
+    #[tokio::test]
+    async fn test_get_login_page_responds() {
+        let app = app_with_auth();
+
+        let request = Request::builder()
+            .uri("/login")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        assert!(
+            response.status() == StatusCode::OK || response.status() == StatusCode::NOT_FOUND,
+            "実際のステータス: {}",
+            response.status()
+        );
+    }
+}
