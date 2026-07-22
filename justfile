@@ -47,7 +47,7 @@ test-cov:
 
 # カバレッジのサマリのみ表示
 cov:
-    cargo llvm-cov --summary-only
+    cargo llvm-cov --all-features --workspace --summary-only
 
 # カバレッジが閾値(coverage-threshold.txt)を満たすか検査
 # CIと同じ判定をローカルで行う。
