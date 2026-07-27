@@ -47,6 +47,8 @@
                     <button type="button" class="btn btn-xs join-item theme-btn" data-theme-value="dark"
                             title="ダークモード" onclick="setTheme('dark')">ダーク</button>
                 </div>
+                <!-- 稼働バージョンと更新の有無（Agy #408）。表示のみで、更新は行わない -->
+                <span id="version-info" class="text-xs opacity-60"></span>
                 <a href="/logout" class="btn btn-sm btn-outline btn-error">Logout</a>
             </div>
             <div class="text-center space-y-2">
@@ -307,6 +309,33 @@
         // /api/config から取得した SNS アカウント一覧 ({name, sns_type, label})
         // 手動投稿フォームと編集モーダルの双方がこれを唯一の情報源とする
         let snsAccounts = [];
+
+        // 稼働バージョンと更新の有無をヘッダーに表示する（Agy #408）
+        // サーバ側は1日1回だけ GitHub を確認しキャッシュしている。ここでは表示のみで、
+        // 実際の更新は行わない（深夜帯の自動差し替え = Agy #409 の担当）
+        async function loadVersion() {
+            const el = document.getElementById('version-info');
+            if (!el) return;
+            try {
+                const res = await fetch('/api/version');
+                if (!res.ok) return;
+                const v = await res.json();
+                if (v.update_available && v.latest) {
+                    el.textContent = `v${v.current} → v${v.latest} あり`;
+                    el.classList.remove('opacity-60');
+                    el.classList.add('text-warning', 'font-semibold');
+                    el.title = `新しいバージョン v${v.latest} が公開されています（確認: ${v.checked_at || '不明'}）`;
+                } else {
+                    el.textContent = `v${v.current}`;
+                    el.title = v.checked_at
+                        ? `最新です（確認: ${v.checked_at}）`
+                        : '稼働中のバージョン（更新確認は未完了）';
+                }
+            } catch (e) {
+                // 取得できなくても画面は壊さない。バージョン表示だけ空のままにする
+                console.warn('version check unavailable:', e);
+            }
+        }
 
         // 設定をロードしてヘッダーに表示
         async function loadConfig() {
@@ -961,6 +990,7 @@
         // Initialize
         applyTheme(currentThemePreference());
         loadConfig();
+        loadVersion();
         loadSchedules();
         setupMediaDropAndPaste();
     </script>
