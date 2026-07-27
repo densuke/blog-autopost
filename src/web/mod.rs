@@ -24,6 +24,8 @@ pub struct AppState {
     pub mcp_sessions: Arc<
         tokio::sync::RwLock<HashMap<String, tokio::sync::mpsc::Sender<axum::response::sse::Event>>>,
     >,
+    /// 稼働バージョンと更新の有無（Agy #408）。1日1回だけ更新される。
+    pub version_status: crate::version_check::SharedVersionStatus,
 }
 
 /// アプリケーションのルータを構築する。
@@ -37,6 +39,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 
     // ルーティング設定
     let api_routes = Router::new()
+        .route("/version", get(routes::get_version))
         .route("/config", get(routes::get_config))
         .route("/post", post(routes::manual_post))
         .route("/upload", post(routes::upload_media))
@@ -96,6 +99,30 @@ pub async fn start_server(config: Config, config_path: String, port: u16) -> any
         }
     });
 
+    // 更新確認（Agy #408）。1日1回で十分なので、起動時に1回 + 以後24時間ごとに確認する。
+    // ここでは検知と表示のみを行い、実際の差し替えは行わない（Agy #409 の担当）。
+    let version_status = crate::version_check::new_shared_status();
+    let version_status_bg = version_status.clone();
+    tokio::spawn(async move {
+        loop {
+            match crate::version_check::refresh(&version_status_bg).await {
+                Ok(()) => {
+                    let s = version_status_bg.read().await;
+                    if s.update_available {
+                        println!(
+                            "Update available: {} -> {}",
+                            s.current,
+                            s.latest.as_deref().unwrap_or("?")
+                        );
+                    }
+                }
+                // 取得に失敗しても稼働バージョンの表示は維持される。ログに残して継続する。
+                Err(e) => println!("Version check failed (continuing): {e}"),
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(24 * 60 * 60)).await;
+        }
+    });
+
     let sessions = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
     let mcp_sessions = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
     let state = Arc::new(AppState {
@@ -105,6 +132,7 @@ pub async fn start_server(config: Config, config_path: String, port: u16) -> any
         config_path,
         sessions,
         mcp_sessions,
+        version_status,
     });
 
     let app = build_router(state);
@@ -288,6 +316,8 @@ mod tests {
             config_path: dir.path().join("config.yml").to_string_lossy().into_owned(),
             sessions,
             mcp_sessions,
+            // テストでは外部 API を叩かない。未確認状態のまま扱う（Agy #408）
+            version_status: crate::version_check::new_shared_status(),
         });
 
         let router = build_router(state.clone());
@@ -407,5 +437,49 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    /// 更新確認 API は、外部 API を一度も叩けていなくても稼働バージョンを返す（Agy #408）。
+    ///
+    /// GitHub API の失敗やレート制限で画面が壊れないことの担保。
+    #[tokio::test]
+    async fn 更新確認apiは未確認でも稼働バージョンを返す() {
+        let app = setup_test_app(Some("my-secret-token".to_string()));
+
+        // 認証を通す（更新確認 API も他の API と同じく認証配下にある）
+        {
+            let mut sessions = app.state.sessions.write().await;
+            sessions.insert("my-session-id".to_string(), "admin".to_string());
+        }
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/version")
+                    .header(axum::http::header::COOKIE, "session_id=my-session-id")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(
+            v["current"].as_str().unwrap(),
+            crate::version_check::current_version(),
+            "稼働バージョンが返らなければ画面に何も出せない"
+        );
+        // 未確認の状態では更新ありと誤表示しないこと
+        assert!(!v["update_available"].as_bool().unwrap());
+        assert!(v["latest"].is_null());
+        assert!(v["checked_at"].is_null());
     }
 }

@@ -111,6 +111,16 @@ pub fn resolve_sns_name(sns_list: &[SnsConfig], target: &str) -> Option<String> 
     })
 }
 
+/// 稼働バージョンと、より新しい版が公開されているかを返す（Agy #408）。
+///
+/// 実際の更新は行わない（Agy #409 の担当）。まだ一度も確認できていない場合でも、
+/// 稼働バージョンだけは必ず返す（画面を壊さないため）。
+pub async fn get_version(
+    State(state): State<Arc<AppState>>,
+) -> Json<crate::version_check::VersionStatus> {
+    Json(state.version_status.read().await.clone())
+}
+
 pub async fn get_config(State(state): State<Arc<AppState>>) -> Json<ConfigResponse> {
     let blog_name = state
         .config
