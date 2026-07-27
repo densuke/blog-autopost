@@ -1,3 +1,4 @@
+use crate::scheduled::compat;
 use crate::scheduled::store::JsonScheduledPostStore;
 use crate::sns::models::PostContent;
 use crate::sns::traits::SnsClient;
@@ -30,9 +31,10 @@ impl ScheduledPostExecutor {
 
         // 実行対象の投稿をフィルタリング
         // "予約済み" かつ scheduled_at <= now
+        // 旧語彙(Python版)が紛れていても取り違えないよう正規化を通す（Agy #366）
         let pending_posts: Vec<_> = posts
             .into_iter()
-            .filter(|p| p.status == "予約済み" && p.scheduled_at <= now)
+            .filter(|p| compat::is_pending(&p.status) && p.scheduled_at <= now)
             .collect();
 
         for mut post in pending_posts {
@@ -125,10 +127,12 @@ impl ScheduledPostExecutor {
         }
 
         // クリーンアップ：24時間以上経過した完了投稿を削除
+        // "投稿済み" だけを見ると、Python 版が残した "投稿完了" / "実行済み" / "スキップ" の
+        // レコードが永久に掃除されずに残り続ける。終端ステータスをまとめて対象にする（Agy #366）
         let cleanup_cutoff = now - chrono::Duration::hours(24);
         match self
             .store
-            .delete_posts_older_than(cleanup_cutoff, Some(vec!["投稿済み".to_string()]))
+            .delete_posts_older_than(cleanup_cutoff, Some(compat::terminal_statuses()))
             .await
         {
             Ok(count) => {
@@ -468,5 +472,107 @@ mod tests {
             .unwrap();
 
         assert!(client.received.lock().unwrap().is_empty());
+    }
+
+    // ---- Python 版が残した旧語彙データへの防御（Agy #366）----
+
+    /// 旧語彙 "投稿完了" / "実行済み" のレコードを、未投稿と誤認して再送信しない。
+    ///
+    /// 正規化を通さずに `status == "予約済み"` で判定していた頃も再送信はされなかったが、
+    /// 正規化の導入で挙動が変わっていないことを固定する回帰テスト。
+    #[tokio::test]
+    async fn 旧語彙の完了済みレコードは再投稿されない() {
+        for legacy in ["投稿完了", "実行済み", "スキップ"] {
+            let (store, _tmp) = temp_store();
+            let mut post = ScheduledPost::new(
+                format!("旧語彙: {legacy}"),
+                Local::now() - Duration::minutes(5),
+                vec![],
+                vec!["mock-main".to_string()],
+            );
+            post.status = legacy.to_string();
+            store.create_post(post).await.unwrap();
+
+            let client = Arc::new(MockSnsClient::success("mock-main"));
+            let clients: Vec<Arc<dyn SnsClient + Send + Sync>> = vec![client.clone()];
+            ScheduledPostExecutor::new(store.clone(), clients, false)
+                .execute_pending_posts()
+                .await
+                .unwrap();
+
+            assert!(
+                client.received.lock().unwrap().is_empty(),
+                "status={legacy} のレコードが再投稿された"
+            );
+        }
+    }
+
+    /// 旧語彙の完了レコードもクリーンアップ対象になる。
+    ///
+    /// 修正前は `"投稿済み"` だけを見ていたため、Python 版由来の "投稿完了" / "実行済み" /
+    /// "スキップ" が永久に残り続けていた。
+    #[tokio::test]
+    async fn 旧語彙の完了レコードもクリーンアップされる() {
+        let (store, _tmp) = temp_store();
+        let stale = Local::now() - Duration::hours(48);
+
+        for legacy in ["投稿済み", "投稿完了", "実行済み", "スキップ"] {
+            let mut post = ScheduledPost::new(
+                format!("古い: {legacy}"),
+                stale,
+                vec![],
+                vec!["mock-main".to_string()],
+            );
+            post.status = legacy.to_string();
+            post.updated_at = stale;
+            store.create_post(post).await.unwrap();
+        }
+
+        // 未完了のものは掃除されてはならない
+        let mut pending = ScheduledPost::new(
+            "未来の予約".to_string(),
+            Local::now() + Duration::hours(1),
+            vec![],
+            vec!["mock-main".to_string()],
+        );
+        pending.updated_at = stale;
+        let pending_id = pending.id.clone();
+        store.create_post(pending).await.unwrap();
+
+        let mut failed = ScheduledPost::new(
+            "失敗して残すもの".to_string(),
+            stale,
+            vec![],
+            vec!["mock-main".to_string()],
+        );
+        failed.status = "失敗".to_string();
+        failed.updated_at = stale;
+        let failed_id = failed.id.clone();
+        store.create_post(failed).await.unwrap();
+
+        let clients: Vec<Arc<dyn SnsClient + Send + Sync>> =
+            vec![Arc::new(MockSnsClient::success("mock-main"))];
+        ScheduledPostExecutor::new(store.clone(), clients, false)
+            .execute_pending_posts()
+            .await
+            .unwrap();
+
+        let remaining = store.get_all_posts().await.unwrap();
+        let remaining_ids: Vec<_> = remaining.iter().map(|p| p.id.clone()).collect();
+
+        assert!(
+            remaining_ids.contains(&pending_id),
+            "未来の予約が掃除された: {remaining_ids:?}"
+        );
+        assert!(
+            remaining_ids.contains(&failed_id),
+            "失敗レコードが掃除された（原因調査できなくなる）: {remaining_ids:?}"
+        );
+        assert_eq!(
+            remaining.len(),
+            2,
+            "終端ステータスの4件が掃除されていない: {:?}",
+            remaining.iter().map(|p| &p.status).collect::<Vec<_>>()
+        );
     }
 }
