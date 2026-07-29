@@ -525,3 +525,736 @@ pub(crate) async fn handle_tool_call(
         _ => Err(anyhow::anyhow!("Unknown tool name: {}", name)),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::SnsConfig;
+    use crate::scheduled::ScheduledPost;
+    use crate::web::tests::{TestApp, setup_test_app, setup_test_app_with_config};
+
+    const SECRET: &str = "test-secret-token";
+
+    fn app() -> TestApp {
+        setup_test_app(Some(SECRET.to_string()))
+    }
+
+    /// 予約を1件用意し、そのIDを返す。
+    async fn seed(app: &TestApp, content: &str, minutes_ahead: i64) -> String {
+        let post = ScheduledPost::new(
+            content.to_string(),
+            chrono::Local::now() + chrono::Duration::minutes(minutes_ahead),
+            vec![],
+            vec!["bluesky".to_string()],
+        );
+        app.state
+            .store
+            .create_post(post)
+            .await
+            .expect("予約の作成に失敗")
+            .id
+    }
+
+    /// tool を呼び出して結果テキストを取り出す。
+    async fn call(app: &TestApp, name: &str, args: serde_json::Value) -> anyhow::Result<String> {
+        handle_tool_call(app.state.clone(), name, args).await
+    }
+
+    // --- 定義 ---
+
+    /// tool 定義は名前が一意で、必要な項目を備えている。
+    #[test]
+    fn tool定義は名前が一意で必要項目を備える() {
+        let defs = tool_definitions();
+        let names: Vec<&str> = defs.iter().filter_map(|d| d["name"].as_str()).collect();
+
+        let mut sorted = names.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), names.len(), "tool名が重複している");
+
+        for d in &defs {
+            assert!(d["name"].as_str().is_some_and(|s| !s.is_empty()));
+            assert!(d["description"].as_str().is_some_and(|s| !s.is_empty()));
+            assert_eq!(d["inputSchema"]["type"], "object");
+        }
+    }
+
+    // --- list_schedules ---
+
+    /// 予約が無いときは空である旨を返す。
+    #[tokio::test]
+    async fn list_schedules_は空のとき案内を返す() {
+        let app = app();
+        let out = call(&app, "list_schedules", json!({})).await.unwrap();
+
+        assert!(out.contains("予約投稿一覧"));
+        assert!(out.contains("(予約投稿はありません)"));
+    }
+
+    /// 予約は時刻の昇順で並ぶ。
+    #[tokio::test]
+    async fn list_schedules_は時刻の昇順で並ぶ() {
+        let app = app();
+        seed(&app, "あとの予約", 120).await;
+        seed(&app, "さきの予約", 30).await;
+
+        let out = call(&app, "list_schedules", json!({})).await.unwrap();
+
+        let first = out.find("さきの予約").expect("先の予約が含まれる");
+        let second = out.find("あとの予約").expect("後の予約が含まれる");
+        assert!(first < second, "時刻の昇順で並ぶこと:\n{}", out);
+    }
+
+    /// status で絞り込める。
+    #[tokio::test]
+    async fn list_schedules_はstatusで絞り込める() {
+        let app = app();
+        let id = seed(&app, "投稿済みにする予約", 30).await;
+        seed(&app, "予約済みのまま", 60).await;
+
+        let mut post = app
+            .state
+            .store
+            .get_post_by_id(&id)
+            .await
+            .unwrap()
+            .expect("作成した予約が取れる");
+        post.status = "投稿済み".to_string();
+        app.state.store.update_post(&id, post).await.unwrap();
+
+        let out = call(&app, "list_schedules", json!({ "status": "投稿済み" }))
+            .await
+            .unwrap();
+
+        assert!(out.contains("投稿済みにする予約"));
+        assert!(!out.contains("予約済みのまま"));
+    }
+
+    /// 40文字を超える本文は省略される。
+    #[tokio::test]
+    async fn list_schedules_は長い本文を省略する() {
+        let app = app();
+        let long = "あ".repeat(50);
+        seed(&app, &long, 30).await;
+
+        let out = call(&app, "list_schedules", json!({})).await.unwrap();
+
+        assert!(out.contains("..."), "省略記号が付くこと:\n{}", out);
+        assert!(!out.contains(&long), "全文は載らないこと");
+    }
+
+    // --- add_schedule ---
+
+    /// text が無ければエラーになる。
+    #[tokio::test]
+    async fn add_schedule_はtext必須() {
+        let app = app();
+        let err = call(&app, "add_schedule", json!({ "at": "2030-01-01 09:00" }))
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("text is required"));
+    }
+
+    /// at も auto_slot も無ければエラーになる。
+    #[tokio::test]
+    async fn add_schedule_はatもauto_slotも無ければエラー() {
+        let app = app();
+        let err = call(
+            &app,
+            "add_schedule",
+            json!({ "text": "本文", "sns": "bluesky" }),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("'at' or 'auto_slot'"),
+            "実際のエラー: {}",
+            err
+        );
+    }
+
+    /// SNS の指定も設定も無ければエラーになる。
+    #[tokio::test]
+    async fn add_schedule_は対象snsが無ければエラー() {
+        let app = app();
+        let err = call(
+            &app,
+            "add_schedule",
+            json!({ "text": "本文", "at": "2030-01-01 09:00" }),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.to_string().contains("No target SNS"));
+    }
+
+    /// RFC3339 形式の日時を受け付ける。
+    #[tokio::test]
+    async fn add_schedule_はrfc3339を受け付ける() {
+        let app = app();
+        let out = call(
+            &app,
+            "add_schedule",
+            json!({
+                "text": "RFC3339の予約",
+                "at": "2030-06-20T18:00:00+09:00",
+                "sns": "bluesky",
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert!(out.contains("Successfully scheduled post"));
+        let posts = app.state.store.get_all_posts().await.unwrap();
+        assert_eq!(posts.len(), 1);
+        assert_eq!(posts[0].content, "RFC3339の予約");
+        assert_eq!(posts[0].target_sns, vec!["bluesky".to_string()]);
+    }
+
+    /// 秒まで含む日時形式を受け付ける。
+    #[tokio::test]
+    async fn add_schedule_は秒付きの日時を受け付ける() {
+        let app = app();
+        call(
+            &app,
+            "add_schedule",
+            json!({ "text": "秒あり", "at": "2030-06-20 18:00:30", "sns": "bluesky" }),
+        )
+        .await
+        .unwrap();
+
+        let posts = app.state.store.get_all_posts().await.unwrap();
+        assert_eq!(
+            posts[0].scheduled_at.format("%H:%M:%S").to_string(),
+            "18:00:30"
+        );
+    }
+
+    /// 秒を省いた日時形式も受け付ける。
+    #[tokio::test]
+    async fn add_schedule_は秒無しの日時を受け付ける() {
+        let app = app();
+        call(
+            &app,
+            "add_schedule",
+            json!({ "text": "秒なし", "at": "2030-06-20 18:00", "sns": "bluesky" }),
+        )
+        .await
+        .unwrap();
+
+        let posts = app.state.store.get_all_posts().await.unwrap();
+        assert_eq!(
+            posts[0].scheduled_at.format("%H:%M:%S").to_string(),
+            "18:00:00"
+        );
+    }
+
+    /// 解釈できない日時形式はエラーになる。
+    #[tokio::test]
+    async fn add_schedule_は不正な日時を拒否する() {
+        let app = app();
+        let err = call(
+            &app,
+            "add_schedule",
+            json!({ "text": "本文", "at": "きのう", "sns": "bluesky" }),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.to_string().contains("Invalid datetime format"));
+    }
+
+    /// sns はカンマ区切りで複数指定できる。
+    #[tokio::test]
+    async fn add_schedule_はカンマ区切りのsnsを分解する() {
+        let app = app();
+        call(
+            &app,
+            "add_schedule",
+            json!({
+                "text": "複数SNS",
+                "at": "2030-06-20 18:00",
+                "sns": " bluesky , mstdn-main ,",
+            }),
+        )
+        .await
+        .unwrap();
+
+        let posts = app.state.store.get_all_posts().await.unwrap();
+        // 空要素は取り除き、前後の空白も落とす
+        assert_eq!(
+            posts[0].target_sns,
+            vec!["bluesky".to_string(), "mstdn-main".to_string()]
+        );
+    }
+
+    /// sns 未指定なら設定済みの全 SNS が対象になる。
+    #[tokio::test]
+    async fn add_schedule_はsns未指定なら設定の全件を使う() {
+        let app = setup_test_app_with_config(Some(SECRET.to_string()), |config| {
+            config.sns = vec![
+                SnsConfig::Mastodon {
+                    name: "mstdn-main".to_string(),
+                    instance_url: "https://mstdn.example.com".to_string(),
+                    access_token: "t".to_string(),
+                },
+                SnsConfig::Bluesky {
+                    name: "bsky-main".to_string(),
+                    identifier: "user.example.com".to_string(),
+                    password: "p".to_string(),
+                },
+            ];
+        });
+
+        call(
+            &app,
+            "add_schedule",
+            json!({ "text": "全SNS", "at": "2030-06-20 18:00" }),
+        )
+        .await
+        .unwrap();
+
+        let posts = app.state.store.get_all_posts().await.unwrap();
+        assert_eq!(
+            posts[0].target_sns,
+            vec!["mstdn-main".to_string(), "bsky-main".to_string()]
+        );
+    }
+
+    /// link を渡すと予約に保存される。
+    #[tokio::test]
+    async fn add_schedule_はlinkを保存する() {
+        let app = app();
+        call(
+            &app,
+            "add_schedule",
+            json!({
+                "text": "リンク付き",
+                "at": "2030-06-20 18:00",
+                "sns": "bluesky",
+                "link": "https://blog.example.com/entry/1",
+            }),
+        )
+        .await
+        .unwrap();
+
+        let posts = app.state.store.get_all_posts().await.unwrap();
+        assert_eq!(
+            posts[0].link_url.as_deref(),
+            Some("https://blog.example.com/entry/1")
+        );
+    }
+
+    /// auto_slot は SNS ごとに空き枠を探して個別の予約を作る。
+    #[tokio::test]
+    async fn add_schedule_はauto_slotでsnsごとに予約を作る() {
+        let app = setup_test_app_with_config(Some(SECRET.to_string()), |config| {
+            config.default_allowed_timings = Some(vec![(
+                "*".to_string(),
+                vec!["09:00".to_string(), "18:00".to_string()],
+            )]);
+            config.sns = vec![
+                SnsConfig::Mastodon {
+                    name: "mstdn-main".to_string(),
+                    instance_url: "https://mstdn.example.com".to_string(),
+                    access_token: "t".to_string(),
+                },
+                SnsConfig::Bluesky {
+                    name: "bsky-main".to_string(),
+                    identifier: "user.example.com".to_string(),
+                    password: "p".to_string(),
+                },
+            ];
+        });
+
+        let out = call(
+            &app,
+            "add_schedule",
+            json!({ "text": "自動枠", "auto_slot": true }),
+        )
+        .await
+        .unwrap();
+
+        assert!(out.contains("via auto-slot"));
+
+        let posts = app.state.store.get_all_posts().await.unwrap();
+        assert_eq!(posts.len(), 2, "SNSごとに1件ずつ作られる");
+        for p in &posts {
+            assert_eq!(p.target_sns.len(), 1, "1件の予約は1SNSのみを対象にする");
+            let hhmm = p.scheduled_at.format("%H:%M").to_string();
+            assert!(
+                hhmm == "09:00" || hhmm == "18:00",
+                "設定した枠であること: {}",
+                hhmm
+            );
+        }
+    }
+
+    // --- update_schedule ---
+
+    /// id が無ければエラーになる。
+    #[tokio::test]
+    async fn update_schedule_はid必須() {
+        let app = app();
+        let err = call(&app, "update_schedule", json!({ "text": "x" }))
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("id is required"));
+    }
+
+    /// 存在しない id はエラーになる。
+    #[tokio::test]
+    async fn update_schedule_は存在しないidを拒否する() {
+        let app = app();
+        let err = call(&app, "update_schedule", json!({ "id": "no-such-id" }))
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("not found"));
+    }
+
+    /// text だけを渡すと他の項目は変わらない。
+    #[tokio::test]
+    async fn update_schedule_はtextのみ部分更新できる() {
+        let app = app();
+        let id = seed(&app, "元の本文", 60).await;
+        let before = app.state.store.get_post_by_id(&id).await.unwrap().unwrap();
+
+        call(
+            &app,
+            "update_schedule",
+            json!({ "id": id, "text": "新しい本文" }),
+        )
+        .await
+        .unwrap();
+
+        let after = app.state.store.get_post_by_id(&id).await.unwrap().unwrap();
+        assert_eq!(after.content, "新しい本文");
+        assert_eq!(after.scheduled_at, before.scheduled_at, "時刻は変わらない");
+        assert_eq!(after.target_sns, before.target_sns, "SNSは変わらない");
+    }
+
+    /// at だけを渡すと本文は変わらない。
+    #[tokio::test]
+    async fn update_schedule_はatのみ部分更新できる() {
+        let app = app();
+        let id = seed(&app, "本文はそのまま", 60).await;
+
+        call(
+            &app,
+            "update_schedule",
+            json!({ "id": id, "at": "2030-06-20 09:00" }),
+        )
+        .await
+        .unwrap();
+
+        let after = app.state.store.get_post_by_id(&id).await.unwrap().unwrap();
+        assert_eq!(after.content, "本文はそのまま");
+        assert_eq!(
+            after.scheduled_at.format("%Y-%m-%d %H:%M").to_string(),
+            "2030-06-20 09:00"
+        );
+    }
+
+    /// status と link と sns も更新できる。
+    #[tokio::test]
+    async fn update_schedule_はstatusとlinkとsnsを更新する() {
+        let app = app();
+        let id = seed(&app, "更新対象", 60).await;
+
+        call(
+            &app,
+            "update_schedule",
+            json!({
+                "id": id,
+                "status": "失敗",
+                "link": "https://blog.example.com/entry/2",
+                "sns": "mstdn-main, bsky-main",
+            }),
+        )
+        .await
+        .unwrap();
+
+        let after = app.state.store.get_post_by_id(&id).await.unwrap().unwrap();
+        assert_eq!(after.status, "失敗");
+        assert_eq!(
+            after.link_url.as_deref(),
+            Some("https://blog.example.com/entry/2")
+        );
+        assert_eq!(
+            after.target_sns,
+            vec!["mstdn-main".to_string(), "bsky-main".to_string()]
+        );
+    }
+
+    /// 更新すると updated_at が進む。
+    #[tokio::test]
+    async fn update_schedule_はupdated_atを進める() {
+        let app = app();
+        let id = seed(&app, "更新時刻の確認", 60).await;
+        let before = app.state.store.get_post_by_id(&id).await.unwrap().unwrap();
+
+        call(
+            &app,
+            "update_schedule",
+            json!({ "id": id, "text": "更新後" }),
+        )
+        .await
+        .unwrap();
+
+        let after = app.state.store.get_post_by_id(&id).await.unwrap().unwrap();
+        assert!(
+            after.updated_at >= before.updated_at,
+            "更新時刻が巻き戻らないこと"
+        );
+    }
+
+    /// 不正な日時は更新を拒否する。
+    #[tokio::test]
+    async fn update_schedule_は不正な日時を拒否する() {
+        let app = app();
+        let id = seed(&app, "日時不正", 60).await;
+
+        let err = call(&app, "update_schedule", json!({ "id": id, "at": "あした" }))
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("Invalid datetime format"));
+    }
+
+    // --- delete_schedule ---
+
+    /// id が無ければエラーになる。
+    #[tokio::test]
+    async fn delete_schedule_はid必須() {
+        let app = app();
+        let err = call(&app, "delete_schedule", json!({})).await.unwrap_err();
+
+        assert!(err.to_string().contains("id is required"));
+    }
+
+    /// 削除に成功すると保存先からも消える。
+    #[tokio::test]
+    async fn delete_schedule_は予約を削除する() {
+        let app = app();
+        let id = seed(&app, "消す予約", 60).await;
+
+        let out = call(&app, "delete_schedule", json!({ "id": id }))
+            .await
+            .unwrap();
+
+        assert!(out.contains("Successfully deleted"));
+        assert!(app.state.store.get_post_by_id(&id).await.unwrap().is_none());
+    }
+
+    /// 存在しない id はエラーになる。
+    #[tokio::test]
+    async fn delete_schedule_は存在しないidを拒否する() {
+        let app = app();
+        let err = call(&app, "delete_schedule", json!({ "id": "no-such-id" }))
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("not found"));
+    }
+
+    // --- post_now ---
+
+    /// text が無ければエラーになる。
+    #[tokio::test]
+    async fn post_now_はtext必須() {
+        let app = app();
+        let err = call(&app, "post_now", json!({})).await.unwrap_err();
+
+        assert!(err.to_string().contains("text is required"));
+    }
+
+    /// 対象のクライアントが1つも無ければエラーになる。
+    #[tokio::test]
+    async fn post_now_は対象クライアントが無ければエラー() {
+        let app = app();
+        let err = call(&app, "post_now", json!({ "text": "宛先なし" }))
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("No active SNS client"));
+    }
+
+    /// モックサーバを instance_url に差し込んだ Mastodon 設定を作る。
+    fn app_with_mock_mastodon(server: &wiremock::MockServer) -> TestApp {
+        let uri = server.uri();
+        setup_test_app_with_config(Some(SECRET.to_string()), move |config| {
+            config.sns = vec![SnsConfig::Mastodon {
+                name: "mstdn-main".to_string(),
+                instance_url: uri,
+                access_token: "t".to_string(),
+            }];
+        })
+    }
+
+    /// 投稿が成功すると Success として結果に載る。
+    #[tokio::test]
+    async fn post_now_は成功結果を返す() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/v1/statuses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({ "url": "https://mstdn.example.com/@u/1" })),
+            )
+            .mount(&server)
+            .await;
+
+        let app = app_with_mock_mastodon(&server);
+        let out = call(&app, "post_now", json!({ "text": "即時投稿" }))
+            .await
+            .unwrap();
+
+        assert!(out.contains("投稿実行結果"));
+        // 出力に載るのは SnsClient::name() つまり種別名であり、アカウント名ではない
+        assert!(out.contains("Posting to mastodon"), "実際の出力:\n{}", out);
+        assert!(out.contains("[Success]"), "実際の出力:\n{}", out);
+        assert!(out.contains("https://mstdn.example.com/@u/1"));
+    }
+
+    /// 投稿先がエラーを返すと Failed か Error として結果に載る。
+    #[tokio::test]
+    async fn post_now_は失敗を結果に載せる() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/v1/statuses"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+
+        let app = app_with_mock_mastodon(&server);
+        let out = call(&app, "post_now", json!({ "text": "失敗する投稿" }))
+            .await
+            .unwrap();
+
+        assert!(
+            out.contains("[Failed]") || out.contains("[Error]"),
+            "失敗が記録されること:\n{}",
+            out
+        );
+    }
+
+    /// sns 引数でアカウント名を指定すると、その1件だけが対象になる。
+    #[tokio::test]
+    async fn post_now_はsns名で絞り込む() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/v1/statuses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({ "url": "https://mstdn.example.com/@u/2" })),
+            )
+            .mount(&server)
+            .await;
+
+        let uri = server.uri();
+        let app = setup_test_app_with_config(Some(SECRET.to_string()), move |config| {
+            config.sns = vec![
+                SnsConfig::Mastodon {
+                    name: "mstdn-main".to_string(),
+                    instance_url: uri,
+                    access_token: "t".to_string(),
+                },
+                SnsConfig::Bluesky {
+                    name: "bsky-main".to_string(),
+                    identifier: "user.example.com".to_string(),
+                    password: "p".to_string(),
+                },
+            ];
+        });
+
+        let out = call(
+            &app,
+            "post_now",
+            json!({ "text": "絞り込み投稿", "sns": "mstdn-main" }),
+        )
+        .await
+        .unwrap();
+
+        // 出力は種別名で載るため、対象が1件に絞られたことを件数で確かめる
+        assert_eq!(
+            out.matches("Posting to ").count(),
+            1,
+            "指定した1件だけが対象になること:\n{}",
+            out
+        );
+        assert!(out.contains("Posting to mastodon"), "実際の出力:\n{}", out);
+        assert!(!out.contains("bluesky"), "指定外は対象にしない:\n{}", out);
+    }
+
+    /// sns 引数には種別名も使える。
+    #[tokio::test]
+    async fn post_now_は種別名でも絞り込める() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/v1/statuses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({ "url": "https://mstdn.example.com/@u/3" })),
+            )
+            .mount(&server)
+            .await;
+
+        let app = app_with_mock_mastodon(&server);
+        let out = call(
+            &app,
+            "post_now",
+            json!({ "text": "種別指定", "sns": "mastodon" }),
+        )
+        .await
+        .unwrap();
+
+        assert!(out.contains("[Success]"), "実際の出力:\n{}", out);
+    }
+
+    /// 一致するクライアントが無い絞り込みはエラーになる。
+    #[tokio::test]
+    async fn post_now_は一致しない絞り込みをエラーにする() {
+        use wiremock::MockServer;
+
+        let server = MockServer::start().await;
+        let app = app_with_mock_mastodon(&server);
+
+        let err = call(
+            &app,
+            "post_now",
+            json!({ "text": "宛先違い", "sns": "no-such-sns" }),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.to_string().contains("No active SNS client"));
+    }
+
+    // --- 未知のtool ---
+
+    /// 未知の tool 名はエラーになる。
+    #[tokio::test]
+    async fn 未知のtool名はエラーになる() {
+        let app = app();
+        let err = call(&app, "no_such_tool", json!({})).await.unwrap_err();
+
+        assert!(err.to_string().contains("Unknown tool name"));
+    }
+}

@@ -344,6 +344,7 @@ dependencies = [
  "clap",
  "fd-lock",
  "feed-rs",
+ "http-body-util",
  "image",
  "libc",
  "oauth1-request",
