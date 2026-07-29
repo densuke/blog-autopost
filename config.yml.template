@@ -61,17 +61,21 @@ sns:
     instance_url: "https://misskey.example"
     access_token: "<MISSKEY_ACCESS_TOKEN>"
     is_sensitive: false
-  - type: threads
-    name: "threads-main"
-    app_id: "<THREADS_APP_ID>"
-    app_secret: "<THREADS_APP_SECRET>"
-    access_token: "<THREADS_ACCESS_TOKEN>"
-  - type: tumblr
-    name: "tumblr-main"
-    client_id: "<TUMBLR_CLIENT_ID>"
-    client_secret: "<TUMBLR_CLIENT_SECRET>"
-    access_token: "<TUMBLR_ACCESS_TOKEN>"
-    blog_name: "<TUMBLR_BLOG_NAME>"
+  # Threads と Tumblr は設定を書けますが、Rust 版には投稿クライアントの
+  # 実装がありません (移植対象外)。設定しても投稿はスキップされます。
+  # MCP の sns 引数で名指しした場合は未対応であるとエラーが返ります。
+  #
+  # - type: threads
+  #   name: "threads-main"
+  #   user_id: "<THREADS_USER_ID>"
+  #   access_token: "<THREADS_ACCESS_TOKEN>"
+  # - type: tumblr
+  #   name: "tumblr-main"
+  #   consumer_key: "<TUMBLR_CONSUMER_KEY>"
+  #   consumer_secret: "<TUMBLR_CONSUMER_SECRET>"
+  #   oauth_token: "<TUMBLR_OAUTH_TOKEN>"
+  #   oauth_secret: "<TUMBLR_OAUTH_SECRET>"
+  #   blog_identifier: "<TUMBLR_BLOG_IDENTIFIER>"
 
 # ========================================
 # Web UI 認証・セッション設定
@@ -132,13 +136,20 @@ web_auth:
 #     - "data/uploads"
 #     - "data"
 
-web:
-  session:
-    secret_key: "<WEB_SESSION_SECRET>"  # 後方互換性のため同じ値を設定
-
-web_server:
-  host: "0.0.0.0"
-  port: 8000
+# 以下の web: と web_server: は Python 版の設定であり、Rust 版は読み込みません。
+# 残しておいても無害ですが、設定しても効果はありません。
+#
+# 待ち受けポートは起動時のオプションで指定します。
+#   cargo run -- serve --port 8080
+#   just run-web
+#
+# web:
+#   session:
+#     secret_key: "<WEB_SESSION_SECRET>"
+#
+# web_server:
+#   host: "0.0.0.0"
+#   port: 8000
 
 # ========================================
 # 予約投稿と投稿タイミングの設定
