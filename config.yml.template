@@ -95,6 +95,11 @@ web_auth:
   # 素の HTTP で運用していてもログインできなくならない。
   # cookie_secure: "auto"
 
+  # ログイン試行のレート制限。窓内に許す失敗回数と窓の長さ (秒)。
+  # 既定は 5 回 / 300 秒。超えると 429 を返す。
+  # login_max_attempts: 5
+  # login_window_seconds: 300
+
 web:
   session:
     secret_key: "<WEB_SESSION_SECRET>"  # 後方互換性のため同じ値を設定

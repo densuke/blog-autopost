@@ -799,42 +799,59 @@ pub async fn get_login_page() -> impl axum::response::IntoResponse {
 /// `POST /login` — ログインを受け付け、セッション Cookie を発行する。
 ///
 /// `Secure` を付けるかどうかの判定に元リクエストの情報が要るため、
-/// ヘッダと URI も受け取る。`Form` は本文を消費するので必ず最後に置く。
+/// ヘッダと URI も受け取る。接続元アドレスはレート制限の鍵に使うが、
+/// テストの `oneshot` では得られないので `Option` で受ける。
+/// `Form` は本文を消費するので必ず最後に置く。
 pub async fn login_submit(
     State(state): State<Arc<AppState>>,
+    crate::web::ratelimit::PeerAddr(peer): crate::web::ratelimit::PeerAddr,
     headers: axum::http::HeaderMap,
     uri: axum::http::Uri,
     axum::Form(payload): axum::Form<LoginPayload>,
-) -> Result<impl axum::response::IntoResponse, StatusCode> {
+) -> axum::response::Response {
     let Some(ref auth) = state.config.web_auth else {
         println!("web_auth is not configured in config.yml");
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     };
 
-    if payload.username != auth.username {
-        return Err(StatusCode::UNAUTHORIZED);
+    let rate_key = crate::web::ratelimit::rate_limit_key(peer, &payload.username);
+
+    if let Err(retry_after) = state.login_rate_limiter.check(&rate_key).await {
+        println!("Too many login attempts for {}", rate_key);
+        return axum::response::Response::builder()
+            .status(StatusCode::TOO_MANY_REQUESTS)
+            .header(axum::http::header::RETRY_AFTER, retry_after.to_string())
+            .body(axum::body::Body::from(
+                "Too many login attempts. Please wait and try again.",
+            ))
+            .expect("固定のレスポンスなので組み立てに失敗しない");
     }
 
     let mut verified = false;
     let mut needs_hash_migration = false;
 
-    if auth.password.starts_with("$2b$")
-        || auth.password.starts_with("$2a$")
-        || auth.password.starts_with("$2y$")
-    {
-        if let Ok(ok) = bcrypt::verify(&payload.password, &auth.password) {
-            verified = ok;
-        }
-    } else {
-        if payload.password == auth.password {
+    // ユーザー名が違う場合もパスワード検証と同じ経路で失敗させ、
+    // 失敗としてレート制限に数える
+    if payload.username == auth.username {
+        if auth.password.starts_with("$2b$")
+            || auth.password.starts_with("$2a$")
+            || auth.password.starts_with("$2y$")
+        {
+            if let Ok(ok) = bcrypt::verify(&payload.password, &auth.password) {
+                verified = ok;
+            }
+        } else if payload.password == auth.password {
             verified = true;
             needs_hash_migration = true;
         }
     }
 
     if !verified {
-        return Err(StatusCode::UNAUTHORIZED);
+        state.login_rate_limiter.record_failure(&rate_key).await;
+        return StatusCode::UNAUTHORIZED.into_response();
     }
+
+    state.login_rate_limiter.record_success(&rate_key).await;
 
     if needs_hash_migration
         && let Ok(hashed) = bcrypt::hash(&payload.password, bcrypt::DEFAULT_COST)
@@ -859,7 +876,7 @@ pub async fn login_submit(
 
     let Some(session_id) = crate::web::session::generate_session_id() else {
         println!("Failed to obtain randomness for session id");
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     };
 
     let ttl_hours = auth.effective_session_ttl_hours();
@@ -875,14 +892,12 @@ pub async fn login_submit(
     let secure = crate::web::session::CookieSecure::from_config(auth.cookie_secure.as_deref())
         .should_set(crate::web::session::is_https_request(&headers, &uri));
     let cookie = crate::web::session::build_session_cookie(&session_id, ttl_hours, secure);
-    let response = axum::response::Response::builder()
+    axum::response::Response::builder()
         .status(StatusCode::SEE_OTHER)
         .header(axum::http::header::LOCATION, "/")
         .header(axum::http::header::SET_COOKIE, cookie)
         .body(axum::body::Body::empty())
-        .unwrap();
-
-    Ok(response)
+        .expect("固定のレスポンスなので組み立てに失敗しない")
 }
 
 pub async fn logout(
@@ -1426,19 +1441,48 @@ mod tests {
         assert!(!written.contains("plaintext"), "平文が残ってはいけない");
     }
 
-    // --- GET /logout ---
+    // --- POST /logout ---
 
-    /// ログアウトするとセッションが破棄される。
-    #[tokio::test]
-    async fn test_logout_removes_session() {
+    /// セッションを1件仕込んだテスト環境を作る。
+    async fn app_with_session(session_id: &str) -> TestApp {
         let app = app_with_auth();
         {
             let mut sessions = app.state.sessions.write().await;
             sessions.insert(
-                "my-session".to_string(),
+                session_id.to_string(),
                 crate::web::session::Session::new("admin".to_string(), 24),
             );
         }
+        app
+    }
+
+    /// ログアウトするとセッションが破棄される。
+    #[tokio::test]
+    async fn test_logout_removes_session() {
+        let app = app_with_session("my-session").await;
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/logout")
+            .header(header::COOKIE, "session_id=my-session")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers().get(header::LOCATION).unwrap(), "/login");
+        assert!(app.state.sessions.read().await.is_empty());
+
+        // Cookie を即時に失効させる
+        let cookie = set_cookie(&response);
+        assert!(cookie.contains("Max-Age=0"), "実際の値: {}", cookie);
+    }
+
+    /// GET でのログアウトは受け付けない。
+    #[tokio::test]
+    async fn getでのログアウトは受け付けない() {
+        let app = app_with_session("my-session").await;
 
         let request = Request::builder()
             .uri("/logout")
@@ -1448,8 +1492,273 @@ mod tests {
 
         let response = app.router.clone().oneshot(request).await.unwrap();
 
+        // GET で状態を変えられると <img src="/logout"> で強制ログアウトできてしまう
+        assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+        assert_eq!(
+            app.state.sessions.read().await.len(),
+            1,
+            "セッションは残ったままであること"
+        );
+    }
+
+    // --- ログイン試行のレート制限 ---
+
+    /// 誤ったパスワードでログインを試みる。
+    fn failed_login_request() -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri("/login")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(format!(
+                "username={}&password=wrong-password",
+                TEST_USERNAME
+            )))
+            .unwrap()
+    }
+
+    /// 上限を超えて失敗すると 429 と Retry-After が返る。
+    #[tokio::test]
+    async fn 失敗が上限を超えると429になる() {
+        let app = setup_test_app_with_config(None, |config| {
+            if let Some(ref mut auth) = config.web_auth {
+                auth.login_max_attempts = Some(3);
+                auth.login_window_seconds = Some(60);
+            }
+        });
+
+        for i in 0..3 {
+            let response = app
+                .router
+                .clone()
+                .oneshot(failed_login_request())
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::UNAUTHORIZED,
+                "{}回目は認証失敗として扱う",
+                i + 1
+            );
+        }
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(failed_login_request())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        let retry_after = response
+            .headers()
+            .get(header::RETRY_AFTER)
+            .expect("Retry-Afterが必要")
+            .to_str()
+            .unwrap()
+            .parse::<u64>()
+            .expect("秒数として解釈できる");
+        assert!(
+            retry_after > 0 && retry_after <= 60,
+            "実際の値: {}",
+            retry_after
+        );
+    }
+
+    /// 制限中は正しいパスワードでも受け付けない。
+    #[tokio::test]
+    async fn 制限中は正しいパスワードでも拒否する() {
+        let app = setup_test_app_with_config(None, |config| {
+            if let Some(ref mut auth) = config.web_auth {
+                auth.login_max_attempts = Some(1);
+            }
+        });
+
+        app.router
+            .clone()
+            .oneshot(failed_login_request())
+            .await
+            .unwrap();
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(login_request(None))
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(
+            app.state.sessions.read().await.is_empty(),
+            "セッションは作られない"
+        );
+    }
+
+    /// ログインが成功すると失敗の記録が消える。
+    #[tokio::test]
+    async fn 成功すると失敗の記録が消える() {
+        let app = setup_test_app_with_config(None, |config| {
+            if let Some(ref mut auth) = config.web_auth {
+                auth.login_max_attempts = Some(3);
+            }
+        });
+
+        // 上限に届く手前まで失敗させる
+        for _ in 0..2 {
+            app.router
+                .clone()
+                .oneshot(failed_login_request())
+                .await
+                .unwrap();
+        }
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(login_request(None))
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::SEE_OTHER);
-        assert!(app.state.sessions.read().await.is_empty());
+
+        assert_eq!(
+            app.state.login_rate_limiter.tracked_keys().await,
+            0,
+            "成功で記録が消えること"
+        );
+
+        // 再び上限まで失敗できる
+        for _ in 0..2 {
+            let r = app
+                .router
+                .clone()
+                .oneshot(failed_login_request())
+                .await
+                .unwrap();
+            assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+        }
+    }
+
+    /// 窓が明ければ再びログインを試せる。
+    #[tokio::test(start_paused = true)]
+    async fn 窓が明ければ再び試せる() {
+        let app = setup_test_app_with_config(None, |config| {
+            if let Some(ref mut auth) = config.web_auth {
+                auth.login_max_attempts = Some(1);
+                auth.login_window_seconds = Some(60);
+            }
+        });
+
+        app.router
+            .clone()
+            .oneshot(failed_login_request())
+            .await
+            .unwrap();
+        let blocked = app
+            .router
+            .clone()
+            .oneshot(login_request(None))
+            .await
+            .unwrap();
+        assert_eq!(blocked.status(), StatusCode::TOO_MANY_REQUESTS);
+
+        tokio::time::advance(std::time::Duration::from_secs(61)).await;
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(login_request(None))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER, "窓が明けたら通る");
+    }
+
+    /// 誤ったユーザー名もレート制限の対象になる。
+    #[tokio::test]
+    async fn 誤ったユーザー名も制限の対象になる() {
+        let app = setup_test_app_with_config(None, |config| {
+            if let Some(ref mut auth) = config.web_auth {
+                auth.login_max_attempts = Some(2);
+            }
+        });
+
+        let wrong_user = || {
+            Request::builder()
+                .method("POST")
+                .uri("/login")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from("username=intruder&password=whatever"))
+                .unwrap()
+        };
+
+        for _ in 0..2 {
+            let r = app.router.clone().oneshot(wrong_user()).await.unwrap();
+            assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+        }
+
+        let r = app.router.clone().oneshot(wrong_user()).await.unwrap();
+        assert_eq!(r.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    /// 接続元が取れない場合はユーザー名ごとに数える。
+    #[tokio::test]
+    async fn 接続元不明ならユーザー名ごとに数える() {
+        let app = setup_test_app_with_config(None, |config| {
+            if let Some(ref mut auth) = config.web_auth {
+                auth.login_max_attempts = Some(1);
+            }
+        });
+
+        // oneshot には接続情報がないため username が鍵になる
+        app.router
+            .clone()
+            .oneshot(failed_login_request())
+            .await
+            .unwrap();
+
+        let other_user = Request::builder()
+            .method("POST")
+            .uri("/login")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from("username=someone-else&password=whatever"))
+            .unwrap();
+        let r = app.router.clone().oneshot(other_user).await.unwrap();
+
+        // 鍵が固定だと1人の失敗で全員が止まる。別ユーザーは影響を受けない
+        assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    /// 設定の書き戻しでレート制限の項目も増えない。
+    #[tokio::test]
+    async fn 書き戻しでレート制限の項目も増えない() {
+        let app = setup_test_app_with_config(None, |config| {
+            if let Some(ref mut auth) = config.web_auth {
+                auth.password = "plaintext-pass".to_string();
+            }
+        });
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/login")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(format!(
+                "username={}&password=plaintext-pass",
+                TEST_USERNAME
+            )))
+            .unwrap();
+        app.router.clone().oneshot(request).await.unwrap();
+
+        let written = std::fs::read_to_string(&app.state.config_path)
+            .expect("設定ファイルが書き出されているはず");
+
+        assert!(
+            !written.contains("login_max_attempts"),
+            "実際の内容: {}",
+            written
+        );
+        assert!(
+            !written.contains("login_window_seconds"),
+            "実際の内容: {}",
+            written
+        );
     }
 
     // --- セッションの有効期限と Cookie 属性 ---

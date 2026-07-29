@@ -1,5 +1,6 @@
 pub mod mcp;
 pub mod media;
+pub mod ratelimit;
 pub mod routes;
 pub mod session;
 
@@ -29,6 +30,8 @@ pub struct AppState {
     pub upload_dir: std::path::PathBuf,
     /// ログイン済みセッション。鍵はセッションID。
     pub sessions: Arc<tokio::sync::RwLock<HashMap<String, session::Session>>>,
+    /// ログイン試行のレート制限器。
+    pub login_rate_limiter: Arc<ratelimit::LoginRateLimiter>,
     pub mcp_sessions: Arc<
         tokio::sync::RwLock<HashMap<String, tokio::sync::mpsc::Sender<axum::response::sse::Event>>>,
     >,
@@ -70,7 +73,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/login",
             get(routes::get_login_page).post(routes::login_submit),
         )
-        .route("/logout", get(routes::logout))
+        // GET では状態を変えない。GET を残すと <img src="/logout"> だけで
+        // 強制ログアウトさせられる (SameSite=Lax は top-level GET を通す)。
+        .route("/logout", post(routes::logout))
         .fallback_service(ServeDir::new("static").append_index_html_on_directories(true))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -138,6 +143,13 @@ pub async fn start_server(config: Config, config_path: String, port: u16) -> any
         config_path,
         upload_dir: std::path::PathBuf::from("data/uploads"),
         sessions,
+        login_rate_limiter: Arc::new(ratelimit::LoginRateLimiter::from_config(
+            config.web_auth.as_ref().and_then(|a| a.login_max_attempts),
+            config
+                .web_auth
+                .as_ref()
+                .and_then(|a| a.login_window_seconds),
+        )),
         mcp_sessions,
         version_status,
     });
@@ -148,7 +160,13 @@ pub async fn start_server(config: Config, config_path: String, port: u16) -> any
     println!("Web UI listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, app).await?;
+    // 接続元アドレスをハンドラへ渡すため ConnectInfo を有効にする。
+    // ログイン試行のレート制限で鍵に使う。
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await?;
 
     Ok(())
 }
@@ -323,10 +341,19 @@ mod tests {
                 secret_key,
                 session_ttl_hours: None,
                 cookie_secure: None,
+                login_max_attempts: None,
+                login_window_seconds: None,
             }),
             extra: HashMap::new(),
         };
         customize(&mut config);
+
+        // レート制限器は config を move する前に設定値を取り出しておく
+        let config_login_max_attempts = config.web_auth.as_ref().and_then(|a| a.login_max_attempts);
+        let config_login_window_seconds = config
+            .web_auth
+            .as_ref()
+            .and_then(|a| a.login_window_seconds);
 
         let timing_manager = TimingManager::new(&config);
         let store = Arc::new(JsonScheduledPostStore::new(
@@ -342,6 +369,10 @@ mod tests {
             config_path: dir.path().join("config.yml").to_string_lossy().into_owned(),
             upload_dir: dir.path().join("uploads"),
             sessions,
+            login_rate_limiter: Arc::new(ratelimit::LoginRateLimiter::from_config(
+                config_login_max_attempts,
+                config_login_window_seconds,
+            )),
             mcp_sessions,
             // テストでは外部 API を叩かない。未確認状態のまま扱う（Agy #408）
             version_status: crate::version_check::new_shared_status(),
