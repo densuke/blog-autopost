@@ -41,6 +41,7 @@ async fn main() -> anyhow::Result<()> {
         allowed_timings_tolerance_minutes: None,
         allowed_timings: None,
         web_auth: None,
+        mcp: None,
         extra: Default::default(),
     });
 

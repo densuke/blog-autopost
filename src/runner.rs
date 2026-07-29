@@ -362,6 +362,7 @@ mod tests {
             allowed_timings_tolerance_minutes: None,
             allowed_timings: None,
             web_auth: None,
+            mcp: None,
             extra: HashMap::new(),
         };
         config
@@ -455,6 +456,7 @@ mod tests {
                 allowed_timings_tolerance_minutes: None,
                 allowed_timings: None,
                 web_auth: None,
+                mcp: None,
                 extra: HashMap::new(),
             },
             false,   // dry_run

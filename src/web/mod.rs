@@ -32,6 +32,8 @@ pub struct AppState {
     pub sessions: Arc<tokio::sync::RwLock<HashMap<String, session::Session>>>,
     /// ログイン試行のレート制限器。
     pub login_rate_limiter: Arc<ratelimit::LoginRateLimiter>,
+    /// MCP エンドポイントの認証方針。
+    pub mcp_auth_policy: mcp::auth::McpAuthPolicy,
     pub mcp_sessions: Arc<
         tokio::sync::RwLock<HashMap<String, tokio::sync::mpsc::Sender<axum::response::sse::Event>>>,
     >,
@@ -136,6 +138,19 @@ pub async fn start_server(config: Config, config_path: String, port: u16) -> any
 
     let sessions = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
     let mcp_sessions = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
+
+    // MCP の認証方針は起動時に一度決め、ログへ残す。
+    // Config には extra があるためキー名のタイポは黙って吸われる。
+    // どの方針で動いているかを示さないと、設定が効いているか確認できない。
+    let mcp_auth_policy = mcp::auth::McpAuthPolicy::from_config(&config);
+    println!("{}", mcp_auth_policy.describe());
+    if mcp::auth::McpAuthPolicy::keys_are_identical(&config) {
+        println!(
+            "Warning: mcp.api_key equals web_auth.secret_key. \
+             Use a different value so that a leak stays limited to one of them."
+        );
+    }
+
     let state = Arc::new(AppState {
         config: config.clone(),
         timing_manager,
@@ -150,6 +165,7 @@ pub async fn start_server(config: Config, config_path: String, port: u16) -> any
                 .as_ref()
                 .and_then(|a| a.login_window_seconds),
         )),
+        mcp_auth_policy,
         mcp_sessions,
         version_status,
     });
@@ -214,6 +230,18 @@ async fn auth_middleware(
 
     if is_public_path(path) {
         return Ok(next.run(req).await);
+    }
+
+    // MCP は専用の方針で認証する。Cookie セッションは受け付けず、
+    // 失敗は常に 401 を返す(ログイン画面へ飛ばさない)。
+    if mcp::auth::is_mcp_path(path) {
+        let accepted = mcp::auth::presented_key(req.headers())
+            .is_some_and(|key| state.mcp_auth_policy.accepts(key));
+        return if accepted {
+            Ok(next.run(req).await)
+        } else {
+            Err(axum::http::StatusCode::UNAUTHORIZED)
+        };
     }
 
     let mut authenticated = false;
@@ -344,16 +372,18 @@ mod tests {
                 login_max_attempts: None,
                 login_window_seconds: None,
             }),
+            mcp: None,
             extra: HashMap::new(),
         };
         customize(&mut config);
 
-        // レート制限器は config を move する前に設定値を取り出しておく
+        // config を move する前に必要な値を取り出しておく
         let config_login_max_attempts = config.web_auth.as_ref().and_then(|a| a.login_max_attempts);
         let config_login_window_seconds = config
             .web_auth
             .as_ref()
             .and_then(|a| a.login_window_seconds);
+        let mcp_auth_policy = mcp::auth::McpAuthPolicy::from_config(&config);
 
         let timing_manager = TimingManager::new(&config);
         let store = Arc::new(JsonScheduledPostStore::new(
@@ -373,6 +403,7 @@ mod tests {
                 config_login_max_attempts,
                 config_login_window_seconds,
             )),
+            mcp_auth_policy,
             mcp_sessions,
             // テストでは外部 API を叩かない。未確認状態のまま扱う（Agy #408）
             version_status: crate::version_check::new_shared_status(),
