@@ -53,11 +53,15 @@ pub(crate) fn tool_definitions() -> Vec<serde_json::Value> {
                     "media": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "添付するローカルの画像ファイルパス"
+                        "description": "添付するローカルの画像ファイルパス（許可ディレクトリ配下のみ）"
                     },
                     "link": {
                         "type": "string",
                         "description": "添付するリンクURL"
+                    },
+                    "sensitive": {
+                        "type": "boolean",
+                        "description": "添付メディアをセンシティブとして扱う（現状 Misskey のみ有効）"
                     }
                 },
                 "required": ["text"]
@@ -98,13 +102,46 @@ pub(crate) fn tool_definitions() -> Vec<serde_json::Value> {
                 "properties": {
                     "text": { "type": "string", "description": "投稿メッセージ本文" },
                     "sns": { "type": "string", "description": "送信先SNS名（カンマ区切り。省略時は全SNS）" },
-                    "media": { "type": "array", "items": { "type": "string" }, "description": "添付するローカル画像パス" },
-                    "link": { "type": "string", "description": "添付するリンクURL" }
+                    "media": { "type": "array", "items": { "type": "string" }, "description": "添付するローカル画像パス（許可ディレクトリ配下のみ）" },
+                    "link": { "type": "string", "description": "添付するリンクURL" },
+                    "sensitive": { "type": "boolean", "description": "添付メディアをセンシティブとして扱う（現状 Misskey のみ有効）" }
                 },
                 "required": ["text"]
             }
         }),
+        json!({
+            "name": "get_next_slots",
+            "description": "各SNSの次に投稿可能な時間枠を取得します。予約せず照会するだけです。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sns": {
+                        "type": "string",
+                        "description": "対象SNS名（カンマ区切り。省略時は全SNS）"
+                    }
+                }
+            }
+        }),
     ]
+}
+
+/// `sns` 引数のカンマ区切りを分解する。
+///
+/// 未指定なら `None` を返す。空要素と前後の空白は取り除く。
+/// 分解した結果が空になった場合も未指定として扱う。
+fn parse_sns_targets(sns: Option<&str>) -> Option<Vec<String>> {
+    let targets: Vec<String> = sns?
+        .split(',')
+        .map(|p| p.trim())
+        .filter(|p| !p.is_empty())
+        .map(|p| p.to_string())
+        .collect();
+
+    if targets.is_empty() {
+        None
+    } else {
+        Some(targets)
+    }
 }
 
 /// tool の `media` 引数を検証し、解決済みの絶対パスを返す。
@@ -231,29 +268,27 @@ pub(crate) async fn handle_tool_call(
                 .get("link")
                 .and_then(|l| l.as_str())
                 .map(|s| s.to_string());
+            let sensitive = args
+                .get("sensitive")
+                .and_then(|s| s.as_bool())
+                .unwrap_or(false);
 
-            let mut target_sns = Vec::new();
-            if let Some(sns_arg) = sns {
-                for part in sns_arg.split(',') {
-                    let part = part.trim();
-                    if !part.is_empty() {
-                        target_sns.push(part.to_string());
-                    }
+            let target_sns = match parse_sns_targets(sns) {
+                Some(targets) => targets,
+                None => {
+                    // 未指定なら投稿できる種別だけを対象にする。
+                    // Threads / Tumblr を含めても投稿時に落ちるだけなので入れない。
+                    state
+                        .config
+                        .sns
+                        .iter()
+                        .filter(|s| crate::sns::is_postable_type(s))
+                        .filter_map(|s| {
+                            crate::web::routes::sns_account_name(s).map(|n| n.to_string())
+                        })
+                        .collect()
                 }
-            } else {
-                for sns_conf in &state.config.sns {
-                    let name = match sns_conf {
-                        crate::config::SnsConfig::Mastodon { name, .. } => name,
-                        crate::config::SnsConfig::Misskey { name, .. } => name,
-                        crate::config::SnsConfig::Bluesky { name, .. } => name,
-                        crate::config::SnsConfig::X { name, .. } => name,
-                        crate::config::SnsConfig::Threads { name, .. } => name,
-                        crate::config::SnsConfig::Tumblr { name, .. } => name,
-                        _ => continue,
-                    };
-                    target_sns.push(name.clone());
-                }
-            }
+            };
 
             if target_sns.is_empty() {
                 return Err(anyhow::anyhow!("No target SNS configured or specified"));
@@ -276,6 +311,7 @@ pub(crate) async fn handle_tool_call(
                             vec![sns_name.clone()],
                         );
                         post.link_url = link.clone();
+                        post.sensitive = sensitive;
                         let created = state.store.create_post(post).await?;
                         created_posts.push(created);
                     }
@@ -317,6 +353,7 @@ pub(crate) async fn handle_tool_call(
                     target_sns,
                 );
                 post.link_url = link;
+                post.sensitive = sensitive;
                 let created = state.store.create_post(post).await?;
                 Ok(format!(
                     "Successfully scheduled post:\n  ID: {}\n  Time: {}\n  SNS: {:?}",
@@ -414,104 +451,22 @@ pub(crate) async fn handle_tool_call(
                 .and_then(|l| l.as_str())
                 .map(|s| s.to_string());
 
-            let mut sns_clients: Vec<Box<dyn crate::sns::traits::SnsClient + Send + Sync>> =
-                Vec::new();
+            let sensitive = args
+                .get("sensitive")
+                .and_then(|s| s.as_bool())
+                .unwrap_or(false);
 
-            let mut included = std::collections::HashSet::new();
-            if let Some(sns_arg) = sns {
-                for part in sns_arg.split(',') {
-                    let part = part.trim().to_lowercase();
-                    if !part.is_empty() {
-                        included.insert(part);
-                    }
-                }
-            }
+            let targets = parse_sns_targets(sns);
+            let (sns_clients, unsupported) =
+                crate::sns::build_selected_clients(&state.config, targets.as_deref());
 
-            for sns_conf in &state.config.sns {
-                let name = match sns_conf {
-                    crate::config::SnsConfig::Mastodon { name, .. } => name,
-                    crate::config::SnsConfig::Misskey { name, .. } => name,
-                    crate::config::SnsConfig::Bluesky { name, .. } => name,
-                    crate::config::SnsConfig::X { name, .. } => name,
-                    _ => continue,
-                };
-
-                if !included.is_empty() {
-                    let lower_name = name.to_lowercase();
-                    let lower_type = match sns_conf {
-                        crate::config::SnsConfig::Mastodon { .. } => "mastodon",
-                        crate::config::SnsConfig::Misskey { .. } => "misskey",
-                        crate::config::SnsConfig::Bluesky { .. } => "bluesky",
-                        crate::config::SnsConfig::X { .. } => "x",
-                        _ => "",
-                    };
-                    if !included.contains(&lower_name) && !included.contains(lower_type) {
-                        continue;
-                    }
-                }
-
-                match sns_conf {
-                    crate::config::SnsConfig::Mastodon {
-                        instance_url,
-                        access_token,
-                        name,
-                        ..
-                    } => {
-                        if let Ok(c) = crate::sns::mastodon::MastodonClient::new(
-                            instance_url.clone(),
-                            access_token.clone(),
-                            name.clone(),
-                        ) {
-                            sns_clients.push(Box::new(c));
-                        }
-                    }
-                    crate::config::SnsConfig::Misskey {
-                        instance_url,
-                        access_token,
-                        name,
-                        ..
-                    } => {
-                        if let Ok(c) = crate::sns::misskey::MisskeyClient::new(
-                            instance_url.clone(),
-                            access_token.clone(),
-                            name.clone(),
-                        ) {
-                            sns_clients.push(Box::new(c));
-                        }
-                    }
-                    crate::config::SnsConfig::Bluesky {
-                        identifier,
-                        password,
-                        name,
-                        ..
-                    } => {
-                        if let Ok(c) = crate::sns::bluesky::BlueskyClient::new(
-                            identifier.clone(),
-                            password.clone(),
-                            name.clone(),
-                        ) {
-                            sns_clients.push(Box::new(c));
-                        }
-                    }
-                    crate::config::SnsConfig::X {
-                        consumer_key,
-                        consumer_secret,
-                        access_token,
-                        access_token_secret,
-                        name,
-                    } => {
-                        if let Ok(c) = crate::sns::x::XClient::new(
-                            consumer_key.clone(),
-                            consumer_secret.clone(),
-                            access_token.clone(),
-                            access_token_secret.clone(),
-                            name.clone(),
-                        ) {
-                            sns_clients.push(Box::new(c));
-                        }
-                    }
-                    _ => {}
-                }
+            // 指定したのに黙って無視されるのを避け、未対応であることを明示する
+            if !unsupported.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "These SNS accounts are configured but posting is not implemented \
+                     in this build: {}. Remove them from the 'sns' argument.",
+                    unsupported.join(", ")
+                ));
             }
 
             if sns_clients.is_empty() {
@@ -537,7 +492,7 @@ pub(crate) async fn handle_tool_call(
                     Some(processed_media)
                 },
                 link_url: link,
-                sensitive: false,
+                sensitive,
             };
 
             let mut out = String::new();
@@ -555,6 +510,31 @@ pub(crate) async fn handle_tool_call(
                     Err(e) => {
                         out.push_str(&format!("  [Error] {:?}\n", e));
                     }
+                }
+            }
+            Ok(out)
+        }
+        "get_next_slots" => {
+            let sns = args.get("sns").and_then(|s| s.as_str());
+            let targets = parse_sns_targets(sns);
+
+            let slots = crate::web::routes::collect_next_slots(&state, targets.as_deref()).await?;
+
+            if slots.is_empty() {
+                return Ok("=== 次の投稿枠 ===\n(対象のSNSがありません)\n".to_string());
+            }
+
+            let mut out = String::new();
+            out.push_str("=== 次の投稿枠 ===\n");
+            for (name, slot) in slots {
+                match slot {
+                    Some(dt) => out.push_str(&format!(
+                        "{}: {}\n",
+                        name,
+                        dt.format("%Y-%m-%d %H:%M:%S %:z")
+                    )),
+                    // タイミング未設定や空き枠が見つからない場合
+                    None => out.push_str(&format!("{}: (空き枠が見つかりません)\n", name)),
                 }
             }
             Ok(out)
@@ -1473,6 +1453,305 @@ mod tests {
 
         let posts = app.state.store.get_all_posts().await.unwrap();
         assert!(posts[0].media_files.is_empty());
+    }
+
+    // --- sns 引数の分解 ---
+
+    #[test]
+    fn sns引数を分解できる() {
+        assert_eq!(
+            parse_sns_targets(Some(" bluesky , mstdn-main ,")),
+            Some(vec!["bluesky".to_string(), "mstdn-main".to_string()])
+        );
+    }
+
+    #[test]
+    fn sns引数が未指定や空ならnoneになる() {
+        assert_eq!(parse_sns_targets(None), None);
+        assert_eq!(parse_sns_targets(Some("")), None);
+        // 区切りだけの指定も未指定と同じ扱いにする
+        assert_eq!(parse_sns_targets(Some(" , , ")), None);
+    }
+
+    // --- sensitive フラグ ---
+
+    /// sensitive を渡すと予約に保存される。
+    #[tokio::test]
+    async fn add_scheduleはsensitiveを保存する() {
+        let app = app();
+
+        call(
+            &app,
+            "add_schedule",
+            json!({
+                "text": "センシティブ指定",
+                "at": "2030-06-20 18:00",
+                "sns": "bluesky",
+                "sensitive": true,
+            }),
+        )
+        .await
+        .unwrap();
+
+        let posts = app.state.store.get_all_posts().await.unwrap();
+        assert!(posts[0].sensitive, "sensitive が予約へ伝わること");
+    }
+
+    /// sensitive 未指定なら false になる。
+    #[tokio::test]
+    async fn add_scheduleはsensitive未指定でfalseになる() {
+        let app = app();
+
+        call(
+            &app,
+            "add_schedule",
+            json!({ "text": "通常投稿", "at": "2030-06-20 18:00", "sns": "bluesky" }),
+        )
+        .await
+        .unwrap();
+
+        let posts = app.state.store.get_all_posts().await.unwrap();
+        assert!(!posts[0].sensitive);
+    }
+
+    /// auto_slot で作った予約にも sensitive が伝わる。
+    #[tokio::test]
+    async fn auto_slotの予約にもsensitiveが伝わる() {
+        let app = setup_test_app_with_config(Some(SECRET.to_string()), |config| {
+            config.default_allowed_timings =
+                Some(vec![("*".to_string(), vec!["09:00".to_string()])]);
+            config.sns = vec![SnsConfig::Bluesky {
+                name: "bsky-main".to_string(),
+                identifier: "user.example.com".to_string(),
+                password: "p".to_string(),
+            }];
+        });
+
+        call(
+            &app,
+            "add_schedule",
+            json!({ "text": "自動枠", "auto_slot": true, "sensitive": true }),
+        )
+        .await
+        .unwrap();
+
+        let posts = app.state.store.get_all_posts().await.unwrap();
+        assert!(posts[0].sensitive);
+    }
+
+    // --- 未対応SNSの明示エラー ---
+
+    /// Threads を指定すると未対応であることを明示する。
+    #[tokio::test]
+    async fn post_nowは未対応snsを明示エラーにする() {
+        let app = setup_test_app_with_config(Some(SECRET.to_string()), |config| {
+            config.sns = vec![SnsConfig::Threads {
+                name: "threads-main".to_string(),
+                user_id: "1".to_string(),
+                access_token: "t".to_string(),
+            }];
+        });
+
+        let err = call(
+            &app,
+            "post_now",
+            json!({ "text": "本文", "sns": "threads-main" }),
+        )
+        .await
+        .unwrap_err();
+
+        // 従来は黙ってスキップされ「宛先が無い」としか分からなかった
+        assert!(
+            err.to_string().contains("posting is not implemented"),
+            "実際のエラー: {}",
+            err
+        );
+        assert!(err.to_string().contains("threads-main"));
+    }
+
+    /// Tumblr も同様に明示エラーになる。
+    #[tokio::test]
+    async fn post_nowはtumblrも明示エラーにする() {
+        let app = setup_test_app_with_config(Some(SECRET.to_string()), |config| {
+            config.sns = vec![SnsConfig::Tumblr {
+                name: "tumblr-main".to_string(),
+                consumer_key: "k".to_string(),
+                consumer_secret: "s".to_string(),
+                oauth_token: "t".to_string(),
+                oauth_secret: "ts".to_string(),
+                blog_identifier: "blog.example.com".to_string(),
+            }];
+        });
+
+        let err = call(&app, "post_now", json!({ "text": "本文", "sns": "tumblr" }))
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("posting is not implemented"));
+    }
+
+    /// sns 未指定なら未対応の種別は対象にせず、対応分だけ投稿する。
+    #[tokio::test]
+    async fn sns未指定なら未対応種別は対象にしない() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/v1/statuses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({ "url": "https://mstdn.example.com/@u/9" })),
+            )
+            .mount(&server)
+            .await;
+
+        let uri = server.uri();
+        let app = setup_test_app_with_config(Some(SECRET.to_string()), move |config| {
+            config.sns = vec![
+                SnsConfig::Mastodon {
+                    name: "mstdn-main".to_string(),
+                    instance_url: uri,
+                    access_token: "t".to_string(),
+                },
+                SnsConfig::Threads {
+                    name: "threads-main".to_string(),
+                    user_id: "1".to_string(),
+                    access_token: "t".to_string(),
+                },
+            ];
+        });
+
+        // 全件宛ての投稿が未対応種別のせいで失敗しては困る
+        let out = call(&app, "post_now", json!({ "text": "全件投稿" }))
+            .await
+            .unwrap();
+
+        assert!(out.contains("[Success]"), "実際の出力:\n{}", out);
+    }
+
+    /// add_schedule も sns 未指定では未対応種別を含めない。
+    #[tokio::test]
+    async fn add_scheduleはsns未指定で未対応種別を含めない() {
+        let app = setup_test_app_with_config(Some(SECRET.to_string()), |config| {
+            config.sns = vec![
+                SnsConfig::Bluesky {
+                    name: "bsky-main".to_string(),
+                    identifier: "user.example.com".to_string(),
+                    password: "p".to_string(),
+                },
+                SnsConfig::Threads {
+                    name: "threads-main".to_string(),
+                    user_id: "1".to_string(),
+                    access_token: "t".to_string(),
+                },
+            ];
+        });
+
+        call(
+            &app,
+            "add_schedule",
+            json!({ "text": "全件予約", "at": "2030-06-20 18:00" }),
+        )
+        .await
+        .unwrap();
+
+        let posts = app.state.store.get_all_posts().await.unwrap();
+        // 投稿できない先を予約に入れても実行時に失敗するだけ
+        assert_eq!(posts[0].target_sns, vec!["bsky-main".to_string()]);
+    }
+
+    // --- get_next_slots ---
+
+    /// 設定したタイミングの枠が返る。
+    #[tokio::test]
+    async fn get_next_slotsは次の枠を返す() {
+        let app = setup_test_app_with_config(Some(SECRET.to_string()), |config| {
+            config.default_allowed_timings = Some(vec![(
+                "*".to_string(),
+                vec!["09:00".to_string(), "18:00".to_string()],
+            )]);
+            config.sns = vec![SnsConfig::Mastodon {
+                name: "mstdn-main".to_string(),
+                instance_url: "https://mstdn.example.com".to_string(),
+                access_token: "t".to_string(),
+            }];
+        });
+
+        let out = call(&app, "get_next_slots", json!({})).await.unwrap();
+
+        assert!(out.contains("次の投稿枠"));
+        assert!(out.contains("mstdn-main"));
+        assert!(
+            out.contains("09:00:00") || out.contains("18:00:00"),
+            "設定したタイミングの枠であること:\n{}",
+            out
+        );
+    }
+
+    /// SNS が未設定なら対象が無い旨を返す。
+    #[tokio::test]
+    async fn get_next_slotsはsns未設定で案内を返す() {
+        let app = app();
+
+        let out = call(&app, "get_next_slots", json!({})).await.unwrap();
+
+        assert!(
+            out.contains("(対象のSNSがありません)"),
+            "実際の出力:\n{}",
+            out
+        );
+    }
+
+    /// sns 引数で対象を絞れる。
+    #[tokio::test]
+    async fn get_next_slotsはsnsで絞り込める() {
+        let app = setup_test_app_with_config(Some(SECRET.to_string()), |config| {
+            config.default_allowed_timings =
+                Some(vec![("*".to_string(), vec!["09:00".to_string()])]);
+            config.sns = vec![
+                SnsConfig::Mastodon {
+                    name: "mstdn-main".to_string(),
+                    instance_url: "https://mstdn.example.com".to_string(),
+                    access_token: "t".to_string(),
+                },
+                SnsConfig::Bluesky {
+                    name: "bsky-main".to_string(),
+                    identifier: "user.example.com".to_string(),
+                    password: "p".to_string(),
+                },
+            ];
+        });
+
+        let out = call(&app, "get_next_slots", json!({ "sns": "bsky-main" }))
+            .await
+            .unwrap();
+
+        assert!(out.contains("bsky-main"));
+        assert!(!out.contains("mstdn-main"), "実際の出力:\n{}", out);
+    }
+
+    /// タイミング未設定なら制限なしとみなし、直近の枠が返る。
+    #[tokio::test]
+    async fn get_next_slotsはタイミング未設定でも枠を返す() {
+        let app = setup_test_app_with_config(Some(SECRET.to_string()), |config| {
+            // allowed_timings をどこにも設定しない
+            config.sns = vec![SnsConfig::Bluesky {
+                name: "bsky-main".to_string(),
+                identifier: "user.example.com".to_string(),
+                password: "p".to_string(),
+            }];
+        });
+
+        let out = call(&app, "get_next_slots", json!({})).await.unwrap();
+
+        // タイミングを設定していない場合はいつでも投稿できる扱いになる
+        assert!(out.contains("bsky-main"));
+        assert!(
+            !out.contains("空き枠が見つかりません"),
+            "実際の出力:\n{}",
+            out
+        );
     }
 
     /// 未知の tool 名はエラーになる。
