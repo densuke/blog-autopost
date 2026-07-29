@@ -804,8 +804,14 @@ pub async fn get_login_page() -> impl axum::response::IntoResponse {
     }
 }
 
+/// `POST /login` — ログインを受け付け、セッション Cookie を発行する。
+///
+/// `Secure` を付けるかどうかの判定に元リクエストの情報が要るため、
+/// ヘッダと URI も受け取る。`Form` は本文を消費するので必ず最後に置く。
 pub async fn login_submit(
     State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+    uri: axum::http::Uri,
     axum::Form(payload): axum::Form<LoginPayload>,
 ) -> Result<impl axum::response::IntoResponse, StatusCode> {
     let Some(ref auth) = state.config.web_auth else {
@@ -859,19 +865,24 @@ pub async fn login_submit(
         }
     }
 
-    let timestamp = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    timestamp.hash(&mut hasher);
-    let random_val = hasher.finish();
-    let session_id = format!("sess_{}_{:x}", timestamp, random_val);
+    let Some(session_id) = crate::web::session::generate_session_id() else {
+        println!("Failed to obtain randomness for session id");
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    };
+
+    let ttl_hours = auth.effective_session_ttl_hours();
+    let session = crate::web::session::Session::new(payload.username, ttl_hours);
 
     {
         let mut sessions = state.sessions.write().await;
-        sessions.insert(session_id.clone(), payload.username);
+        // 溜まった期限切れをここでまとめて片付ける
+        crate::web::session::purge_expired(&mut sessions, chrono::Utc::now());
+        sessions.insert(session_id.clone(), session);
     }
 
-    let cookie = format!("session_id={}; Path=/; HttpOnly; SameSite=Lax", session_id);
+    let secure = crate::web::session::CookieSecure::from_config(auth.cookie_secure.as_deref())
+        .should_set(crate::web::session::is_https_request(&headers, &uri));
+    let cookie = crate::web::session::build_session_cookie(&session_id, ttl_hours, secure);
     let response = axum::response::Response::builder()
         .status(StatusCode::SEE_OTHER)
         .header(axum::http::header::LOCATION, "/")
@@ -888,19 +899,13 @@ pub async fn logout(
 ) -> impl axum::response::IntoResponse {
     if let Some(cookie_header) = req.headers().get(axum::http::header::COOKIE)
         && let Ok(cookie_str) = cookie_header.to_str()
+        && let Some(session_id) = crate::web::session::extract_session_id(cookie_str)
     {
-        for cookie in cookie_str.split(';') {
-            let parts: Vec<&str> = cookie.trim().split('=').collect();
-            if parts.len() == 2 && parts[0] == "session_id" {
-                let session_id = parts[1];
-                let mut sessions = state.sessions.write().await;
-                sessions.remove(session_id);
-                break;
-            }
-        }
+        let mut sessions = state.sessions.write().await;
+        sessions.remove(session_id);
     }
 
-    let cookie = "session_id=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    let cookie = crate::web::session::build_expired_cookie();
     axum::response::Response::builder()
         .status(axum::http::StatusCode::SEE_OTHER)
         .header(axum::http::header::LOCATION, "/login")
@@ -1313,14 +1318,29 @@ mod tests {
             .expect("Set-Cookieが必要")
             .to_str()
             .unwrap();
-        assert!(
-            cookie.starts_with("session_id=sess_"),
-            "実際の値: {}",
-            cookie
-        );
-        assert!(cookie.contains("HttpOnly"), "HttpOnly属性が必要");
+        // セッションIDは CSPRNG 由来の 256 ビットを16進で表したもの
+        let session_id = cookie
+            .strip_prefix("session_id=")
+            .and_then(|s| s.split(';').next())
+            .expect("session_id が含まれること");
+        assert_eq!(session_id.len(), 64, "実際の値: {}", cookie);
+        assert!(session_id.chars().all(|c| c.is_ascii_hexdigit()));
 
-        assert_eq!(app.state.sessions.read().await.len(), 1);
+        assert!(cookie.contains("HttpOnly"), "HttpOnly属性が必要");
+        assert!(cookie.contains("SameSite=Lax"));
+        assert!(cookie.contains("Max-Age=86400"), "既定TTLは24時間");
+        // 素の HTTP なので Secure は付かない
+        assert!(!cookie.contains("Secure"), "実際の値: {}", cookie);
+
+        let sessions = app.state.sessions.read().await;
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(
+            sessions
+                .get(session_id)
+                .expect("発行したIDで引ける")
+                .username,
+            TEST_USERNAME
+        );
     }
 
     /// パスワードが違うと401になり、セッションは作られない。
@@ -1422,7 +1442,10 @@ mod tests {
         let app = app_with_auth();
         {
             let mut sessions = app.state.sessions.write().await;
-            sessions.insert("my-session".to_string(), "admin".to_string());
+            sessions.insert(
+                "my-session".to_string(),
+                crate::web::session::Session::new("admin".to_string(), 24),
+            );
         }
 
         let request = Request::builder()
@@ -1435,6 +1458,313 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::SEE_OTHER);
         assert!(app.state.sessions.read().await.is_empty());
+    }
+
+    // --- セッションの有効期限と Cookie 属性 ---
+
+    /// ログインフォームを組み立てる。
+    fn login_request(extra_header: Option<(&str, &str)>) -> Request<Body> {
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri("/login")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
+        if let Some((name, value)) = extra_header {
+            builder = builder.header(name, value);
+        }
+        builder
+            .body(Body::from(format!(
+                "username={}&password={}",
+                TEST_USERNAME, TEST_PASSWORD
+            )))
+            .unwrap()
+    }
+
+    /// レスポンスから Set-Cookie の値を取り出す。
+    fn set_cookie(response: &axum::response::Response) -> String {
+        response
+            .headers()
+            .get(header::SET_COOKIE)
+            .expect("Set-Cookieが必要")
+            .to_str()
+            .unwrap()
+            .to_string()
+    }
+
+    /// ログインのたびに異なるセッションIDが払い出される。
+    #[tokio::test]
+    async fn ログインごとにセッションidが変わる() {
+        let app = app_with_auth();
+
+        let first = set_cookie(
+            &app.router
+                .clone()
+                .oneshot(login_request(None))
+                .await
+                .unwrap(),
+        );
+        let second = set_cookie(
+            &app.router
+                .clone()
+                .oneshot(login_request(None))
+                .await
+                .unwrap(),
+        );
+
+        assert_ne!(first, second, "同じIDを再利用してはいけない");
+        assert_eq!(app.state.sessions.read().await.len(), 2);
+    }
+
+    /// 期限切れのセッションでは認証が通らない。
+    #[tokio::test]
+    async fn 期限切れセッションは拒否される() {
+        let app = setup_test_app_with_config(None, |_| {});
+        {
+            let mut sessions = app.state.sessions.write().await;
+            sessions.insert(
+                "expired".to_string(),
+                crate::web::session::Session::with_created_at(
+                    "admin".to_string(),
+                    1,
+                    chrono::Utc::now() - chrono::Duration::hours(2),
+                ),
+            );
+        }
+
+        let request = Request::builder()
+            .uri("/api/config")
+            .header(header::COOKIE, "session_id=expired")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    /// 期限切れのセッションは提示された時点で取り除かれる。
+    #[tokio::test]
+    async fn 期限切れセッションは提示時に消える() {
+        let app = setup_test_app_with_config(None, |_| {});
+        {
+            let mut sessions = app.state.sessions.write().await;
+            sessions.insert(
+                "expired".to_string(),
+                crate::web::session::Session::with_created_at(
+                    "admin".to_string(),
+                    1,
+                    chrono::Utc::now() - chrono::Duration::hours(2),
+                ),
+            );
+        }
+
+        let request = Request::builder()
+            .uri("/api/config")
+            .header(header::COOKIE, "session_id=expired")
+            .body(Body::empty())
+            .unwrap();
+        app.router.clone().oneshot(request).await.unwrap();
+
+        assert!(
+            app.state.sessions.read().await.is_empty(),
+            "期限切れは残さない"
+        );
+    }
+
+    /// 有効なセッションなら認証が通る。
+    #[tokio::test]
+    async fn 有効なセッションは認証を通る() {
+        let app = setup_test_app_with_config(None, |_| {});
+        {
+            let mut sessions = app.state.sessions.write().await;
+            sessions.insert(
+                "live".to_string(),
+                crate::web::session::Session::new("admin".to_string(), 24),
+            );
+        }
+
+        let request = Request::builder()
+            .uri("/api/config")
+            .header(header::COOKIE, "session_id=live")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    /// ログイン時に期限切れのセッションがまとめて片付けられる。
+    #[tokio::test]
+    async fn ログイン時に期限切れが掃除される() {
+        let app = app_with_auth();
+        {
+            let mut sessions = app.state.sessions.write().await;
+            sessions.insert(
+                "expired".to_string(),
+                crate::web::session::Session::with_created_at(
+                    "admin".to_string(),
+                    1,
+                    chrono::Utc::now() - chrono::Duration::hours(2),
+                ),
+            );
+        }
+
+        app.router
+            .clone()
+            .oneshot(login_request(None))
+            .await
+            .unwrap();
+
+        let sessions = app.state.sessions.read().await;
+        assert!(!sessions.contains_key("expired"), "期限切れが残っている");
+        assert_eq!(sessions.len(), 1, "新しく作った1件だけが残る");
+    }
+
+    /// TTL を設定するとその値が Max-Age に反映される。
+    #[tokio::test]
+    async fn ttl設定はmax_ageに反映される() {
+        let app = setup_test_app_with_config(None, |config| {
+            if let Some(ref mut auth) = config.web_auth {
+                auth.session_ttl_hours = Some(2);
+            }
+        });
+
+        let cookie = set_cookie(
+            &app.router
+                .clone()
+                .oneshot(login_request(None))
+                .await
+                .unwrap(),
+        );
+
+        assert!(cookie.contains("Max-Age=7200"), "実際の値: {}", cookie);
+    }
+
+    /// TTL に 0 を指定しても既定値が使われる。
+    #[tokio::test]
+    async fn ttlが0なら既定値を使う() {
+        let app = setup_test_app_with_config(None, |config| {
+            if let Some(ref mut auth) = config.web_auth {
+                auth.session_ttl_hours = Some(0);
+            }
+        });
+
+        let cookie = set_cookie(
+            &app.router
+                .clone()
+                .oneshot(login_request(None))
+                .await
+                .unwrap(),
+        );
+
+        // 0 を許すと発行直後に切れてしまうため既定の24時間へ倒す
+        assert!(cookie.contains("Max-Age=86400"), "実際の値: {}", cookie);
+    }
+
+    /// X-Forwarded-Proto: https なら Secure が付く。
+    #[tokio::test]
+    async fn https経由ならsecureが付く() {
+        let app = app_with_auth();
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(login_request(Some(("X-Forwarded-Proto", "https"))))
+            .await
+            .unwrap();
+
+        assert!(set_cookie(&response).contains("; Secure"));
+    }
+
+    /// 素の HTTP では Secure を付けない。
+    #[tokio::test]
+    async fn 素のhttpではsecureを付けない() {
+        let app = app_with_auth();
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(login_request(Some(("X-Forwarded-Proto", "http"))))
+            .await
+            .unwrap();
+
+        // 無条件に付けると HTTP 運用の環境がログイン不能になる
+        assert!(!set_cookie(&response).contains("Secure"));
+    }
+
+    /// cookie_secure: always なら HTTP でも Secure が付く。
+    #[tokio::test]
+    async fn cookie_secure_alwaysはhttpでも付く() {
+        let app = setup_test_app_with_config(None, |config| {
+            if let Some(ref mut auth) = config.web_auth {
+                auth.cookie_secure = Some("always".to_string());
+            }
+        });
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(login_request(None))
+            .await
+            .unwrap();
+
+        assert!(set_cookie(&response).contains("; Secure"));
+    }
+
+    /// cookie_secure: never なら HTTPS でも Secure を付けない。
+    #[tokio::test]
+    async fn cookie_secure_neverはhttpsでも付かない() {
+        let app = setup_test_app_with_config(None, |config| {
+            if let Some(ref mut auth) = config.web_auth {
+                auth.cookie_secure = Some("never".to_string());
+            }
+        });
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(login_request(Some(("X-Forwarded-Proto", "https"))))
+            .await
+            .unwrap();
+
+        assert!(!set_cookie(&response).contains("Secure"));
+    }
+
+    /// 設定の書き戻しで未設定の新項目が増えない。
+    #[tokio::test]
+    async fn 設定の書き戻しで未設定項目が増えない() {
+        let app = setup_test_app_with_config(None, |config| {
+            if let Some(ref mut auth) = config.web_auth {
+                // 平文パスワードにして bcrypt 移行(=書き戻し)を起こす
+                auth.password = "plaintext-pass".to_string();
+            }
+        });
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/login")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(format!(
+                "username={}&password=plaintext-pass",
+                TEST_USERNAME
+            )))
+            .unwrap();
+        app.router.clone().oneshot(request).await.unwrap();
+
+        let written = std::fs::read_to_string(&app.state.config_path)
+            .expect("設定ファイルが書き出されているはず");
+
+        // skip_serializing_if が無いと null として現れてしまう
+        assert!(
+            !written.contains("session_ttl_hours"),
+            "未設定の項目が書き足されている: {}",
+            written
+        );
+        assert!(
+            !written.contains("cookie_secure"),
+            "未設定の項目が書き足されている: {}",
+            written
+        );
     }
 
     // --- GET /login (ページ) ---

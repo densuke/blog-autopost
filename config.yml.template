@@ -82,6 +82,19 @@ web_auth:
   password: "changeme"
   secret_key: "<WEB_SESSION_SECRET>"
 
+  # 以下は省略可能。書かなければ既定値で動作する。
+
+  # ログインセッションの有効期間 (時間)。既定は 24。
+  # session_ttl_hours: 24
+
+  # セッション Cookie に Secure 属性を付ける方針。
+  #   auto   : HTTPS 由来と判定できたときだけ付ける (既定)
+  #   always : 常に付ける。TLS 終端が確実な環境向け
+  #   never  : 付けない
+  # auto はリバースプロキシの X-Forwarded-Proto を見るため、
+  # 素の HTTP で運用していてもログインできなくならない。
+  # cookie_secure: "auto"
+
 web:
   session:
     secret_key: "<WEB_SESSION_SECRET>"  # 後方互換性のため同じ値を設定

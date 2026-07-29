@@ -1,5 +1,6 @@
 pub mod mcp;
 pub mod routes;
+pub mod session;
 
 use crate::config::Config;
 use crate::scheduled::{JsonScheduledPostStore, ScheduledPostExecutor};
@@ -21,7 +22,8 @@ pub struct AppState {
     pub timing_manager: TimingManager,
     pub store: Arc<JsonScheduledPostStore>,
     pub config_path: String,
-    pub sessions: Arc<tokio::sync::RwLock<HashMap<String, String>>>,
+    /// ログイン済みセッション。鍵はセッションID。
+    pub sessions: Arc<tokio::sync::RwLock<HashMap<String, session::Session>>>,
     pub mcp_sessions: Arc<
         tokio::sync::RwLock<HashMap<String, tokio::sync::mpsc::Sender<axum::response::sse::Event>>>,
     >,
@@ -53,11 +55,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/schedules/{id}/post-now", post(routes::post_now_schedule))
         .route("/mcp/sse", get(mcp::mcp_sse_handler))
         .route("/mcp/message", post(mcp::mcp_message_handler))
-        .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            auth_middleware,
-        ));
+        .layer(DefaultBodyLimit::max(10 * 1024 * 1024));
+    // 認証は外側の Router に1回だけ掛ける。ここにも掛けると /api/* で
+    // ミドルウェアが二重に走る。振り分けは path の判定で足りている。
 
     Router::new()
         .nest("/api", api_routes)
@@ -157,6 +157,29 @@ fn is_public_path(path: &str) -> bool {
     path == "/login" || path == "/theme.js" || path == "/theme.css"
 }
 
+/// セッションIDが有効かどうかを判定する。
+///
+/// 期限切れのセッションはその場で取り除く。全件の掃除はログイン時に行うが、
+/// 提示された分だけでも即座に消しておくことで、期限切れのIDが
+/// 残り続けるのを防ぐ。
+async fn verify_session(state: &Arc<AppState>, session_id: &str) -> bool {
+    let now = chrono::Utc::now();
+
+    {
+        let sessions = state.sessions.read().await;
+        match sessions.get(session_id) {
+            None => return false,
+            Some(s) if !s.is_expired(now) => return true,
+            Some(_) => {}
+        }
+    }
+
+    // ここへ来るのは期限切れだったときだけ
+    let mut sessions = state.sessions.write().await;
+    sessions.remove(session_id);
+    false
+}
+
 // 認証確認ミドルウェア
 async fn auth_middleware(
     State(state): State<Arc<AppState>>,
@@ -172,12 +195,15 @@ async fn auth_middleware(
     let mut authenticated = false;
 
     // 1. APIキー (Bearerトークン or X-Api-Key) による認証のチェック
+    //
+    // 比較は定時間で行う。単純な == だと一致した先頭バイト数が
+    // 処理時間の差として漏れ、キーを1バイトずつ推測されうる。
     if let Some(auth_header) = req.headers().get(axum::http::header::AUTHORIZATION)
         && let Ok(auth_str) = auth_header.to_str()
         && let Some(token) = auth_str.strip_prefix("Bearer ")
         && let Some(ref config_auth) = state.config.web_auth
         && let Some(ref secret) = config_auth.secret_key
-        && token == secret
+        && session::constant_time_eq(token, secret)
     {
         authenticated = true;
     }
@@ -187,7 +213,7 @@ async fn auth_middleware(
         && let Ok(api_key) = api_key_header.to_str()
         && let Some(ref config_auth) = state.config.web_auth
         && let Some(ref secret) = config_auth.secret_key
-        && api_key == secret
+        && session::constant_time_eq(api_key, secret)
     {
         authenticated = true;
     }
@@ -196,18 +222,9 @@ async fn auth_middleware(
     if !authenticated
         && let Some(cookie_header) = req.headers().get(axum::http::header::COOKIE)
         && let Ok(cookie_str) = cookie_header.to_str()
+        && let Some(session_id) = session::extract_session_id(cookie_str)
     {
-        for cookie in cookie_str.split(';') {
-            let parts: Vec<&str> = cookie.trim().split('=').collect();
-            if parts.len() == 2 && parts[0] == "session_id" {
-                let session_id = parts[1];
-                let sessions = state.sessions.read().await;
-                if sessions.contains_key(session_id) {
-                    authenticated = true;
-                    break;
-                }
-            }
-        }
+        authenticated = verify_session(&state, session_id).await;
     }
 
     if authenticated {
@@ -298,6 +315,8 @@ mod tests {
                 // テストの実行時間を抑えるためコストを最低にしてハッシュ化する
                 password: bcrypt::hash(TEST_PASSWORD, 4).expect("ハッシュ化に失敗"),
                 secret_key,
+                session_ttl_hours: None,
+                cookie_secure: None,
             }),
             extra: HashMap::new(),
         };
@@ -423,7 +442,10 @@ mod tests {
         // セッションを登録
         {
             let mut sessions = state.sessions.write().await;
-            sessions.insert("my-session-id".to_string(), "admin".to_string());
+            sessions.insert(
+                "my-session-id".to_string(),
+                session::Session::new("admin".to_string(), 24),
+            );
         }
 
         let response = app
@@ -450,7 +472,10 @@ mod tests {
         // 認証を通す（更新確認 API も他の API と同じく認証配下にある）
         {
             let mut sessions = app.state.sessions.write().await;
-            sessions.insert("my-session-id".to_string(), "admin".to_string());
+            sessions.insert(
+                "my-session-id".to_string(),
+                session::Session::new("admin".to_string(), 24),
+            );
         }
 
         let response = app
