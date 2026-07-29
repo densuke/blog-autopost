@@ -180,6 +180,7 @@ mod tests {
                 "update_schedule",
                 "delete_schedule",
                 "post_now",
+                "get_next_slots",
             ]
         );
     }
@@ -210,8 +211,19 @@ mod tests {
         assert_eq!(required_of("post_now"), vec!["text"]);
         assert_eq!(required_of("update_schedule"), vec!["id"]);
         assert_eq!(required_of("delete_schedule"), vec!["id"]);
-        // list_schedules は絞り込み条件が任意なので required を持たない
+        // 絞り込み条件が任意の tool は required を持たない
         assert!(required_of("list_schedules").is_empty());
+        assert!(required_of("get_next_slots").is_empty());
+
+        // sensitive は投稿系の tool で受け付ける
+        let has_property = |name: &str, prop: &str| -> bool {
+            tools
+                .iter()
+                .find(|t| t["name"] == name)
+                .is_some_and(|t| t["inputSchema"]["properties"][prop].is_object())
+        };
+        assert!(has_property("add_schedule", "sensitive"));
+        assert!(has_property("post_now", "sensitive"));
 
         for t in tools {
             assert!(

@@ -164,82 +164,10 @@ pub async fn manual_post(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<ManualPostRequest>,
 ) -> Json<ManualPostResponse> {
-    // リクエストごとに SnsClient を組み立てる (KISS実装)
-    let mut sns_clients: Vec<Box<dyn SnsClient + Send + Sync>> = Vec::new();
-    for sns_conf in &state.config.sns {
-        let Some(account_name) = sns_account_name(sns_conf) else {
-            continue;
-        };
-        let Some(target_label) = sns_display_label(sns_conf) else {
-            continue;
-        };
-
-        // アカウント名と表示用ラベルのどちらで指定されても受け付ける
-        if let Some(ref selected) = payload.targets
-            && !selected
-                .iter()
-                .any(|t| t == account_name || *t == target_label)
-        {
-            continue;
-        }
-
-        match sns_conf {
-            SnsConfig::Mastodon {
-                instance_url,
-                access_token,
-                name,
-                ..
-            } => {
-                if let Ok(client) =
-                    MastodonClient::new(instance_url.clone(), access_token.clone(), name.clone())
-                {
-                    sns_clients.push(Box::new(client));
-                }
-            }
-            SnsConfig::Misskey {
-                instance_url,
-                access_token,
-                name,
-                ..
-            } => {
-                if let Ok(client) =
-                    MisskeyClient::new(instance_url.clone(), access_token.clone(), name.clone())
-                {
-                    sns_clients.push(Box::new(client));
-                }
-            }
-            SnsConfig::Bluesky {
-                identifier,
-                password,
-                name,
-                ..
-            } => {
-                if let Ok(client) =
-                    BlueskyClient::new(identifier.clone(), password.clone(), name.clone())
-                {
-                    sns_clients.push(Box::new(client));
-                }
-            }
-            SnsConfig::X {
-                consumer_key,
-                consumer_secret,
-                access_token,
-                access_token_secret,
-                name,
-            } => {
-                if let Ok(client) = XClient::new(
-                    consumer_key.clone(),
-                    consumer_secret.clone(),
-                    access_token.clone(),
-                    access_token_secret.clone(),
-                    name.clone(),
-                ) {
-                    sns_clients.push(Box::new(client));
-                }
-            }
-            _ => {}
-        }
-    }
+    // SNS クライアントの構築は sns モジュールの共通ファクトリへ寄せている。
+    // アカウント名・表示ラベル・種別名のいずれの指定でも解決できる。
+    let (sns_clients, _unsupported) =
+        crate::sns::build_selected_clients(&state.config, payload.targets.as_deref());
 
     let schedule_type = payload
         .schedule_type
@@ -411,26 +339,48 @@ pub struct NextSlotResponse {
     pub slots: HashMap<String, Option<String>>,
 }
 
-pub async fn get_next_slots(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<NextSlotResponse>, StatusCode> {
+/// 各 SNS の次に投稿可能なスロットを算出する。
+///
+/// `targets` が `Some` のとき、その名前に一致するアカウントだけを対象にする。
+/// HTTP ハンドラと MCP の tool から共用するためここに置いている。
+pub(crate) async fn collect_next_slots(
+    state: &AppState,
+    targets: Option<&[String]>,
+) -> anyhow::Result<Vec<(String, Option<chrono::DateTime<chrono::Local>>)>> {
     use crate::timing::SlotFinder;
 
     let finder = SlotFinder::new(&state.timing_manager, &state.store, 5);
-    let mut slots = HashMap::new();
+    let mut slots = Vec::new();
 
     for sns_conf in &state.config.sns {
         let Some(name) = sns_account_name(sns_conf) else {
             continue;
         };
 
-        let slot = finder
-            .find_next_available_slot(name, None, 7)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if let Some(targets) = targets
+            && !targets.iter().any(|t| t.trim().eq_ignore_ascii_case(name))
+        {
+            continue;
+        }
 
-        slots.insert(name.to_string(), slot.map(|dt| dt.to_rfc3339()));
+        let slot = finder.find_next_available_slot(name, None, 7).await?;
+        slots.push((name.to_string(), slot));
     }
+
+    Ok(slots)
+}
+
+pub async fn get_next_slots(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<NextSlotResponse>, StatusCode> {
+    let found = collect_next_slots(&state, None)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let slots: HashMap<String, Option<String>> = found
+        .into_iter()
+        .map(|(name, slot)| (name, slot.map(|dt| dt.to_rfc3339())))
+        .collect();
 
     Ok(Json(NextSlotResponse { slots }))
 }

@@ -48,6 +48,141 @@ pub async fn download_image(
     Ok(Some((bytes, content_type)))
 }
 
+/// 投稿クライアントを構築できる SNS 種別かどうかを返す。
+///
+/// Threads と Tumblr は `SnsConfig` に定義があるだけで、
+/// `SnsClient` の実装そのものが存在しない (README の移植対象外)。
+pub fn is_postable_type(sns: &crate::config::SnsConfig) -> bool {
+    use crate::config::SnsConfig;
+    matches!(
+        sns,
+        SnsConfig::Mastodon { .. }
+            | SnsConfig::Misskey { .. }
+            | SnsConfig::Bluesky { .. }
+            | SnsConfig::X { .. }
+    )
+}
+
+/// 1件の設定から SNS クライアントを構築する。
+///
+/// 対応していない種別、または生成に失敗した場合は `None` を返す。
+pub fn build_client(
+    sns_conf: &crate::config::SnsConfig,
+) -> Option<std::sync::Arc<dyn traits::SnsClient + Send + Sync>> {
+    use crate::config::SnsConfig;
+    use std::sync::Arc;
+
+    match sns_conf {
+        SnsConfig::Mastodon {
+            instance_url,
+            access_token,
+            name,
+        } => {
+            mastodon::MastodonClient::new(instance_url.clone(), access_token.clone(), name.clone())
+                .ok()
+                .map(|c| Arc::new(c) as Arc<dyn traits::SnsClient + Send + Sync>)
+        }
+        SnsConfig::Misskey {
+            instance_url,
+            access_token,
+            name,
+            ..
+        } => misskey::MisskeyClient::new(instance_url.clone(), access_token.clone(), name.clone())
+            .ok()
+            .map(|c| Arc::new(c) as Arc<dyn traits::SnsClient + Send + Sync>),
+        SnsConfig::Bluesky {
+            identifier,
+            password,
+            name,
+        } => bluesky::BlueskyClient::new(identifier.clone(), password.clone(), name.clone())
+            .ok()
+            .map(|c| Arc::new(c) as Arc<dyn traits::SnsClient + Send + Sync>),
+        SnsConfig::X {
+            consumer_key,
+            consumer_secret,
+            access_token,
+            access_token_secret,
+            name,
+        } => x::XClient::new(
+            consumer_key.clone(),
+            consumer_secret.clone(),
+            access_token.clone(),
+            access_token_secret.clone(),
+            name.clone(),
+        )
+        .ok()
+        .map(|c| Arc::new(c) as Arc<dyn traits::SnsClient + Send + Sync>),
+        _ => None,
+    }
+}
+
+/// 設定から SNS クライアント群を構築する。
+///
+/// `targets` が `Some` のとき、アカウント名・表示ラベル・種別名のいずれかで
+/// 絞り込む。いずれも大文字小文字を区別しない。
+///
+/// 戻り値の第2要素は、名前で明示的に指定されたが投稿クライアントが
+/// 未実装だったアカウント名。これを呼び出し側でエラーとして示すことで、
+/// 「指定したのに黙って無視された」という状況を避けられる。
+///
+/// `targets` が `None` (全件宛て) のときは第2要素を埋めない。
+/// 未対応の種別が設定にあるだけで全件投稿が失敗しては困るため。
+pub fn build_selected_clients(
+    config: &crate::config::Config,
+    targets: Option<&[String]>,
+) -> (
+    Vec<std::sync::Arc<dyn traits::SnsClient + Send + Sync>>,
+    Vec<String>,
+) {
+    let explicit = targets.is_some_and(|t| !t.is_empty());
+    let mut clients = Vec::new();
+    let mut unsupported = Vec::new();
+
+    for sns_conf in &config.sns {
+        if !matches_target(sns_conf, targets) {
+            continue;
+        }
+
+        if !is_postable_type(sns_conf) {
+            // 名指しされたのに投稿できない種別。呼び出し側で明示するため覚えておく
+            if explicit && let Some(name) = crate::web::routes::sns_account_name(sns_conf) {
+                unsupported.push(name.to_string());
+            }
+            continue;
+        }
+
+        if let Some(client) = build_client(sns_conf) {
+            clients.push(client);
+        }
+    }
+
+    (clients, unsupported)
+}
+
+/// 指定が対象の設定に当てはまるかを判定する。
+///
+/// アカウント名・表示ラベル・種別名のいずれかに一致すればよい。
+/// `targets` が `None` または空なら、すべてを対象とみなす。
+fn matches_target(sns_conf: &crate::config::SnsConfig, targets: Option<&[String]>) -> bool {
+    let Some(targets) = targets else {
+        return true;
+    };
+    if targets.is_empty() {
+        return true;
+    }
+
+    let account = crate::web::routes::sns_account_name(sns_conf);
+    let label = crate::web::routes::sns_display_label(sns_conf);
+    let type_name = crate::web::routes::sns_type_name(sns_conf);
+
+    targets.iter().any(|t| {
+        let t = t.trim();
+        account.is_some_and(|a| a.eq_ignore_ascii_case(t))
+            || label.as_deref().is_some_and(|l| l.eq_ignore_ascii_case(t))
+            || type_name.is_some_and(|ty| ty.eq_ignore_ascii_case(t))
+    })
+}
+
 /// 設定から SNS クライアントのリストを構築する。
 ///
 /// 対応していない種別(Threads / Tumblr / 不明な設定)はスキップする。
@@ -57,73 +192,7 @@ pub async fn download_image(
 pub fn build_clients_from_config(
     config: &crate::config::Config,
 ) -> Vec<std::sync::Arc<dyn traits::SnsClient + Send + Sync>> {
-    use crate::config::SnsConfig;
-    use std::sync::Arc;
-
-    let mut clients: Vec<Arc<dyn traits::SnsClient + Send + Sync>> = Vec::new();
-
-    for sns_conf in &config.sns {
-        match sns_conf {
-            SnsConfig::Mastodon {
-                instance_url,
-                access_token,
-                name,
-            } => {
-                if let Ok(client) = mastodon::MastodonClient::new(
-                    instance_url.clone(),
-                    access_token.clone(),
-                    name.clone(),
-                ) {
-                    clients.push(Arc::new(client));
-                }
-            }
-            SnsConfig::Misskey {
-                instance_url,
-                access_token,
-                name,
-                ..
-            } => {
-                if let Ok(client) = misskey::MisskeyClient::new(
-                    instance_url.clone(),
-                    access_token.clone(),
-                    name.clone(),
-                ) {
-                    clients.push(Arc::new(client));
-                }
-            }
-            SnsConfig::Bluesky {
-                identifier,
-                password,
-                name,
-            } => {
-                if let Ok(client) =
-                    bluesky::BlueskyClient::new(identifier.clone(), password.clone(), name.clone())
-                {
-                    clients.push(Arc::new(client));
-                }
-            }
-            SnsConfig::X {
-                consumer_key,
-                consumer_secret,
-                access_token,
-                access_token_secret,
-                name,
-            } => {
-                if let Ok(client) = x::XClient::new(
-                    consumer_key.clone(),
-                    consumer_secret.clone(),
-                    access_token.clone(),
-                    access_token_secret.clone(),
-                    name.clone(),
-                ) {
-                    clients.push(Arc::new(client));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    clients
+    build_selected_clients(config, None).0
 }
 
 #[cfg(test)]
@@ -392,6 +461,159 @@ mod tests {
 
             assert_eq!(clients.len(), 2);
             assert_eq!(clients[1].account_name(), "mstdn-sub");
+        }
+    }
+
+    mod selected_clients {
+        use super::*;
+        use crate::config::{Config, SnsConfig};
+        use std::collections::HashMap;
+
+        /// SNS 設定だけを差し替えた設定を作る。
+        fn config_with(sns: Vec<SnsConfig>) -> Config {
+            Config {
+                announcement_text: None,
+                blog: None,
+                sns,
+                templates: HashMap::new(),
+                default_allowed_timings: None,
+                allowed_timings_tolerance_minutes: None,
+                allowed_timings: None,
+                web_auth: None,
+                mcp: None,
+                extra: HashMap::new(),
+            }
+        }
+
+        /// 検証用に対応種別2件と未対応種別1件を並べた設定を作る。
+        fn sample_config() -> Config {
+            config_with(vec![
+                SnsConfig::Mastodon {
+                    name: "mstdn-main".to_string(),
+                    instance_url: "https://mstdn.example.com".to_string(),
+                    access_token: "t".to_string(),
+                },
+                SnsConfig::Bluesky {
+                    name: "bsky-main".to_string(),
+                    identifier: "user.example.com".to_string(),
+                    password: "pw".to_string(),
+                },
+                SnsConfig::Threads {
+                    name: "threads-main".to_string(),
+                    user_id: "u".to_string(),
+                    access_token: "t".to_string(),
+                },
+            ])
+        }
+
+        #[test]
+        fn 投稿できる種別を判定できる() {
+            assert!(is_postable_type(&SnsConfig::Mastodon {
+                name: "n".to_string(),
+                instance_url: "https://mstdn.example.com".to_string(),
+                access_token: "t".to_string(),
+            }));
+
+            // SnsConfig に定義があるだけで SnsClient の実装が無い
+            assert!(!is_postable_type(&SnsConfig::Threads {
+                name: "n".to_string(),
+                user_id: "u".to_string(),
+                access_token: "t".to_string(),
+            }));
+            assert!(!is_postable_type(&SnsConfig::Unknown));
+        }
+
+        #[test]
+        fn 指定なしなら投稿できる全件を返す() {
+            let (clients, unsupported) = build_selected_clients(&sample_config(), None);
+
+            assert_eq!(clients.len(), 2);
+            // 全件宛てでは未対応種別をエラーにしない
+            assert!(unsupported.is_empty());
+        }
+
+        #[test]
+        fn 空の指定は指定なしと同じ扱いになる() {
+            let (clients, unsupported) = build_selected_clients(&sample_config(), Some(&[]));
+
+            assert_eq!(clients.len(), 2);
+            assert!(unsupported.is_empty());
+        }
+
+        #[test]
+        fn アカウント名で絞り込める() {
+            let targets = vec!["bsky-main".to_string()];
+            let (clients, _) = build_selected_clients(&sample_config(), Some(&targets));
+
+            assert_eq!(clients.len(), 1);
+            assert_eq!(clients[0].account_name(), "bsky-main");
+        }
+
+        #[test]
+        fn 種別名で絞り込める() {
+            let targets = vec!["mastodon".to_string()];
+            let (clients, _) = build_selected_clients(&sample_config(), Some(&targets));
+
+            assert_eq!(clients.len(), 1);
+            assert_eq!(clients[0].account_name(), "mstdn-main");
+        }
+
+        #[test]
+        fn 表示ラベルで絞り込める() {
+            let targets = vec!["Bluesky (bsky-main)".to_string()];
+            let (clients, _) = build_selected_clients(&sample_config(), Some(&targets));
+
+            assert_eq!(clients.len(), 1);
+            assert_eq!(clients[0].account_name(), "bsky-main");
+        }
+
+        #[test]
+        fn 大文字小文字と空白を無視して絞り込める() {
+            let targets = vec![" MSTDN-Main ".to_string()];
+            let (clients, _) = build_selected_clients(&sample_config(), Some(&targets));
+
+            assert_eq!(clients.len(), 1);
+            assert_eq!(clients[0].account_name(), "mstdn-main");
+        }
+
+        #[test]
+        fn 名指しされた未対応種別は第2要素で返る() {
+            let targets = vec!["threads-main".to_string()];
+            let (clients, unsupported) = build_selected_clients(&sample_config(), Some(&targets));
+
+            assert!(clients.is_empty());
+            // 黙って無視せず、呼び出し側が明示できるようにする
+            assert_eq!(unsupported, vec!["threads-main".to_string()]);
+        }
+
+        #[test]
+        fn 一致しない指定は何も返さない() {
+            let targets = vec!["no-such-account".to_string()];
+            let (clients, unsupported) = build_selected_clients(&sample_config(), Some(&targets));
+
+            assert!(clients.is_empty());
+            assert!(unsupported.is_empty());
+        }
+
+        #[test]
+        fn 複数の指定をまとめて解決できる() {
+            let targets = vec!["mstdn-main".to_string(), "bsky-main".to_string()];
+            let (clients, _) = build_selected_clients(&sample_config(), Some(&targets));
+
+            assert_eq!(clients.len(), 2);
+        }
+
+        #[test]
+        fn build_clientは未対応種別でnoneを返す() {
+            assert!(build_client(&SnsConfig::Unknown).is_none());
+            assert!(
+                build_client(&SnsConfig::Mastodon {
+                    name: "n".to_string(),
+                    instance_url: "https://mstdn.example.com".to_string(),
+                    access_token: "t".to_string(),
+                })
+                .is_some()
+            );
         }
     }
 }
