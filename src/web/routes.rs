@@ -523,10 +523,14 @@ pub struct UploadResponse {
     pub error: Option<String>,
 }
 
-pub async fn upload_media(mut multipart: Multipart) -> Result<Json<UploadResponse>, StatusCode> {
+pub async fn upload_media(
+    State(state): State<Arc<AppState>>,
+    mut multipart: Multipart,
+) -> Result<Json<UploadResponse>, StatusCode> {
     let mut saved_paths = Vec::new();
+    let upload_dir = &state.upload_dir;
 
-    if let Err(e) = std::fs::create_dir_all("data/uploads") {
+    if let Err(e) = std::fs::create_dir_all(upload_dir) {
         println!("Failed to create upload dir: {:?}", e);
         return Ok(Json(UploadResponse {
             success: false,
@@ -592,22 +596,10 @@ pub async fn upload_media(mut multipart: Multipart) -> Result<Json<UploadRespons
             }));
         }
 
-        let sanitized_name: String = file_name
-            .chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
-                    c
-                } else {
-                    '_'
-                }
-            })
-            .collect();
-        let timestamp = chrono::Utc::now().timestamp_micros();
-        let unique_name = format!("{}_{}", timestamp, sanitized_name);
-        let save_path = format!("data/uploads/{}", unique_name);
+        let save_path = upload_dir.join(crate::web::media::unique_file_name(&file_name));
 
         if let Err(e) = std::fs::write(&save_path, &bytes) {
-            println!("Failed to write file to {}: {:?}", save_path, e);
+            println!("Failed to write file to {:?}: {:?}", save_path, e);
             return Ok(Json(UploadResponse {
                 success: false,
                 paths: Vec::new(),
@@ -615,7 +607,7 @@ pub async fn upload_media(mut multipart: Multipart) -> Result<Json<UploadRespons
             }));
         }
 
-        saved_paths.push(save_path);
+        saved_paths.push(save_path.to_string_lossy().into_owned());
     }
 
     Ok(Json(UploadResponse {

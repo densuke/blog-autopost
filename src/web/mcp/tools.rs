@@ -107,6 +107,72 @@ pub(crate) fn tool_definitions() -> Vec<serde_json::Value> {
     ]
 }
 
+/// tool の `media` 引数を検証し、解決済みの絶対パスを返す。
+///
+/// 許可ディレクトリの外や、対応していない形式のファイルは弾く。
+/// 検証を通さないと、認証済みのクライアントが任意のファイルを
+/// SNS へ送信できてしまう。
+fn validate_media_args(
+    state: &Arc<AppState>,
+    media: Option<&Vec<serde_json::Value>>,
+) -> anyhow::Result<Vec<std::path::PathBuf>> {
+    let Some(media_list) = media else {
+        return Ok(Vec::new());
+    };
+
+    let allowed = allowed_media_dirs(state);
+    let mut resolved = Vec::new();
+    for val in media_list {
+        if let Some(file_path) = val.as_str() {
+            resolved.push(crate::web::media::validate_media_path(
+                &allowed,
+                file_path,
+                crate::web::media::MAX_MEDIA_BYTES,
+            )?);
+        }
+    }
+    Ok(resolved)
+}
+
+/// 検証済みのメディアをアップロード領域へ複製し、その保存先を返す。
+fn copy_media_to_uploads(
+    state: &Arc<AppState>,
+    media: Option<&Vec<serde_json::Value>>,
+) -> anyhow::Result<Vec<String>> {
+    let sources = validate_media_args(state, media)?;
+    if sources.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    std::fs::create_dir_all(&state.upload_dir)?;
+
+    let mut saved = Vec::new();
+    for source in sources {
+        let file_name = source
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or("image.png");
+        let save_path = state
+            .upload_dir
+            .join(crate::web::media::unique_file_name(file_name));
+        std::fs::copy(&source, &save_path)?;
+        saved.push(save_path.to_string_lossy().into_owned());
+    }
+    Ok(saved)
+}
+
+/// メディアとして参照してよいディレクトリの一覧を返す。
+///
+/// アップロード領域は常に含める。Web UI から上げたファイルを
+/// MCP から使えなくなると、通常の運用が成り立たないため。
+fn allowed_media_dirs(state: &Arc<AppState>) -> Vec<std::path::PathBuf> {
+    let mut dirs = crate::web::media::resolve_allowed_dirs(None);
+    if !dirs.contains(&state.upload_dir) {
+        dirs.push(state.upload_dir.clone());
+    }
+    dirs
+}
+
 /// 名前で tool を選び、実行結果を人間が読める文字列として返す。
 ///
 /// 未知の tool 名や引数不足はエラーとして返し、呼び出し側が
@@ -192,37 +258,9 @@ pub(crate) async fn handle_tool_call(
                 return Err(anyhow::anyhow!("No target SNS configured or specified"));
             }
 
-            let mut processed_media = Vec::new();
-            if let Some(media_list) = media {
-                std::fs::create_dir_all("data/uploads").ok();
-                for val in media_list {
-                    if let Some(file_path) = val.as_str() {
-                        let path = std::path::Path::new(file_path);
-                        if !path.exists() {
-                            return Err(anyhow::anyhow!("Media file not found: {}", file_path));
-                        }
-                        let file_name = path
-                            .file_name()
-                            .and_then(|f| f.to_str())
-                            .unwrap_or("image.png");
-                        let sanitized_name: String = file_name
-                            .chars()
-                            .map(|c| {
-                                if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
-                                    c
-                                } else {
-                                    '_'
-                                }
-                            })
-                            .collect();
-                        let timestamp = chrono::Utc::now().timestamp_micros();
-                        let unique_name = format!("{}_{}", timestamp, sanitized_name);
-                        let save_path = format!("data/uploads/{}", unique_name);
-                        std::fs::copy(file_path, &save_path)?;
-                        processed_media.push(save_path);
-                    }
-                }
-            }
+            // 予約時点でアップロード領域へ複製しておく。元ファイルが
+            // 投稿時刻までに消えても投稿できるようにするため。
+            let processed_media = copy_media_to_uploads(&state, media)?;
 
             use chrono::TimeZone;
             if auto_slot {
@@ -482,14 +520,12 @@ pub(crate) async fn handle_tool_call(
                 ));
             }
 
-            let mut processed_media = Vec::new();
-            if let Some(media_list) = media {
-                for val in media_list {
-                    if let Some(s) = val.as_str() {
-                        processed_media.push(s.to_string());
-                    }
-                }
-            }
+            // 即時投稿でも検証は必須。従来は生のパスをそのまま
+            // SNS クライアントへ渡しており、任意のファイルを送信できた。
+            let processed_media = validate_media_args(&state, media)?
+                .into_iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect::<Vec<_>>();
 
             let post_content = crate::sns::models::PostContent {
                 text,
@@ -1248,6 +1284,195 @@ mod tests {
     }
 
     // --- 未知のtool ---
+
+    // --- media 引数の検証 ---
+
+    /// アップロード領域に検証用の画像を1枚置き、そのパスを返す。
+    fn seed_upload_image(app: &TestApp, name: &str) -> std::path::PathBuf {
+        std::fs::create_dir_all(&app.state.upload_dir).expect("アップロード領域の作成に失敗");
+        let path = app.state.upload_dir.join(name);
+
+        let mut buf = std::io::Cursor::new(Vec::new());
+        image::RgbImage::new(1, 1)
+            .write_to(&mut buf, image::ImageFormat::Png)
+            .expect("PNGの書き出しに失敗");
+        std::fs::write(&path, buf.into_inner()).expect("画像の書き込みに失敗");
+
+        path
+    }
+
+    /// 許可ディレクトリの外にあるファイルを作る。
+    fn seed_outside_file(app: &TestApp, name: &str, content: &[u8]) -> std::path::PathBuf {
+        let parent = app
+            .state
+            .upload_dir
+            .parent()
+            .expect("アップロード領域には親がある")
+            .to_path_buf();
+        let path = parent.join(name);
+        std::fs::write(&path, content).expect("ファイルの書き込みに失敗");
+        path
+    }
+
+    /// アップロード領域の画像は予約に添付できる。
+    #[tokio::test]
+    async fn add_scheduleは許可領域のメディアを受け付ける() {
+        let app = app();
+        let image = seed_upload_image(&app, "ok.png");
+
+        call(
+            &app,
+            "add_schedule",
+            json!({
+                "text": "画像つき予約",
+                "at": "2030-06-20 18:00",
+                "sns": "bluesky",
+                "media": [image.to_str().unwrap()],
+            }),
+        )
+        .await
+        .unwrap();
+
+        let posts = app.state.store.get_all_posts().await.unwrap();
+        assert_eq!(posts[0].media_files.len(), 1);
+
+        // 元ファイルとは別に、アップロード領域へ複製される
+        let saved = std::path::Path::new(&posts[0].media_files[0]);
+        assert!(saved.exists(), "複製先が存在すること");
+        assert_ne!(saved, image, "元ファイルをそのまま参照していない");
+        assert!(saved.starts_with(&app.state.upload_dir));
+    }
+
+    /// 許可ディレクトリの外は予約に添付できない。
+    #[tokio::test]
+    async fn add_scheduleは許可領域外のメディアを拒否する() {
+        let app = app();
+        // 秘密ファイルを模す。実際に読み出せてしまうと SNS へ送信される
+        let outside = seed_outside_file(&app, "id_rsa", b"PRIVATE KEY");
+
+        let err = call(
+            &app,
+            "add_schedule",
+            json!({
+                "text": "情報を持ち出す予約",
+                "at": "2030-06-20 18:00",
+                "sns": "bluesky",
+                "media": [outside.to_str().unwrap()],
+            }),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("outside the allowed directories"),
+            "実際のエラー: {}",
+            err
+        );
+        assert!(
+            app.state.store.get_all_posts().await.unwrap().is_empty(),
+            "拒否したら予約も作らない"
+        );
+    }
+
+    /// 即時投稿でも許可ディレクトリの外は拒否する。
+    #[tokio::test]
+    async fn post_nowは許可領域外のメディアを拒否する() {
+        use wiremock::MockServer;
+
+        let server = MockServer::start().await;
+        let uri = server.uri();
+        let app = setup_test_app_with_config(Some(SECRET.to_string()), move |config| {
+            config.sns = vec![SnsConfig::Mastodon {
+                name: "mstdn-main".to_string(),
+                instance_url: uri,
+                access_token: "t".to_string(),
+            }];
+        });
+        let outside = seed_outside_file(&app, "id_rsa", b"PRIVATE KEY");
+
+        let err = call(
+            &app,
+            "post_now",
+            json!({
+                "text": "情報を持ち出す投稿",
+                "media": [outside.to_str().unwrap()],
+            }),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.to_string().contains("outside the allowed directories"));
+        // モックへは1件も届いていない
+        assert!(server.received_requests().await.unwrap().is_empty());
+    }
+
+    /// 存在しないファイルは拒否する。
+    #[tokio::test]
+    async fn 存在しないメディアは拒否する() {
+        let app = app();
+        let missing = app.state.upload_dir.join("nope.png");
+
+        let err = call(
+            &app,
+            "add_schedule",
+            json!({
+                "text": "無いファイル",
+                "at": "2030-06-20 18:00",
+                "sns": "bluesky",
+                "media": [missing.to_str().unwrap()],
+            }),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("not found"),
+            "実際のエラー: {}",
+            err
+        );
+    }
+
+    /// 中身が画像でないファイルは拒否する。
+    #[tokio::test]
+    async fn 画像でないメディアは拒否する() {
+        let app = app();
+        std::fs::create_dir_all(&app.state.upload_dir).unwrap();
+        let fake = app.state.upload_dir.join("fake.png");
+        // 拡張子を偽っても中身で弾く
+        std::fs::write(&fake, b"not an image at all").unwrap();
+
+        let err = call(
+            &app,
+            "add_schedule",
+            json!({
+                "text": "偽装ファイル",
+                "at": "2030-06-20 18:00",
+                "sns": "bluesky",
+                "media": [fake.to_str().unwrap()],
+            }),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.to_string().contains("Unsupported media format"));
+    }
+
+    /// media を渡さない場合は何も添付されない。
+    #[tokio::test]
+    async fn media未指定なら添付なしで予約できる() {
+        let app = app();
+
+        call(
+            &app,
+            "add_schedule",
+            json!({ "text": "添付なし", "at": "2030-06-20 18:00", "sns": "bluesky" }),
+        )
+        .await
+        .unwrap();
+
+        let posts = app.state.store.get_all_posts().await.unwrap();
+        assert!(posts[0].media_files.is_empty());
+    }
 
     /// 未知の tool 名はエラーになる。
     #[tokio::test]

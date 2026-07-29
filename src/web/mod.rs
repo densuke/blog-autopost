@@ -1,4 +1,5 @@
 pub mod mcp;
+pub mod media;
 pub mod routes;
 pub mod session;
 
@@ -22,6 +23,10 @@ pub struct AppState {
     pub timing_manager: TimingManager,
     pub store: Arc<JsonScheduledPostStore>,
     pub config_path: String,
+    /// アップロードしたメディアの保存先。
+    ///
+    /// テストでは一時ディレクトリを指すため、`data/` を汚さない。
+    pub upload_dir: std::path::PathBuf,
     /// ログイン済みセッション。鍵はセッションID。
     pub sessions: Arc<tokio::sync::RwLock<HashMap<String, session::Session>>>,
     pub mcp_sessions: Arc<
@@ -131,6 +136,7 @@ pub async fn start_server(config: Config, config_path: String, port: u16) -> any
         timing_manager,
         store,
         config_path,
+        upload_dir: std::path::PathBuf::from("data/uploads"),
         sessions,
         mcp_sessions,
         version_status,
@@ -334,6 +340,7 @@ mod tests {
             timing_manager,
             store,
             config_path: dir.path().join("config.yml").to_string_lossy().into_owned(),
+            upload_dir: dir.path().join("uploads"),
             sessions,
             mcp_sessions,
             // テストでは外部 API を叩かない。未確認状態のまま扱う（Agy #408）
