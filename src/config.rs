@@ -26,11 +26,37 @@ pub struct Config {
     pub extra: HashMap<String, serde_yaml::Value>,
 }
 
+/// Web UI の認証設定。
+///
+/// 追加するフィールドには必ず `skip_serializing_if` を付けること。
+/// ログイン時の bcrypt 移行で設定ファイルを丸ごと書き戻すため、
+/// これがないと未設定の項目が `null` として既存の config.yml に現れてしまう。
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct WebAuthConfig {
     pub username: String,
     pub password: String,
     pub secret_key: Option<String>,
+    /// セッションの有効期間(時間)。未指定時は 24 時間。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_ttl_hours: Option<u32>,
+    /// セッション Cookie に `Secure` を付ける方針。`auto` / `always` / `never`。
+    ///
+    /// 未指定時は `auto` で、HTTPS 由来と判定できたときだけ付ける。
+    /// 素の HTTP で運用している環境がログイン不能にならないようにするため。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cookie_secure: Option<String>,
+}
+
+impl WebAuthConfig {
+    /// 実際に使うセッションの有効期間(時間)を返す。
+    ///
+    /// 未設定と 0 は既定値として扱う。0 を許すと発行直後に切れてしまう。
+    pub fn effective_session_ttl_hours(&self) -> u32 {
+        match self.session_ttl_hours {
+            Some(h) if h > 0 => h,
+            _ => crate::web::session::DEFAULT_SESSION_TTL_HOURS,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]

@@ -25,6 +25,10 @@ tempfile = "3.12.0"
 bcrypt = "0.19.2"
 fd-lock = "4.0.2"
 tokio-stream = { version = "0.1.17", features = ["sync"] }
+# セッションIDをCSPRNGから生成するために使う
+getrandom = "0.3"
+# APIキーの比較を定時間で行うために使う
+subtle = "2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
