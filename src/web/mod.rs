@@ -1,3 +1,4 @@
+pub mod mcp;
 pub mod routes;
 
 use crate::config::Config;
@@ -50,8 +51,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             put(routes::update_schedule).delete(routes::delete_schedule),
         )
         .route("/schedules/{id}/post-now", post(routes::post_now_schedule))
-        .route("/mcp/sse", get(routes::mcp_sse_handler))
-        .route("/mcp/message", post(routes::mcp_message_handler))
+        .route("/mcp/sse", get(mcp::mcp_sse_handler))
+        .route("/mcp/message", post(mcp::mcp_message_handler))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
