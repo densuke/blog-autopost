@@ -8,6 +8,7 @@
 //! - [`protocol`] : JSON-RPC の解釈とレスポンス組み立て
 //! - [`tools`] : tool の定義と実行
 
+pub mod auth;
 pub(crate) mod protocol;
 pub(crate) mod tools;
 
@@ -466,5 +467,246 @@ mod tests {
             );
             tokio::task::yield_now().await;
         }
+    }
+
+    // --- 認証 ---
+
+    /// MCP エンドポイントへ指定のキーで問い合わせる。
+    fn mcp_request(key: Option<(&str, &str)>) -> Request<Body> {
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri("/api/mcp/message?session_id=test-session")
+            .header(header::CONTENT_TYPE, "application/json");
+        if let Some((name, value)) = key {
+            builder = builder.header(name, value);
+        }
+        builder
+            .body(Body::from(
+                serde_json::json!({ "jsonrpc": "2.0", "method": "initialize", "id": 1 })
+                    .to_string(),
+            ))
+            .unwrap()
+    }
+
+    /// MCP 専用キーを設定したテスト環境を作る。
+    fn app_with_mcp_key(mcp: crate::config::McpConfig) -> TestApp {
+        crate::web::tests::setup_test_app_with_config(Some(SECRET.to_string()), move |config| {
+            config.mcp = Some(mcp);
+        })
+    }
+
+    /// キーが無ければ 401 を返す。
+    #[tokio::test]
+    async fn 認証なしのmcpは401になる() {
+        let app = app_with_auth();
+
+        let response = app.router.clone().oneshot(mcp_request(None)).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    /// mcp 節が無ければ従来どおり secret_key で通る。
+    #[tokio::test]
+    async fn mcp節が無ければsecret_keyで通る() {
+        let app = app_with_auth();
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(mcp_request(Some(("X-Api-Key", SECRET))))
+            .await
+            .unwrap();
+
+        // 既存の利用者を壊さないため、ここは通し続ける必要がある
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+    }
+
+    /// 専用キーを設定すると secret_key では通らなくなる。
+    #[tokio::test]
+    async fn 専用キー設定時はsecret_keyを拒否する() {
+        let app = app_with_mcp_key(crate::config::McpConfig {
+            api_key: Some("mcp-only-key".to_string()),
+            ..Default::default()
+        });
+
+        let ok = app
+            .router
+            .clone()
+            .oneshot(mcp_request(Some(("X-Api-Key", "mcp-only-key"))))
+            .await
+            .unwrap();
+        assert_eq!(ok.status(), StatusCode::ACCEPTED);
+
+        let rejected = app
+            .router
+            .clone()
+            .oneshot(mcp_request(Some(("X-Api-Key", SECRET))))
+            .await
+            .unwrap();
+        // 分離できていることの確認。ここが通ると漏洩時の影響範囲が広がる
+        assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    /// Bearer トークンでも専用キーを受け付ける。
+    #[tokio::test]
+    async fn bearerでも専用キーを受け付ける() {
+        let app = app_with_mcp_key(crate::config::McpConfig {
+            api_key: Some("mcp-only-key".to_string()),
+            ..Default::default()
+        });
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(mcp_request(Some(("Authorization", "Bearer mcp-only-key"))))
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+    }
+
+    /// 移行期間の設定では両方のキーが通る。
+    #[tokio::test]
+    async fn allow_web_secret_keyで両方通る() {
+        let app = app_with_mcp_key(crate::config::McpConfig {
+            api_key: Some("mcp-only-key".to_string()),
+            allow_web_secret_key: Some(true),
+            ..Default::default()
+        });
+
+        for key in ["mcp-only-key", SECRET] {
+            let response = app
+                .router
+                .clone()
+                .oneshot(mcp_request(Some(("X-Api-Key", key))))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::ACCEPTED, "キー: {}", key);
+        }
+    }
+
+    /// 無効化すると専用キーでも通らない。
+    #[tokio::test]
+    async fn enabled_falseなら常に401になる() {
+        let app = app_with_mcp_key(crate::config::McpConfig {
+            enabled: Some(false),
+            api_key: Some("mcp-only-key".to_string()),
+            ..Default::default()
+        });
+
+        for key in ["mcp-only-key", SECRET] {
+            let response = app
+                .router
+                .clone()
+                .oneshot(mcp_request(Some(("X-Api-Key", key))))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "キー: {}", key);
+        }
+    }
+
+    /// 節を書いたのに専用キーが無ければ拒否する。
+    #[tokio::test]
+    async fn 節ありでキー無しなら401になる() {
+        let app = app_with_mcp_key(crate::config::McpConfig::default());
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(mcp_request(Some(("X-Api-Key", SECRET))))
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    /// Cookie セッションでは MCP を認証しない。
+    #[tokio::test]
+    async fn cookieセッションではmcpを認証しない() {
+        let app = app_with_auth();
+        {
+            let mut sessions = app.state.sessions.write().await;
+            sessions.insert(
+                "live".to_string(),
+                crate::web::session::Session::new("admin".to_string(), 24),
+            );
+        }
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/mcp/message?session_id=test-session")
+            .header(header::COOKIE, "session_id=live")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({ "jsonrpc": "2.0", "method": "initialize", "id": 1 })
+                    .to_string(),
+            ))
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        // ブラウザのセッションで即時投稿を叩ける経路を残さない
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    /// SSE 側も同じ方針で認証される。
+    #[tokio::test]
+    async fn sseも専用キーで認証される() {
+        let app = app_with_mcp_key(crate::config::McpConfig {
+            api_key: Some("mcp-only-key".to_string()),
+            ..Default::default()
+        });
+
+        let rejected = app
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/mcp/sse")
+                    .header("X-Api-Key", SECRET)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+
+        let ok = app
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/mcp/sse")
+                    .header("X-Api-Key", "mcp-only-key")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(ok.status(), StatusCode::OK);
+    }
+
+    /// MCP 以外の API は従来どおり secret_key で通る。
+    #[tokio::test]
+    async fn mcp専用キー設定は他のapiに影響しない() {
+        let app = app_with_mcp_key(crate::config::McpConfig {
+            api_key: Some("mcp-only-key".to_string()),
+            ..Default::default()
+        });
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/config")
+                    .header("X-Api-Key", SECRET)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }

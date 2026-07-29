@@ -100,6 +100,38 @@ web_auth:
   # login_max_attempts: 5
   # login_window_seconds: 300
 
+# ========================================
+# MCP サーバ設定
+# ========================================
+#
+# この節ごと省略できる。省略した場合は web_auth.secret_key で
+# MCP を認証する (従来どおりの動作)。
+#
+# api_key を設定すると secret_key では MCP を認証できなくなり、
+# キーが漏れたときの影響範囲を MCP だけに限定できる。
+#
+# キーの生成例:
+#   openssl rand -hex 32
+#
+# mcp:
+#   # MCP エンドポイントを有効にするか。既定は true。
+#   # false にすると /api/mcp/* は常に 401 を返す。
+#   enabled: true
+#
+#   # MCP 専用の API キー。web_auth.secret_key とは別の値にする。
+#   api_key: "<MCP_API_KEY>"
+#
+#   # 移行期間だけ web_auth.secret_key も受け付けたい場合に true。
+#   # 既定は false で、api_key のみを受け付ける。
+#   allow_web_secret_key: false
+#
+#   # MCP の tool がメディアとして参照できるディレクトリ。
+#   # 未指定時は data/uploads と data のみを許可する。
+#   # ここに書いたディレクトリの外にあるファイルは添付できない。
+#   allowed_media_dirs:
+#     - "data/uploads"
+#     - "data"
+
 web:
   session:
     secret_key: "<WEB_SESSION_SECRET>"  # 後方互換性のため同じ値を設定

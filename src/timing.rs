@@ -252,6 +252,7 @@ mod tests {
                 map
             }),
             web_auth: None,
+            mcp: None,
             extra: Default::default(),
         }
     }

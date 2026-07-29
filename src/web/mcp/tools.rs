@@ -163,10 +163,11 @@ fn copy_media_to_uploads(
 
 /// メディアとして参照してよいディレクトリの一覧を返す。
 ///
+/// `mcp.allowed_media_dirs` があればそれを使い、無ければ既定値を使う。
 /// アップロード領域は常に含める。Web UI から上げたファイルを
 /// MCP から使えなくなると、通常の運用が成り立たないため。
 fn allowed_media_dirs(state: &Arc<AppState>) -> Vec<std::path::PathBuf> {
-    let mut dirs = crate::web::media::resolve_allowed_dirs(None);
+    let mut dirs = super::auth::allowed_media_dirs(state.config.mcp.as_ref());
     if !dirs.contains(&state.upload_dir) {
         dirs.push(state.upload_dir.clone());
     }

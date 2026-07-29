@@ -22,8 +22,41 @@ pub struct Config {
     pub allowed_timings_tolerance_minutes: Option<i64>,
     pub allowed_timings: Option<AllowedTimingsBySns>,
     pub web_auth: Option<WebAuthConfig>,
+    /// MCP サーバ機能の設定。節そのものを省略できる。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp: Option<McpConfig>,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_yaml::Value>,
+}
+
+/// MCP サーバ機能の設定。
+///
+/// `WebAuthConfig` とは別の節にしてある。ログイン時の bcrypt 移行が
+/// 設定ファイルを丸ごと書き戻すため、同じ構造体に置くと Web ログインの
+/// 副作用で MCP の設定が書き換わる経路ができてしまう。
+///
+/// 追加するフィールドには必ず `skip_serializing_if` を付けること。
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Default)]
+pub struct McpConfig {
+    /// MCP エンドポイントを有効にするか。未指定時は有効。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    /// MCP 専用の API キー。
+    ///
+    /// これを設定すると `web_auth.secret_key` では MCP を認証できなくなり、
+    /// キーが漏れたときの影響範囲を MCP だけに限定できる。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    /// `web_auth.secret_key` でも MCP を認証できるようにするか。
+    ///
+    /// 専用キーへ移行する期間だけ両方を通したい場合に使う。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_web_secret_key: Option<bool>,
+    /// MCP の tool がメディアとして参照できるディレクトリ。
+    ///
+    /// 未指定時は `data/uploads` と `data` のみを許可する。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_media_dirs: Option<Vec<String>>,
 }
 
 /// Web UI の認証設定。
@@ -129,6 +162,118 @@ pub fn parse_config(yaml_content: &str) -> Result<Config, serde_yaml::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- mcp 節 ---
+
+    #[test]
+    fn mcp節が無い設定も読める() {
+        // 既存の利用者の config.yml を壊さないことの確認
+        let yaml = r#"
+web_auth:
+  username: "admin"
+  password: "changeme"
+  secret_key: "web-secret"
+"#;
+        let config = parse_config(yaml).expect("mcp節が無くても読めるはず");
+
+        assert!(config.mcp.is_none());
+    }
+
+    #[test]
+    fn mcp節を読み取れる() {
+        let yaml = r#"
+mcp:
+  enabled: true
+  api_key: "mcp-secret"
+  allow_web_secret_key: false
+  allowed_media_dirs:
+    - "data/uploads"
+    - "/srv/media"
+"#;
+        let config = parse_config(yaml).expect("mcp節を解釈できるはず");
+        let mcp = config.mcp.expect("mcp節があるはず");
+
+        assert_eq!(mcp.enabled, Some(true));
+        assert_eq!(mcp.api_key.as_deref(), Some("mcp-secret"));
+        assert_eq!(mcp.allow_web_secret_key, Some(false));
+        assert_eq!(
+            mcp.allowed_media_dirs,
+            Some(vec!["data/uploads".to_string(), "/srv/media".to_string()])
+        );
+    }
+
+    #[test]
+    fn mcp節は一部だけの指定も読める() {
+        let yaml = r#"
+mcp:
+  api_key: "mcp-secret"
+"#;
+        let mcp = parse_config(yaml).unwrap().mcp.expect("mcp節があるはず");
+
+        assert_eq!(mcp.api_key.as_deref(), Some("mcp-secret"));
+        assert_eq!(mcp.enabled, None);
+        assert_eq!(mcp.allow_web_secret_key, None);
+        assert_eq!(mcp.allowed_media_dirs, None);
+    }
+
+    #[test]
+    fn 未設定の項目は書き戻しに現れない() {
+        // ログイン時の bcrypt 移行で設定ファイルを丸ごと書き戻すため、
+        // skip_serializing_if が無いと未設定の項目が null として現れる
+        let yaml = r#"
+web_auth:
+  username: "admin"
+  password: "changeme"
+  secret_key: "web-secret"
+"#;
+        let config = parse_config(yaml).unwrap();
+        let written = serde_yaml::to_string(&config).expect("シリアライズできるはず");
+
+        assert!(!written.contains("mcp"), "実際の内容: {}", written);
+        assert!(
+            !written.contains("session_ttl_hours"),
+            "実際の内容: {}",
+            written
+        );
+        assert!(
+            !written.contains("cookie_secure"),
+            "実際の内容: {}",
+            written
+        );
+        assert!(
+            !written.contains("login_max_attempts"),
+            "実際の内容: {}",
+            written
+        );
+    }
+
+    #[test]
+    fn 設定した項目は書き戻しに残る() {
+        let yaml = r#"
+web_auth:
+  username: "admin"
+  password: "changeme"
+  secret_key: "web-secret"
+  session_ttl_hours: 8
+mcp:
+  api_key: "mcp-secret"
+"#;
+        let config = parse_config(yaml).unwrap();
+        let written = serde_yaml::to_string(&config).expect("シリアライズできるはず");
+
+        assert!(written.contains("mcp"), "実際の内容: {}", written);
+        assert!(written.contains("mcp-secret"), "実際の内容: {}", written);
+        assert!(
+            written.contains("session_ttl_hours"),
+            "実際の内容: {}",
+            written
+        );
+
+        // 書き戻したものを読み直しても同じ設定になる
+        let round_tripped = parse_config(&written).expect("読み直せるはず");
+        assert_eq!(round_tripped.mcp, config.mcp);
+        assert_eq!(round_tripped.web_auth, config.web_auth);
+    }
 
     #[test]
     fn test_parse_valid_config() {
