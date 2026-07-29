@@ -16,12 +16,35 @@ Blog AutoPost の Web サーバは MCP (Model Context Protocol) のエンドポ�
 
 ## エンドポイント
 
-トランスポートは HTTP+SSE (MCP 2024-11-05 仕様) です。
+2つのトランスポートを併置しています。**新しく設定する場合は Streamable HTTP を使ってください。**
+
+### Streamable HTTP (推奨、MCP 2025-03-26 以降)
+
+| メソッド | パス | 挙動 |
+|---|---|---|
+| `POST` | `/api/mcp` | JSON-RPC リクエストを受け、レスポンスをボディで返す。通知には `202` |
+| `GET` | `/api/mcp` | `405`。サーバ発のストリームは提供しない |
+| `DELETE` | `/api/mcp` | `405`。セッションを持たないため終了操作もない |
+
+セッションIDは払い出しません。tool の実行にサーバ側の状態が要らないためです。`Mcp-Session-Id` を送る必要はありません。
+
+対応バージョンは `2025-06-18` / `2025-03-26` / `2024-11-05` です。`MCP-Protocol-Version` ヘッダで別の版を指定すると `400` を返します。
+
+### HTTP+SSE (非推奨、MCP 2024-11-05)
 
 | メソッド | パス | 役割 |
 |---|---|---|
 | `GET` | `/api/mcp/sse` | SSE 接続を確立する。最初に `endpoint` イベントでメッセージ送信先を通知する |
 | `POST` | `/api/mcp/message?session_id=...` | JSON-RPC リクエストを受け付ける。レスポンスは SSE 側へ流れる |
+
+MCP 仕様でこのトランスポートは非推奨になりました。既存の接続のために残していますが、新規は Streamable HTTP を使ってください。
+
+### クライアントの対応状況
+
+| クライアント | Streamable HTTP | HTTP+SSE |
+|---|---|---|
+| Claude Code | 対応 (`--transport http`) | 対応 (`--transport sse`、非推奨) |
+| Codex | 対応 | **非対応** |
 
 ## 設定
 
@@ -49,17 +72,24 @@ mcp:
 
 `mcp` 節を書いたかどうかで動作が変わります。
 
-| `config.yml` の状態 | `/api/mcp/*` の認証 |
+| `config.yml` の状態 | MCP の認証 |
 |---|---|
 | `mcp` 節なし | `web_auth.secret_key` で通る (従来どおり)。起動時に専用キーを推奨するログが出る |
 | `mcp.api_key` あり | 専用キーのみ。`secret_key` では通らない |
 | `mcp.api_key` + `allow_web_secret_key: true` | 両方通る (移行期間用) |
 | `mcp.enabled: false` | 常に 401 |
-| `mcp` 節ありで `api_key` なし | 401 (設定不備として扱う) |
+| `mcp` 節はあるが `api_key` も `allow_web_secret_key` も未設定 | `secret_key` で通る。`allowed_media_dirs` などだけ設定した場合を壊さない |
+| `allow_web_secret_key: false` のみ (キーなし) | 401。`secret_key` を使わせない意図とみなす |
 
-既存の `config.yml` をそのまま使っている場合は従来どおり動きます。`mcp` 節を追加したときだけ、専用キーによる分離モードへ切り替わります。
+既存の `config.yml` をそのまま使っている場合は従来どおり動きます。`api_key` を設定したときだけ分離モードへ切り替わります。
 
-なお `/api/mcp/*` では**ブラウザのセッション Cookie は受け付けません**。ヘッダで API キーを渡してください。
+なお MCP のエンドポイントでは**ブラウザのセッション Cookie を受け付けません**。ヘッダで API キーを渡してください。
+
+起動時にどの方針で動いているかがログに出ます。
+
+```
+MCP auth: mcp.api_key (dedicated)
+```
 
 ### 設定項目
 
@@ -79,18 +109,44 @@ mcp:
   allowed_media_dirs:
     - "data/uploads"
     - "data"
+
+  # Origin ヘッダを付けたリクエストを受け付けるオリジン。
+  # MCP クライアントは Origin を送らないため通常は設定不要。
+  # 未設定時は Origin 付きのリクエストを拒否する (DNS リバインディング対策)。
+  allowed_origins:
+    - "https://ui.example.com"
 ```
 
 ## クライアントの設定
 
-`X-Api-Key` ヘッダに MCP 専用キーを載せます。
+### Claude Code
+
+CLI で登録します。
+
+```bash
+claude mcp add --transport http blog-autopost \
+  https://autopost.example.com/api/mcp \
+  --header "X-Api-Key: <MCP_API_KEY>" \
+  --scope user
+```
+
+`--scope` は `local` (既定、そのプロジェクトのみ) / `project` (`.mcp.json` に書かれ共有される) / `user` (全プロジェクト) から選びます。**キーを含む設定を版管理へ入れたくない場合は `project` を避けてください。**
+
+削除と確認:
+
+```bash
+claude mcp remove blog-autopost
+claude mcp list
+```
+
+JSON で直接書く場合 (`.mcp.json` / `~/.claude.json`):
 
 ```json
 {
   "mcpServers": {
     "blog-autopost": {
-      "type": "sse",
-      "url": "https://autopost.example.com/api/mcp/sse",
+      "type": "http",
+      "url": "https://autopost.example.com/api/mcp",
       "headers": {
         "X-Api-Key": "<MCP_API_KEY>"
       }
@@ -99,17 +155,52 @@ mcp:
 }
 ```
 
-`Authorization: Bearer <MCP_API_KEY>` でも認証できます。
+`type` を省略すると stdio サーバと解釈されて動きません。`http` (または別名 `streamable-http`) を必ず指定してください。
 
-疎通確認は curl でも行えます。
+### Codex
+
+`~/.codex/config.toml` に書きます。
+
+```toml
+[mcp_servers.blog-autopost]
+url = "https://autopost.example.com/api/mcp"
+bearer_token_env_var = "BLOG_AUTOPOST_MCP_KEY"
+startup_timeout_sec = 30
+```
+
+**キーは環境変数名で指定します。** TOML に直接書く `bearer_token` は受け付けられません。
 
 ```bash
-# endpoint イベントが返れば接続できている
-curl -N -H "X-Api-Key: <MCP_API_KEY>" http://localhost:8080/api/mcp/sse
+export BLOG_AUTOPOST_MCP_KEY="<MCP_API_KEY>"
+```
+
+環境によっては rmcp クライアントを有効にする必要があります。
+
+```toml
+[features]
+experimental_use_rmcp_client = true
+```
+
+Codex は Streamable HTTP のみに対応しており、`/api/mcp/sse` では接続できません。
+
+### 疎通確認
+
+```bash
+# Streamable HTTP: レスポンスがボディで返る
+curl -s -X POST http://localhost:8080/api/mcp \
+  -H "X-Api-Key: <MCP_API_KEY>" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}' | jq .
 
 # 分離できていれば web_auth.secret_key では 401 になる
-curl -i -H "X-Api-Key: <WEB_SESSION_SECRET>" http://localhost:8080/api/mcp/sse
+curl -i -X POST http://localhost:8080/api/mcp \
+  -H "X-Api-Key: <WEB_SESSION_SECRET>" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
 ```
+
+`Authorization: Bearer <MCP_API_KEY>` でも認証できます。
 
 ## tool の詳細
 
@@ -219,5 +310,36 @@ just run-web
 
 ## 制限事項
 
-- トランスポートは HTTP+SSE (2024-11-05 仕様) のみです。Streamable HTTP (2025-03-26 以降) には未対応です
 - 対応しているメソッドは `initialize` / `initialized` / `tools/list` / `tools/call` です。`resources/*` と `prompts/*` は実装していません
+- サーバからクライアントへ自発的にメッセージを送りません。`GET /api/mcp` は `405` を返します
+- セッションを持たないため `Mcp-Session-Id` を払い出しません。ストリームの再開 (`Last-Event-ID`) にも対応していません
+- HTTP+SSE 側の `mcp_sessions` はプロセスのメモリ上にあります。複数インスタンスへロードバランスすると、SSE を張った先と POST の到達先がずれて動きません。Streamable HTTP はステートレスなのでこの制約を受けません
+
+## リバースプロキシ配下での運用
+
+自宅から外部のサーバへ繋ぐ場合の注意点です。
+
+### HTTPS を使う
+
+API キーは `X-Api-Key` または `Authorization` ヘッダの平文で送られます。HTTP で外部公開すると経路上でキーが読めます。
+
+あわせてプロキシから `X-Forwarded-Proto: https` を渡してください。これがないと Web UI 側の Cookie に `Secure` が付きません (`cookie_secure` の既定 `auto` がこのヘッダを見ています)。
+
+### パスを書き換えない
+
+エンドポイントのパスは `/api/mcp` と `/api/mcp/sse` に固定されており、設定で変えられません。
+
+サブパスで配信する構成 (`example.com/autopost/api/mcp` → バックエンドの `/api/mcp`) は、HTTP+SSE 側が `endpoint` イベントで相対パスを返すため動きません。**サブドメインかポートで分けてください。**
+
+Streamable HTTP はパスを自分で組み立てないため、サブパス配信でも動きます。
+
+### SSE を使う場合はタイムアウトを延ばす
+
+HTTP+SSE 側を使う場合、nginx なら次の設定が必要です。
+
+```nginx
+proxy_read_timeout 3600s;
+proxy_buffering off;
+```
+
+既定の 60 秒で切られる構成だと接続が落ちます。Streamable HTTP はリクエストごとに完結するのでこの設定は不要です。

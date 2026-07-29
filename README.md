@@ -135,12 +135,14 @@ web_auth:
 
 Web サーバは MCP (Model Context Protocol) のエンドポイントを備えています。Claude Code などの AI クライアントから、即時投稿・時間指定予約・「次のタイミング」への予約を操作できます。
 
-| エンドポイント | 役割 |
-|---|---|
-| `GET /api/mcp/sse` | SSE 接続を確立する |
-| `POST /api/mcp/message?session_id=...` | JSON-RPC リクエストを受け付ける |
+| トランスポート | エンドポイント | 備考 |
+|---|---|---|
+| Streamable HTTP | `POST /api/mcp` | **推奨。** MCP 2025-03-26 以降 |
+| HTTP+SSE | `GET /api/mcp/sse` + `POST /api/mcp/message` | 非推奨。古いクライアント向けに残している |
 
 公開している tool は `post_now` / `add_schedule` / `get_next_slots` / `list_schedules` / `update_schedule` / `delete_schedule` の6つです。
+
+Codex は Streamable HTTP のみに対応しているため、`/api/mcp` を使ってください。
 
 ### 設定
 
@@ -159,21 +161,24 @@ mcp:
 
 ### クライアントの設定例
 
-```json
-{
-  "mcpServers": {
-    "blog-autopost": {
-      "type": "sse",
-      "url": "https://autopost.example.com/api/mcp/sse",
-      "headers": {
-        "X-Api-Key": "<MCP_API_KEY>"
-      }
-    }
-  }
-}
+Claude Code:
+
+```bash
+claude mcp add --transport http blog-autopost \
+  https://autopost.example.com/api/mcp \
+  --header "X-Api-Key: <MCP_API_KEY>" \
+  --scope user
 ```
 
-tool の引数、メディアの制限、認証モードの詳細は **[docs/mcp.md](docs/mcp.md)** を参照してください。
+Codex (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.blog-autopost]
+url = "https://autopost.example.com/api/mcp"
+bearer_token_env_var = "BLOG_AUTOPOST_MCP_KEY"
+```
+
+tool の引数、メディアの制限、認証モード、リバースプロキシ配下での注意点は **[docs/mcp.md](docs/mcp.md)** を参照してください。
 
 ---
 

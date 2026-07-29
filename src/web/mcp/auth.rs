@@ -40,16 +40,28 @@ impl McpAuthPolicy {
             .and_then(|a| a.secret_key.clone())
             .filter(|k| !k.is_empty());
 
-        let Some(mcp) = config.mcp.as_ref() else {
-            // 節が無い = 従来からの利用者。secret_key で通し続ける
-            return match web_key {
+        /// `secret_key` を受け付ける従来互換の方針を返す。
+        fn legacy(web_key: Option<String>) -> McpAuthPolicy {
+            match web_key {
                 Some(key) => McpAuthPolicy::LegacySecretKey(key),
                 None => McpAuthPolicy::NoKeyConfigured,
-            };
+            }
+        }
+
+        let Some(mcp) = config.mcp.as_ref() else {
+            // 節が無い = 従来からの利用者。secret_key で通し続ける
+            return legacy(web_key);
         };
 
         if mcp.enabled == Some(false) {
             return McpAuthPolicy::Disabled;
+        }
+
+        // 認証に関する項目を1つも書いていないなら、認証方針を指定する意図が
+        // なかったとみなす。allowed_media_dirs や allowed_origins だけを
+        // 設定したいときに認証が壊れてしまうのを避けるため
+        if mcp.api_key.is_none() && mcp.allow_web_secret_key.is_none() {
+            return legacy(web_key);
         }
 
         let mcp_key = mcp.api_key.clone().filter(|k| !k.is_empty());
@@ -60,8 +72,9 @@ impl McpAuthPolicy {
                 McpAuthPolicy::BothKeys { mcp_key, web_key }
             }
             (Some(mcp_key), _) => McpAuthPolicy::DedicatedKey(mcp_key),
-            // 節を書いたのに専用キーが無い。allow_web を明示したなら従来互換に倒す
-            (None, Some(web_key)) if allow_web => McpAuthPolicy::LegacySecretKey(web_key),
+            // 専用キーを設定する意図はあったが値が無い。allow_web を
+            // 明示したなら従来互換に倒し、そうでなければ設定不備として扱う
+            (None, web_key) if allow_web => legacy(web_key),
             _ => McpAuthPolicy::NoKeyConfigured,
         }
     }
@@ -120,8 +133,12 @@ impl McpAuthPolicy {
 }
 
 /// MCP のパスかどうかを判定する。
+///
+/// Streamable HTTP のエンドポイント `/api/mcp` (末尾のスラッシュなし) も
+/// 含める。これを漏らすと新しいエンドポイントが通常の認証経路へ落ち、
+/// Cookie セッションで MCP の tool を叩けるようになってしまう。
 pub fn is_mcp_path(path: &str) -> bool {
-    path.starts_with("/api/mcp/")
+    path == "/api/mcp" || path.starts_with("/api/mcp/")
 }
 
 /// リクエストヘッダから提示されたキーを取り出す。
@@ -269,10 +286,61 @@ mod tests {
     }
 
     #[test]
-    fn 節はあるが専用キーが無ければ拒否する() {
+    fn 節はあるが認証設定が無ければ従来互換にする() {
         let config = config_with(Some("web-secret"), Some(McpConfig::default()));
 
-        // 節を書いた = 意図的に設定したとみなし、暗黙に secret_key を通さない
+        // 認証項目を書いていないなら方針を指定する意図が無かったとみなす
+        assert_eq!(
+            McpAuthPolicy::from_config(&config),
+            McpAuthPolicy::LegacySecretKey("web-secret".to_string())
+        );
+    }
+
+    #[test]
+    fn 認証以外の項目だけなら従来互換にする() {
+        let config = config_with(
+            Some("web-secret"),
+            Some(McpConfig {
+                allowed_media_dirs: Some(vec!["/srv/media".to_string()]),
+                allowed_origins: Some(vec!["https://ui.example.com".to_string()]),
+                ..Default::default()
+            }),
+        );
+
+        // メディアやオリジンの設定だけで認証が壊れては困る
+        assert_eq!(
+            McpAuthPolicy::from_config(&config),
+            McpAuthPolicy::LegacySecretKey("web-secret".to_string())
+        );
+    }
+
+    #[test]
+    fn enabled_trueだけでも従来互換にする() {
+        let config = config_with(
+            Some("web-secret"),
+            Some(McpConfig {
+                enabled: Some(true),
+                ..Default::default()
+            }),
+        );
+
+        assert_eq!(
+            McpAuthPolicy::from_config(&config),
+            McpAuthPolicy::LegacySecretKey("web-secret".to_string())
+        );
+    }
+
+    #[test]
+    fn allow_web_secret_key_falseで専用キー無しは拒否する() {
+        let config = config_with(
+            Some("web-secret"),
+            Some(McpConfig {
+                // 明示的に false を書いた = secret_key を使わせない意図
+                allow_web_secret_key: Some(false),
+                ..Default::default()
+            }),
+        );
+
         assert_eq!(
             McpAuthPolicy::from_config(&config),
             McpAuthPolicy::NoKeyConfigured
@@ -401,9 +469,11 @@ mod tests {
     fn mcpのパスを見分ける() {
         assert!(is_mcp_path("/api/mcp/sse"));
         assert!(is_mcp_path("/api/mcp/message"));
+        // Streamable HTTP のエンドポイント。ここを漏らすと Cookie 認証が通ってしまう
+        assert!(is_mcp_path("/api/mcp"));
 
         assert!(!is_mcp_path("/api/config"));
-        assert!(!is_mcp_path("/api/mcp"));
+        assert!(!is_mcp_path("/api/mcpx"));
         assert!(!is_mcp_path("/login"));
     }
 

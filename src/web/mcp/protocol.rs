@@ -10,8 +10,37 @@ use std::sync::Arc;
 use super::tools;
 use crate::web::AppState;
 
-/// このサーバが実装する MCP のプロトコルバージョン。
-const PROTOCOL_VERSION: &str = "2024-11-05";
+/// このサーバが受け付ける MCP のプロトコルバージョン。新しい順に並べる。
+///
+/// `2024-11-05` は HTTP+SSE トランスポートの版で、後方互換のために残している。
+pub(crate) const SUPPORTED_PROTOCOL_VERSIONS: [&str; 3] =
+    ["2025-06-18", "2025-03-26", "2024-11-05"];
+
+/// 対応バージョンのうち最も新しいもの。
+pub(crate) const LATEST_PROTOCOL_VERSION: &str = SUPPORTED_PROTOCOL_VERSIONS[0];
+
+/// 指定されたバージョンを受け付けられるかを返す。
+///
+/// `MCP-Protocol-Version` ヘッダが無い場合、仕様は `2025-03-26` を
+/// 想定するよう定めている。このサーバは版によって応答を変えないため、
+/// ヘッダの有無で挙動は変わらない。
+pub(crate) fn is_supported_protocol_version(version: &str) -> bool {
+    SUPPORTED_PROTOCOL_VERSIONS.contains(&version)
+}
+
+/// クライアントの要求に応じて返すプロトコルバージョンを決める。
+///
+/// 要求された版に対応していればそれを返す。対応していない、または
+/// 指定が無い場合は、こちらが対応する最新版を返して交渉に委ねる。
+fn negotiate_protocol_version(requested: Option<&str>) -> &'static str {
+    match requested {
+        Some(v) => SUPPORTED_PROTOCOL_VERSIONS
+            .into_iter()
+            .find(|s| *s == v)
+            .unwrap_or(LATEST_PROTOCOL_VERSION),
+        None => LATEST_PROTOCOL_VERSION,
+    }
+}
 
 /// JSON-RPC リクエストを処理し、クライアントへ返すべきレスポンスを返す。
 ///
@@ -26,20 +55,29 @@ pub(crate) async fn build_mcp_response(
     let has_id = id.is_some();
 
     let response = match method {
-        "initialize" => json!({
-            "jsonrpc": "2.0",
-            "result": {
-                "protocolVersion": PROTOCOL_VERSION,
-                "capabilities": {
-                    "tools": {}
+        "initialize" => {
+            // クライアントが要求した版に合わせて返す。合わせないと
+            // 新しい版のクライアントが古い版を掴んだまま動いてしまう
+            let requested = req
+                .get("params")
+                .and_then(|p| p.get("protocolVersion"))
+                .and_then(|v| v.as_str());
+
+            json!({
+                "jsonrpc": "2.0",
+                "result": {
+                    "protocolVersion": negotiate_protocol_version(requested),
+                    "capabilities": {
+                        "tools": {}
+                    },
+                    "serverInfo": {
+                        "name": "blog-autopost-rs",
+                        "version": env!("CARGO_PKG_VERSION")
+                    }
                 },
-                "serverInfo": {
-                    "name": "blog-autopost-rs",
-                    "version": "0.1.0"
-                }
-            },
-            "id": id
-        }),
+                "id": id
+            })
+        }
         "initialized" => return None,
         "tools/list" => json!({
             "jsonrpc": "2.0",
@@ -125,10 +163,78 @@ mod tests {
 
         assert_eq!(res["jsonrpc"], "2.0");
         assert_eq!(res["id"], 1);
-        assert_eq!(res["result"]["protocolVersion"], PROTOCOL_VERSION);
+        // 版の指定が無ければ対応する最新版を返す
+        assert_eq!(res["result"]["protocolVersion"], LATEST_PROTOCOL_VERSION);
         assert_eq!(res["result"]["serverInfo"]["name"], "blog-autopost-rs");
+        assert_eq!(
+            res["result"]["serverInfo"]["version"],
+            env!("CARGO_PKG_VERSION")
+        );
         // tools ケイパビリティを宣言していないとクライアントが tools/list を呼ばない
         assert!(res["result"]["capabilities"]["tools"].is_object());
+    }
+
+    // --- プロトコルバージョンの交渉 ---
+
+    /// 要求された版に対応していればそれを返す。
+    #[tokio::test]
+    async fn 要求された版に対応していればそれを返す() {
+        let app = app();
+
+        for requested in SUPPORTED_PROTOCOL_VERSIONS {
+            let req = json!({
+                "jsonrpc": "2.0",
+                "method": "initialize",
+                "params": { "protocolVersion": requested },
+                "id": 1
+            });
+            let res = build_mcp_response(app.state.clone(), req)
+                .await
+                .expect("レスポンスが返るはず");
+
+            assert_eq!(
+                res["result"]["protocolVersion"], requested,
+                "要求: {}",
+                requested
+            );
+        }
+    }
+
+    /// 対応していない版を要求されたら最新版を返して交渉に委ねる。
+    #[tokio::test]
+    async fn 未対応の版を要求されたら最新版を返す() {
+        let app = app();
+        let req = json!({
+            "jsonrpc": "2.0",
+            "method": "initialize",
+            "params": { "protocolVersion": "1999-01-01" },
+            "id": 1
+        });
+
+        let res = build_mcp_response(app.state.clone(), req)
+            .await
+            .expect("レスポンスが返るはず");
+
+        assert_eq!(res["result"]["protocolVersion"], LATEST_PROTOCOL_VERSION);
+    }
+
+    #[test]
+    fn 対応バージョンを判定できる() {
+        assert!(is_supported_protocol_version("2024-11-05"));
+        assert!(is_supported_protocol_version("2025-03-26"));
+        assert!(is_supported_protocol_version("2025-06-18"));
+
+        assert!(!is_supported_protocol_version("1999-01-01"));
+        assert!(!is_supported_protocol_version(""));
+    }
+
+    #[test]
+    fn 最新版と仕様の既定版は対応範囲に含まれる() {
+        assert!(is_supported_protocol_version(LATEST_PROTOCOL_VERSION));
+        // ヘッダが無いとき仕様が想定する版も受け付けられる必要がある
+        assert!(is_supported_protocol_version("2025-03-26"));
+        // 旧トランスポートの版も残す
+        assert!(is_supported_protocol_version("2024-11-05"));
     }
 
     // --- initialized (通知) ---
