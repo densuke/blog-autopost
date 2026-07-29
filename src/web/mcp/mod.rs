@@ -150,8 +150,27 @@ mod tests {
 
     const SECRET: &str = "test-secret-token";
 
+    /// SSE の読み取りに設ける上限。keep-alive で終わらないストリームを打ち切る。
+    const SSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
     fn app_with_auth() -> TestApp {
         setup_test_app(Some(SECRET.to_string()))
+    }
+
+    /// SSE のレスポンスから次のデータフレームを1つ読み出す。
+    ///
+    /// ボディ全体を読むと keep-alive のせいで終わらないため、
+    /// フレーム単位で取り出して打ち切る。
+    async fn next_frame(body: &mut axum::body::Body) -> String {
+        use http_body_util::BodyExt;
+
+        let frame = tokio::time::timeout(SSE_TIMEOUT, body.frame())
+            .await
+            .expect("SSEフレームの待機がタイムアウトした")
+            .expect("ストリームが終了した")
+            .expect("フレームの読み出しに失敗");
+        let data = frame.into_data().expect("データフレームであること");
+        String::from_utf8(data.to_vec()).expect("UTF-8として解釈できる")
     }
 
     /// MCPのメッセージ受付は 202 Accepted を返す(処理は非同期)。
@@ -202,5 +221,250 @@ mod tests {
         let response = app.router.clone().oneshot(request).await.unwrap();
 
         assert_eq!(response.status(), StatusCode::ACCEPTED);
+    }
+
+    // --- SSE ---
+
+    /// SSE 接続は最初に endpoint イベントでメッセージ送信先を通知する。
+    #[tokio::test]
+    async fn sse接続はendpointイベントを返す() {
+        let app = app_with_auth();
+
+        let request = Request::builder()
+            .uri("/api/mcp/sse")
+            .header("X-Api-Key", SECRET)
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(
+            response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|v| v.starts_with("text/event-stream")),
+            "SSE の Content-Type であること"
+        );
+
+        let mut body = response.into_body();
+        let frame = next_frame(&mut body).await;
+
+        assert!(
+            frame.contains("event: endpoint"),
+            "実際のフレーム: {}",
+            frame
+        );
+        assert!(
+            frame.contains("data: /api/mcp/message?session_id=mcp-"),
+            "実際のフレーム: {}",
+            frame
+        );
+    }
+
+    /// SSE 接続で払い出したセッションは mcp_sessions に登録される。
+    #[tokio::test]
+    async fn sse接続はセッションを登録する() {
+        let app = app_with_auth();
+
+        assert!(
+            app.state.mcp_sessions.read().await.is_empty(),
+            "接続前は空であること"
+        );
+
+        let request = Request::builder()
+            .uri("/api/mcp/sse")
+            .header("X-Api-Key", SECRET)
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+        let mut body = response.into_body();
+        let frame = next_frame(&mut body).await;
+
+        let session_id = frame
+            .split("session_id=")
+            .nth(1)
+            .expect("endpoint イベントに session_id が含まれる")
+            .trim()
+            .to_string();
+
+        assert!(
+            app.state
+                .mcp_sessions
+                .read()
+                .await
+                .contains_key(&session_id),
+            "払い出したセッションが登録されていること: {}",
+            session_id
+        );
+    }
+
+    /// SSE 接続中に送った JSON-RPC の結果が、同じストリームへ流れてくる。
+    #[tokio::test]
+    async fn sseストリームへjson_rpcの結果が流れる() {
+        let app = app_with_auth();
+
+        let sse_request = Request::builder()
+            .uri("/api/mcp/sse")
+            .header("X-Api-Key", SECRET)
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.router.clone().oneshot(sse_request).await.unwrap();
+        let mut body = response.into_body();
+
+        // 1フレーム目は endpoint イベント。ここから session_id を取り出す
+        let endpoint_frame = next_frame(&mut body).await;
+        let session_id = endpoint_frame
+            .split("session_id=")
+            .nth(1)
+            .expect("session_id が含まれる")
+            .trim()
+            .to_string();
+
+        let message_request = Request::builder()
+            .method("POST")
+            .uri(format!("/api/mcp/message?session_id={}", session_id))
+            .header("X-Api-Key", SECRET)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "method": "initialize",
+                    "id": 1
+                })
+                .to_string(),
+            ))
+            .unwrap();
+
+        let accepted = app.router.clone().oneshot(message_request).await.unwrap();
+        assert_eq!(accepted.status(), StatusCode::ACCEPTED);
+
+        // 2フレーム目に JSON-RPC のレスポンスが載る
+        let message_frame = next_frame(&mut body).await;
+        assert!(
+            message_frame.contains("event: message"),
+            "実際のフレーム: {}",
+            message_frame
+        );
+
+        let payload = message_frame
+            .lines()
+            .find_map(|l| l.strip_prefix("data: "))
+            .expect("data 行があること");
+        let json: serde_json::Value = serde_json::from_str(payload).expect("JSONとして解釈できる");
+
+        assert_eq!(json["jsonrpc"], "2.0");
+        assert_eq!(json["id"], 1);
+        assert_eq!(json["result"]["serverInfo"]["name"], "blog-autopost-rs");
+    }
+
+    /// 通知 (id なし) はレスポンスを流さない。
+    #[tokio::test]
+    async fn 通知はsseへ流れない() {
+        let app = app_with_auth();
+
+        let sse_request = Request::builder()
+            .uri("/api/mcp/sse")
+            .header("X-Api-Key", SECRET)
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.router.clone().oneshot(sse_request).await.unwrap();
+        let mut body = response.into_body();
+        let endpoint_frame = next_frame(&mut body).await;
+        let session_id = endpoint_frame
+            .split("session_id=")
+            .nth(1)
+            .expect("session_id が含まれる")
+            .trim()
+            .to_string();
+
+        // 通知を送っても message イベントは流れない
+        let notify = Request::builder()
+            .method("POST")
+            .uri(format!("/api/mcp/message?session_id={}", session_id))
+            .header("X-Api-Key", SECRET)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({ "jsonrpc": "2.0", "method": "initialized" }).to_string(),
+            ))
+            .unwrap();
+        app.router.clone().oneshot(notify).await.unwrap();
+
+        // 続けて id 付きを送り、届く1フレーム目が後者の結果であることを確かめる
+        let call = Request::builder()
+            .method("POST")
+            .uri(format!("/api/mcp/message?session_id={}", session_id))
+            .header("X-Api-Key", SECRET)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({ "jsonrpc": "2.0", "method": "initialize", "id": 9 })
+                    .to_string(),
+            ))
+            .unwrap();
+        app.router.clone().oneshot(call).await.unwrap();
+
+        let frame = next_frame(&mut body).await;
+        let payload = frame
+            .lines()
+            .find_map(|l| l.strip_prefix("data: "))
+            .expect("data 行があること");
+        let json: serde_json::Value = serde_json::from_str(payload).expect("JSONとして解釈できる");
+
+        assert_eq!(json["id"], 9, "通知の分が挟まっていないこと");
+    }
+
+    /// SSE 接続が切れるとセッションは掃除される。
+    #[tokio::test]
+    async fn sse切断でセッションが掃除される() {
+        let app = app_with_auth();
+
+        let request = Request::builder()
+            .uri("/api/mcp/sse")
+            .header("X-Api-Key", SECRET)
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+        let mut body = response.into_body();
+        let frame = next_frame(&mut body).await;
+        let session_id = frame
+            .split("session_id=")
+            .nth(1)
+            .expect("session_id が含まれる")
+            .trim()
+            .to_string();
+
+        assert!(
+            app.state
+                .mcp_sessions
+                .read()
+                .await
+                .contains_key(&session_id)
+        );
+
+        // 接続を落とす。掃除は Drop 内の tokio::spawn で行われるため即時ではない
+        drop(body);
+
+        let deadline = std::time::Instant::now() + SSE_TIMEOUT;
+        loop {
+            if !app
+                .state
+                .mcp_sessions
+                .read()
+                .await
+                .contains_key(&session_id)
+            {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "切断後にセッションが掃除されない: {}",
+                session_id
+            );
+            tokio::task::yield_now().await;
+        }
     }
 }
