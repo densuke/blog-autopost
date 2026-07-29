@@ -45,6 +45,12 @@ pub struct WebAuthConfig {
     /// 素の HTTP で運用している環境がログイン不能にならないようにするため。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cookie_secure: Option<String>,
+    /// 窓内に許すログイン失敗の回数。未指定時は 5。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub login_max_attempts: Option<usize>,
+    /// ログイン失敗を数える窓の長さ(秒)。未指定時は 300。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub login_window_seconds: Option<u64>,
 }
 
 impl WebAuthConfig {
