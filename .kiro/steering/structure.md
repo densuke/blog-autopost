@@ -93,7 +93,15 @@ src/
 
 - `mod.rs`: axum の `Router` 構築、`AppState`、認証ミドルウェア、サーバ起動
 - `routes.rs`: 各ハンドラ(設定取得、手動投稿、メディアアップロード、
-  予約のCRUD、次スロット取得、ログインとログアウト、MCP用SSE)
+  予約のCRUD、次スロット取得、ログインとログアウト)
+- `session.rs`: セッションIDの生成、有効期限、Cookie の組み立て、定時間比較
+- `ratelimit.rs`: ログイン試行のレート制限、接続元アドレスの取り出し
+- `media.rs`: 添付メディアのパス検証 (許可ディレクトリ・形式・サイズ)
+- `mcp/`: MCP サーバ
+  - `mod.rs`: SSE と message のハンドラ、セッション管理
+  - `protocol.rs`: JSON-RPC の解釈とレスポンス組み立て (`build_mcp_response`)
+  - `tools.rs`: tool の定義と実行
+  - `auth.rs`: MCP の認証方針 (`McpAuthPolicy`)
 
 HTMLは `static/index.html` と `static/login.html` を直接配信します
 (`ServeDir` によるフォールバック)。テンプレートエンジンは使いません。

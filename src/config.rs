@@ -248,6 +248,28 @@ web_auth:
     }
 
     #[test]
+    fn 配布テンプレートを読み込める() {
+        // テンプレートの記述が実際の構造体と食い違っていないことを確認する。
+        // カレントディレクトリ依存なので、読めない場合は検証を飛ばす
+        let Ok(template) = std::fs::read_to_string("config.yml.template") else {
+            return;
+        };
+
+        let config = parse_config(&template).expect("テンプレートを解釈できるはず");
+
+        let auth = config.web_auth.expect("web_auth の例があるはず");
+        assert_eq!(auth.username, "admin");
+
+        // 未知のキーは extra に吸われてエラーにならないため、
+        // 例として載せている SNS が種別として解釈できたことを確かめる
+        assert!(!config.sns.is_empty());
+        assert!(
+            !config.sns.contains(&SnsConfig::Unknown),
+            "テンプレートに解釈できない種別が含まれている"
+        );
+    }
+
+    #[test]
     fn 設定した項目は書き戻しに残る() {
         let yaml = r#"
 web_auth:

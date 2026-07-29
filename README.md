@@ -105,6 +105,76 @@ HTTPリクエストのヘッダーに以下を付与することで、セッシ�
 curl -H "Authorization: Bearer your-api-secret-token" http://localhost:8080/api/schedules
 ```
 
+> **MCP を使う場合は別のキーを設定することを推奨します。**
+> `mcp.api_key` を設定すると、MCP の認証を `secret_key` から切り離せます。
+> キーが漏れたときの影響範囲を限定できます。詳細は [docs/mcp.md](docs/mcp.md) を参照してください。
+
+### 🔒 セッションとログインの保護
+
+`web_auth` には以下の項目も設定できます。いずれも省略可能で、書かなければ既定値で動作します。
+
+```yaml
+web_auth:
+  username: "admin"
+  password: "changeme"
+  secret_key: "your-api-secret-token"
+
+  session_ttl_hours: 24        # セッションの有効期間 (時間)。既定 24
+  cookie_secure: "auto"        # Cookie の Secure 属性: auto (既定) / always / never
+  login_max_attempts: 5        # 窓内に許すログイン失敗の回数。既定 5
+  login_window_seconds: 300    # 失敗を数える窓の長さ (秒)。既定 300
+```
+
+`cookie_secure` の `auto` は、リバースプロキシの `X-Forwarded-Proto` を見て HTTPS 由来と判定できたときだけ `Secure` を付けます。素の HTTP で運用していてもログインできなくなりません。
+
+ログイン失敗が上限を超えると `429 Too Many Requests` と `Retry-After` を返します。
+
+---
+
+## 🤖 MCP サーバ
+
+Web サーバは MCP (Model Context Protocol) のエンドポイントを備えています。Claude Code などの AI クライアントから、即時投稿・時間指定予約・「次のタイミング」への予約を操作できます。
+
+| エンドポイント | 役割 |
+|---|---|
+| `GET /api/mcp/sse` | SSE 接続を確立する |
+| `POST /api/mcp/message?session_id=...` | JSON-RPC リクエストを受け付ける |
+
+公開している tool は `post_now` / `add_schedule` / `get_next_slots` / `list_schedules` / `update_schedule` / `delete_schedule` の6つです。
+
+### 設定
+
+MCP 専用の API キーを設定します。
+
+```bash
+openssl rand -hex 32
+```
+
+```yaml
+mcp:
+  api_key: "<MCP_API_KEY>"   # web_auth.secret_key とは別の値にする
+```
+
+`mcp` 節を書かない場合は、従来どおり `web_auth.secret_key` で認証されます。
+
+### クライアントの設定例
+
+```json
+{
+  "mcpServers": {
+    "blog-autopost": {
+      "type": "sse",
+      "url": "https://autopost.example.com/api/mcp/sse",
+      "headers": {
+        "X-Api-Key": "<MCP_API_KEY>"
+      }
+    }
+  }
+}
+```
+
+tool の引数、メディアの制限、認証モードの詳細は **[docs/mcp.md](docs/mcp.md)** を参照してください。
+
 ---
 
 ## 💻 CLIコマンドの使い方
@@ -207,6 +277,37 @@ cargo run -- schedule delete post-1234567890
 
 ---
 
+## ⚠️ 破壊的変更
+
+セキュリティ改善に伴う挙動の変更です。既存の `config.yml` は変更なしで動作します。
+
+### `GET /logout` の廃止
+
+ログアウトは `POST /logout` のみになりました。GET で状態を変更できると、`<img src="/logout">` を踏ませるだけで強制ログアウトさせられるためです。
+
+Web UI のログアウトボタンはフォーム POST に置き換えてあります。ブックマークから `/logout` を開いていた場合は `405` が返ります。
+
+### セッションIDの形式変更
+
+セッションIDを CSPRNG から生成するようにしました。従来はタイムスタンプから導出しており予測できる状態でした。
+
+**更新後は既存のログインセッションが無効になります。** 再ログインしてください。API キー (`secret_key`) には影響しません。
+
+### MCP のメディアパス制限
+
+MCP の `media` 引数に渡せるのは、許可ディレクトリ (既定は `data/uploads` と `data`) の配下にあるファイルだけになりました。検証がないと、認証済みのクライアントが任意のファイルをSNSへ送信できてしまうためです。
+
+`data/` の外にあるファイルを添付していた場合は、`mcp.allowed_media_dirs` にそのディレクトリを追加してください。
+
+```yaml
+mcp:
+  allowed_media_dirs:
+    - "data/uploads"
+    - "/srv/media"
+```
+
+---
+
 ## 🔄 Python版からのデータ移行（移行マニュアル）
 
 既存の Python 版 `blog-autopost` からデータ（既読記事データ・予約投稿データ・添付メディア）を Rust版へ一括で移行するためのスクリプト `scripts/migrate.py` が用意されていました。
@@ -273,5 +374,6 @@ HTMLレポートは `target/llvm-cov/html/index.html` に生成され、Webブ�
 同じPRの中で閾値も引き上げます(ラチェット方式)。引き上げ後の値は、計測の揺らぎで
 CIが不安定にならないよう実測値から2ポイント引いた値を目安とします。
 
-最終的な目標は80%です。段階的な計画は `.kiro/specs/test-coverage-improvement/` を
-参照してください。
+当初の目標だった80%は達成済みで、現在の閾値は89です。以降は維持を目的とし、
+実測が閾値を5ポイント以上上回った状態が続いたときに引き上げを検討します。
+経緯は `.kiro/specs/test-coverage-improvement/` を参照してください。
