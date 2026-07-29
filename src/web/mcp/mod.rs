@@ -10,6 +10,7 @@
 
 pub mod auth;
 pub(crate) mod protocol;
+pub mod streamable;
 pub(crate) mod tools;
 
 use axum::Json;
@@ -605,10 +606,32 @@ mod tests {
         }
     }
 
-    /// 節を書いたのに専用キーが無ければ拒否する。
+    /// 認証項目を書いていない節なら従来どおり secret_key で通る。
     #[tokio::test]
-    async fn 節ありでキー無しなら401になる() {
-        let app = app_with_mcp_key(crate::config::McpConfig::default());
+    async fn 節ありで認証設定なしならsecret_keyで通る() {
+        // allowed_media_dirs だけを設定したいケースで認証が壊れては困る
+        let app = app_with_mcp_key(crate::config::McpConfig {
+            allowed_media_dirs: Some(vec!["data/uploads".to_string()]),
+            ..Default::default()
+        });
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(mcp_request(Some(("X-Api-Key", SECRET))))
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+    }
+
+    /// allow_web_secret_key を false と明示したら secret_key を拒否する。
+    #[tokio::test]
+    async fn allow_web_secret_key_falseならsecret_keyを拒否する() {
+        let app = app_with_mcp_key(crate::config::McpConfig {
+            allow_web_secret_key: Some(false),
+            ..Default::default()
+        });
 
         let response = app
             .router

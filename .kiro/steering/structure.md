@@ -98,10 +98,14 @@ src/
 - `ratelimit.rs`: ログイン試行のレート制限、接続元アドレスの取り出し
 - `media.rs`: 添付メディアのパス検証 (許可ディレクトリ・形式・サイズ)
 - `mcp/`: MCP サーバ
-  - `mod.rs`: SSE と message のハンドラ、セッション管理
+  - `mod.rs`: 旧 HTTP+SSE トランスポートのハンドラとセッション管理
+  - `streamable.rs`: Streamable HTTP トランスポート (推奨経路)
   - `protocol.rs`: JSON-RPC の解釈とレスポンス組み立て (`build_mcp_response`)
   - `tools.rs`: tool の定義と実行
   - `auth.rs`: MCP の認証方針 (`McpAuthPolicy`)
+
+トランスポートは2つ併置してあり、どちらも `build_mcp_response` を通ります。
+新規は `streamable.rs` 側 (`/api/mcp`) を使います。
 
 HTMLは `static/index.html` と `static/login.html` を直接配信します
 (`ServeDir` によるフォールバック)。テンプレートエンジンは使いません。

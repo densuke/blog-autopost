@@ -57,6 +57,13 @@ pub struct McpConfig {
     /// 未指定時は `data/uploads` と `data` のみを許可する。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allowed_media_dirs: Option<Vec<String>>,
+    /// `Origin` ヘッダを付けたリクエストを受け付けるオリジンの一覧。
+    ///
+    /// DNS リバインディング攻撃を防ぐため、MCP の仕様が `Origin` の検証を
+    /// 求めている。`Origin` を送るのはブラウザだけなので、未指定時は
+    /// ヘッダが付いたリクエストを拒否する。`*` で全許可。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_origins: Option<Vec<String>>,
 }
 
 /// Web UI の認証設定。

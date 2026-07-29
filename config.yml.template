@@ -135,6 +135,13 @@ web_auth:
 #   allowed_media_dirs:
 #     - "data/uploads"
 #     - "data"
+#
+#   # Origin ヘッダを付けたリクエストを受け付けるオリジン。
+#   # MCP クライアント (Claude Code や Codex) は Origin を送らないため、
+#   # 通常は設定不要。ブラウザから直接叩く場合だけ列挙する。
+#   # 未設定時は Origin 付きのリクエストを拒否する (DNS リバインディング対策)。
+#   allowed_origins:
+#     - "https://ui.example.com"
 
 # 以下の web: と web_server: は Python 版の設定であり、Rust 版は読み込みません。
 # 残しておいても無害ですが、設定しても効果はありません。

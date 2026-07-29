@@ -63,6 +63,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             put(routes::update_schedule).delete(routes::delete_schedule),
         )
         .route("/schedules/{id}/post-now", post(routes::post_now_schedule))
+        // Streamable HTTP (2025-03-26 以降)。単一エンドポイントで完結する
+        .route(
+            "/mcp",
+            post(mcp::streamable::mcp_post_handler)
+                .get(mcp::streamable::mcp_get_handler)
+                .delete(mcp::streamable::mcp_delete_handler),
+        )
+        // 旧来の HTTP+SSE (2024-11-05)。古いクライアントのために残す
         .route("/mcp/sse", get(mcp::mcp_sse_handler))
         .route("/mcp/message", post(mcp::mcp_message_handler))
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024));
