@@ -89,6 +89,10 @@ src/
 - `optimizer.rs`: SNSごとの文字数制限に合わせた最適化
 - `tags.rs`: ハッシュタグ抽出
 
+`commands/mcp_setup.rs` は MCP の接続設定を各AIクライアントへ登録する。
+Claude Code は `claude mcp add` を呼び、Codex は `~/.codex/config.toml` を
+`toml_edit` で書き換える (既存のコメントと整形を保つため)。
+
 ### `src/web/` - Web UI と API
 
 - `mod.rs`: axum の `Router` 構築、`AppState`、認証ミドルウェア、サーバ起動

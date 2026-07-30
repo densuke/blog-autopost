@@ -119,6 +119,44 @@ mcp:
 
 ## クライアントの設定
 
+### コマンドで登録する (推奨)
+
+`mcp` サブコマンドが、クライアントごとの形式へ変換して登録します。API キーは `config.yml` から読むので、手で貼り付ける必要はありません。
+
+```bash
+# Claude Code へ登録
+blog-autopost-rs mcp install --client claude --url https://autopost.example.com
+
+# Codex へ登録
+blog-autopost-rs mcp install --client codex --url https://autopost.example.com
+
+# 取り除く
+blog-autopost-rs mcp uninstall --client claude
+
+# 書き込まずに内容だけ見る
+blog-autopost-rs mcp print --client codex --url https://autopost.example.com
+
+# 何が起きるかだけ確認する
+blog-autopost-rs mcp install --client codex --url https://autopost.example.com --dry-run
+```
+
+`--url` はベース URL でよく、`/api/mcp` は自動で付きます。古い `/api/mcp/sse` を渡した場合も新しいエンドポイントへ寄せます。
+
+| オプション | 既定値 | 説明 |
+|---|---|---|
+| `--client` | (必須) | `claude` または `codex` |
+| `--url` | (必須) | 接続先。`https://autopost.example.com` の形 |
+| `--name` | `blog-autopost` | クライアントへ登録するサーバ名 |
+| `--scope` | `user` | Claude Code のスコープ (`local` / `project` / `user`) |
+| `--key-env-var` | `BLOG_AUTOPOST_MCP_KEY` | Codex がキーを読む環境変数の名前 |
+| `--dry-run` | — | 変更せず内容だけ表示する |
+
+API キーは `mcp.api_key` を使い、未設定なら `web_auth.secret_key` へフォールバックします (認証側の判定と同じ規則)。どちらも無ければキーの生成方法を案内してエラーになります。
+
+Codex はキーを環境変数から読むため、`export` すべき内容が表示されます。**シェルの設定ファイルは書き換えません**ので、自分で追記してください。
+
+以下は手で設定する場合の内容です。
+
 ### Claude Code
 
 CLI で登録します。

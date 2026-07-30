@@ -159,24 +159,25 @@ mcp:
 
 `mcp` 節を書かない場合は、従来どおり `web_auth.secret_key` で認証されます。
 
-### クライアントの設定例
+### クライアントへの登録
 
-Claude Code:
+`mcp` サブコマンドが、クライアントごとの形式へ変換して登録します。API キーは `config.yml` から読みます。
 
 ```bash
-claude mcp add --transport http blog-autopost \
-  https://autopost.example.com/api/mcp \
-  --header "X-Api-Key: <MCP_API_KEY>" \
-  --scope user
+# 登録
+blog-autopost-rs mcp install --client claude --url https://autopost.example.com
+blog-autopost-rs mcp install --client codex  --url https://autopost.example.com
+
+# 取り除く
+blog-autopost-rs mcp uninstall --client claude
+
+# 書き込まずに内容だけ見る
+blog-autopost-rs mcp print --client codex --url https://autopost.example.com
 ```
 
-Codex (`~/.codex/config.toml`):
+Claude Code へは `claude mcp add` 経由で登録します。Codex へは `~/.codex/config.toml` を書き換えますが、**キーはファイルに書かず**環境変数から読ませます (Codex の仕様)。`export` すべき内容が表示されるので、シェルの設定へ自分で追記してください。
 
-```toml
-[mcp_servers.blog-autopost]
-url = "https://autopost.example.com/api/mcp"
-bearer_token_env_var = "BLOG_AUTOPOST_MCP_KEY"
-```
+`--dry-run` を付けると、変更せずに何が起きるかだけ確認できます。
 
 tool の引数、メディアの制限、認証モード、リバースプロキシ配下での注意点は **[docs/mcp.md](docs/mcp.md)** を参照してください。
 
