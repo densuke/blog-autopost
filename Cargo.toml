@@ -29,6 +29,8 @@ tokio-stream = { version = "0.1.17", features = ["sync"] }
 getrandom = "0.3"
 # APIキーの比較を定時間で行うために使う
 subtle = "2"
+# Codex の config.toml を、既存のコメントと整形を保ったまま書き換えるために使う
+toml_edit = "0.25"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

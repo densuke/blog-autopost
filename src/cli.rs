@@ -91,6 +91,61 @@ pub enum Commands {
         #[command(subcommand)]
         action: ScheduleAction,
     },
+    /// MCPの接続設定をAIクライアントへ登録する
+    Mcp {
+        #[command(subcommand)]
+        action: McpAction,
+    },
+}
+
+/// `mcp` サブコマンドの操作。
+#[derive(Subcommand, Debug, Clone)]
+pub enum McpAction {
+    /// 接続設定をクライアントへ登録する
+    Install(McpSetupArgs),
+    /// 登録済みの接続設定を取り除く
+    Uninstall(McpSetupArgs),
+    /// 書き込まずに設定内容だけを表示する
+    Print(McpSetupArgs),
+}
+
+/// クライアントへ登録するサーバ名の既定値。
+pub const DEFAULT_MCP_SERVER_NAME: &str = "blog-autopost";
+
+/// Codex がキーを読み出す環境変数の既定名。
+pub const DEFAULT_MCP_KEY_ENV_VAR: &str = "BLOG_AUTOPOST_MCP_KEY";
+
+/// Claude Code のスコープの既定値。
+///
+/// `user` はどのプロジェクトからでも使えて、設定が版管理へ入らない。
+pub const DEFAULT_MCP_SCOPE: &str = "user";
+
+/// `mcp` サブコマンドの共通引数。
+#[derive(clap::Args, Debug, Clone)]
+pub struct McpSetupArgs {
+    /// 対象クライアント（claude / codex）
+    #[arg(short, long)]
+    pub client: String,
+
+    /// 接続先URL（例: https://autopost.example.com）。/api/mcp は自動で補う
+    #[arg(short, long)]
+    pub url: Option<String>,
+
+    /// クライアントへ登録するサーバ名
+    #[arg(long, default_value = DEFAULT_MCP_SERVER_NAME)]
+    pub name: String,
+
+    /// Claude Codeのスコープ（local / project / user）
+    #[arg(long, default_value = DEFAULT_MCP_SCOPE)]
+    pub scope: String,
+
+    /// Codexがキーを読み出す環境変数の名前
+    #[arg(long, default_value = DEFAULT_MCP_KEY_ENV_VAR)]
+    pub key_env_var: String,
+
+    /// 変更を加えず、行う内容だけを表示する
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Subcommand, Debug, Clone)]

@@ -12,6 +12,7 @@ mod check;
 mod daemon;
 mod length_check;
 mod list;
+pub mod mcp_setup;
 mod post;
 mod schedule;
 mod sns_clients;
@@ -72,9 +73,36 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
             web::start_server(config_data, cli.config.clone(), port).await?;
         }
         Commands::Schedule { action } => schedule::run(action, &config_data).await?,
+        Commands::Mcp { action } => run_mcp_setup(action, &config_data)?,
     }
 
     Ok(())
+}
+
+/// `mcp` サブコマンドを処理する。
+///
+/// CLI の引数を `mcp_setup` のオプションへ変換して振り分ける。
+fn run_mcp_setup(action: crate::cli::McpAction, config_data: &Config) -> anyhow::Result<()> {
+    use crate::cli::McpAction;
+
+    let args = match &action {
+        McpAction::Install(a) | McpAction::Uninstall(a) | McpAction::Print(a) => a,
+    };
+
+    let options = mcp_setup::McpSetupOptions {
+        client: mcp_setup::McpClient::parse(&args.client)?,
+        url: args.url.clone(),
+        name: args.name.clone(),
+        scope: args.scope.clone(),
+        key_env_var: args.key_env_var.clone(),
+        dry_run: args.dry_run,
+    };
+
+    match action {
+        McpAction::Install(_) => mcp_setup::install(config_data, &options),
+        McpAction::Uninstall(_) => mcp_setup::uninstall(&options),
+        McpAction::Print(_) => mcp_setup::print(config_data, &options),
+    }
 }
 
 #[cfg(test)]
