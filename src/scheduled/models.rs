@@ -116,10 +116,11 @@ mod tests {
         let post: ScheduledPost =
             serde_json::from_str(CURRENT_RUST_RECORD).expect("現行形式が読めなくなっている");
         assert_eq!(post.status, "予約済み");
-        assert_eq!(
-            post.scheduled_at.to_rfc3339(),
-            "2026-06-13T14:48:44.335374+09:00"
-        );
+        // `to_rfc3339()` はローカルタイムゾーンで表記されるため、JST 環境と UTC 環境(CI)で
+        // 文字列が変わる。時刻そのものを突き合わせる。
+        let expected =
+            chrono::DateTime::parse_from_rfc3339("2026-06-13T14:48:44.335374+09:00").unwrap();
+        assert_eq!(post.scheduled_at, expected);
     }
 
     #[test]

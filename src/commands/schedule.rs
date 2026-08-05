@@ -716,10 +716,10 @@ mod tests {
         assert_eq!(p.target_sns, vec!["mastodon", "bluesky"]);
         assert_eq!(p.status, "投稿済み");
         assert_eq!(p.link_url.as_deref(), Some("https://example.com/b"));
-        assert_eq!(
-            p.scheduled_at.format("%Y-%m-%d %H:%M").to_string(),
-            "2026-09-01 09:00"
-        );
+        // `format()` はローカルタイムゾーンで表記されるため、JST 環境と UTC 環境(CI)で
+        // 文字列が変わる。入力した時刻と同一であることを時刻同士で突き合わせる。
+        let expected = chrono::DateTime::parse_from_rfc3339("2026-09-01T09:00:00+09:00").unwrap();
+        assert_eq!(p.scheduled_at, expected);
     }
 
     /// 指定しなかった項目は変更されない。

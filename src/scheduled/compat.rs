@@ -129,7 +129,11 @@ mod tests {
     fn rfc3339_は従来どおり読める() {
         // 支店の scheduled_posts.json.bak2-20260720 に実在した値
         let dt = parse_flexible_datetime("2026-06-13T14:48:44.335374+09:00").unwrap();
-        assert_eq!(dt.to_rfc3339(), "2026-06-13T14:48:44.335374+09:00");
+        // `to_rfc3339()` はローカルタイムゾーンで表記されるため、JST 環境と UTC 環境(CI)で
+        // 文字列が変わる。担保したいのは「同じ時刻に解釈できること」なので、
+        // 表記ではなく時刻そのものを突き合わせる。
+        let expected = DateTime::parse_from_rfc3339("2026-06-13T14:48:44.335374+09:00").unwrap();
+        assert_eq!(dt, expected);
     }
 
     #[test]
