@@ -123,11 +123,17 @@ web_auth:
   cookie_secure: "auto"        # Cookie の Secure 属性: auto (既定) / always / never
   login_max_attempts: 5        # 窓内に許すログイン失敗の回数。既定 5
   login_window_seconds: 300    # 失敗を数える窓の長さ (秒)。既定 300
+
+  # 別オリジンのブラウザページから API を呼ぶ場合のみ設定する
+  allowed_origins:
+    - "https://ui.example.com"
 ```
 
 `cookie_secure` の `auto` は、リバースプロキシの `X-Forwarded-Proto` を見て HTTPS 由来と判定できたときだけ `Secure` を付けます。素の HTTP で運用していてもログインできなくなりません。
 
 ログイン失敗が上限を超えると `429 Too Many Requests` と `Retry-After` を返します。
+
+`allowed_origins` は未設定なら CORS のヘッダを返しません。Web UI は同一オリジンで動くため通常は設定不要です。curl やサーバサイドのスクリプトは CORS の対象外なので影響しません。
 
 ---
 
@@ -298,6 +304,22 @@ Web UI のログアウトボタンはフォーム POST に置き換えてあり�
 セッションIDを CSPRNG から生成するようにしました。従来はタイムスタンプから導出しており予測できる状態でした。
 
 **更新後は既存のログインセッションが無効になります。** 再ログインしてください。API キー (`secret_key`) には影響しません。
+
+### CORS を既定で無効化
+
+以前はすべてのオリジンからの API 呼び出しを許可していました (`CorsLayer::permissive()`)。credentials は許可されないため Cookie は乗りませんが、`Authorization` と `X-Api-Key` は許可されていたため、キーを知っていればブラウザ内の任意のオリジンから API を叩けました。
+
+既定では CORS のヘッダを返さなくなりました。
+
+**Web UI はすべて相対パスで API を呼ぶため影響しません。** curl やサーバサイドのスクリプトも CORS の対象外なので影響しません。影響を受けるのは、別オリジンの**ブラウザページ**から `/api/*` を叩いていた場合だけです。
+
+その場合は許可するオリジンを列挙してください。
+
+```yaml
+web_auth:
+  allowed_origins:
+    - "https://ui.example.com"
+```
 
 ### MCP のメディアパス制限
 
