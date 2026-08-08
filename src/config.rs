@@ -91,6 +91,13 @@ pub struct WebAuthConfig {
     /// ログイン失敗を数える窓の長さ(秒)。未指定時は 300。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub login_window_seconds: Option<u64>,
+    /// 別オリジンのブラウザページからの API 呼び出しを許可するオリジン。
+    ///
+    /// Web UI は同一オリジンで動くため通常は不要。未指定時は CORS の
+    /// ヘッダを返さず、同一オリジンからの利用だけを想定する。
+    /// `*` を含めるとすべてのオリジンを許可する。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_origins: Option<Vec<String>>,
 }
 
 impl WebAuthConfig {

@@ -47,8 +47,7 @@ pub struct AppState {
 /// テストから `tower::ServiceExt::oneshot` を使って本物のハンドラを
 /// 直接検証できるようにしている。
 pub fn build_router(state: Arc<AppState>) -> Router {
-    // CORS設定
-    let cors = CorsLayer::permissive();
+    let cors = build_cors_layer(&state.config);
 
     // ルーティング設定
     let api_routes = Router::new()
@@ -93,6 +92,71 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         ))
         .layer(cors)
         .with_state(state)
+}
+
+/// CORS の設定を組み立てる。
+///
+/// Web UI は同一オリジンから API を呼ぶため、CORS は本来不要である。
+/// 何も設定されていない場合はヘッダを返さず、別オリジンのブラウザ
+/// ページから API を叩けないようにする。
+///
+/// 以前は `CorsLayer::permissive()` を無条件に掛けていた。credentials は
+/// 許可されないので Cookie は乗らないが、`Authorization` と `X-Api-Key` は
+/// wildcard 許可されるため、キーを知っていれば任意のオリジンから叩けた。
+///
+/// curl やサーバサイドのスクリプトは CORS の対象外なので、この変更の
+/// 影響を受けるのは別オリジンのブラウザページだけである。
+fn build_cors_layer(config: &Config) -> CorsLayer {
+    let configured = config
+        .web_auth
+        .as_ref()
+        .and_then(|a| a.allowed_origins.as_deref())
+        .unwrap_or(&[]);
+
+    if configured.is_empty() {
+        // 何も許可しない。プリフライトにも許可を返さない
+        return CorsLayer::new();
+    }
+
+    if configured.iter().any(|o| o == "*") {
+        println!("CORS: allowing any origin (web_auth.allowed_origins contains '*')");
+        return CorsLayer::permissive();
+    }
+
+    let origins: Vec<axum::http::HeaderValue> = configured
+        .iter()
+        .filter_map(|o| match o.parse::<axum::http::HeaderValue>() {
+            Ok(v) => Some(v),
+            Err(_) => {
+                println!("CORS: ignoring invalid origin: {}", o);
+                None
+            }
+        })
+        .collect();
+
+    if origins.is_empty() {
+        println!("CORS: no valid origin was configured. Cross-origin requests are rejected");
+        return CorsLayer::new();
+    }
+
+    println!("CORS: allowing {} configured origin(s)", origins.len());
+
+    // credentials は許可しない。別オリジンから Cookie を使わせると
+    // ログイン中のセッションで操作されうるため、API キーでの利用に限る
+    CorsLayer::new()
+        .allow_origin(origins)
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::PUT,
+            axum::http::Method::DELETE,
+        ])
+        .allow_headers([
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::AUTHORIZATION,
+            axum::http::HeaderName::from_static("x-api-key"),
+            axum::http::HeaderName::from_static("mcp-protocol-version"),
+        ])
 }
 
 pub async fn start_server(config: Config, config_path: String, port: u16) -> anyhow::Result<()> {
@@ -379,6 +443,7 @@ mod tests {
                 cookie_secure: None,
                 login_max_attempts: None,
                 login_window_seconds: None,
+                allowed_origins: None,
             }),
             mcp: None,
             extra: HashMap::new(),
@@ -537,6 +602,190 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    // --- CORS ---
+
+    /// プリフライト要求を組み立てる。
+    fn preflight(origin: &str) -> Request<Body> {
+        Request::builder()
+            .method("OPTIONS")
+            .uri("/api/config")
+            .header(axum::http::header::ORIGIN, origin)
+            .header(axum::http::header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    /// 応答の `Access-Control-Allow-Origin` を取り出す。
+    fn allow_origin(response: &axum::response::Response) -> Option<String> {
+        response
+            .headers()
+            .get(axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string())
+    }
+
+    /// 未設定なら CORS を許可しない。
+    #[tokio::test]
+    async fn corsは未設定なら許可しない() {
+        let app = setup_test_app(Some("my-secret-token".to_string()));
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(preflight("https://evil.example.com"))
+            .await
+            .unwrap();
+
+        // 以前は permissive で、キーを知っていれば任意のオリジンから叩けた
+        assert_eq!(allow_origin(&response), None);
+    }
+
+    /// 未設定でも同一オリジンの通常リクエストは通る。
+    #[tokio::test]
+    async fn cors未設定でも通常のリクエストは通る() {
+        let app = setup_test_app(Some("my-secret-token".to_string()));
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/config")
+                    .header("X-Api-Key", "my-secret-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Web UI は同一オリジンで動くため CORS の設定に影響されない
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    /// 許可したオリジンにはヘッダを返す。
+    #[tokio::test]
+    async fn 許可したオリジンにはcorsヘッダを返す() {
+        let app = setup_test_app_with_config(Some("my-secret-token".to_string()), |config| {
+            if let Some(ref mut auth) = config.web_auth {
+                auth.allowed_origins = Some(vec!["https://ui.example.com".to_string()]);
+            }
+        });
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(preflight("https://ui.example.com"))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            allow_origin(&response).as_deref(),
+            Some("https://ui.example.com")
+        );
+    }
+
+    /// 許可リストに無いオリジンにはヘッダを返さない。
+    #[tokio::test]
+    async fn 許可リスト外のオリジンにはcorsヘッダを返さない() {
+        let app = setup_test_app_with_config(Some("my-secret-token".to_string()), |config| {
+            if let Some(ref mut auth) = config.web_auth {
+                auth.allowed_origins = Some(vec!["https://ui.example.com".to_string()]);
+            }
+        });
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(preflight("https://evil.example.com"))
+            .await
+            .unwrap();
+
+        assert_eq!(allow_origin(&response), None);
+    }
+
+    /// ワイルドカードを設定すると任意のオリジンを許可する。
+    #[tokio::test]
+    async fn corsのワイルドカードは任意のオリジンを許可する() {
+        let app = setup_test_app_with_config(Some("my-secret-token".to_string()), |config| {
+            if let Some(ref mut auth) = config.web_auth {
+                auth.allowed_origins = Some(vec!["*".to_string()]);
+            }
+        });
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(preflight("https://anything.example.com"))
+            .await
+            .unwrap();
+
+        assert!(allow_origin(&response).is_some());
+    }
+
+    /// 空のリストは未設定として扱う。
+    #[tokio::test]
+    async fn corsの空リストは未設定と同じ扱いにする() {
+        let app = setup_test_app_with_config(Some("my-secret-token".to_string()), |config| {
+            if let Some(ref mut auth) = config.web_auth {
+                auth.allowed_origins = Some(vec![]);
+            }
+        });
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(preflight("https://evil.example.com"))
+            .await
+            .unwrap();
+
+        assert_eq!(allow_origin(&response), None);
+    }
+
+    /// 解釈できないオリジンだけを設定した場合も許可しない。
+    #[tokio::test]
+    async fn 不正なオリジンだけならcorsを許可しない() {
+        let app = setup_test_app_with_config(Some("my-secret-token".to_string()), |config| {
+            if let Some(ref mut auth) = config.web_auth {
+                // ヘッダ値にできない文字を含む
+                auth.allowed_origins = Some(vec!["https://ui.example.com\n".to_string()]);
+            }
+        });
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(preflight("https://ui.example.com"))
+            .await
+            .unwrap();
+
+        assert_eq!(allow_origin(&response), None);
+    }
+
+    /// 別オリジンからの Cookie 利用は許可しない。
+    #[tokio::test]
+    async fn corsはcredentialsを許可しない() {
+        let app = setup_test_app_with_config(Some("my-secret-token".to_string()), |config| {
+            if let Some(ref mut auth) = config.web_auth {
+                auth.allowed_origins = Some(vec!["https://ui.example.com".to_string()]);
+            }
+        });
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(preflight("https://ui.example.com"))
+            .await
+            .unwrap();
+
+        // 別オリジンからログイン中のセッションで操作されるのを防ぐ
+        assert!(
+            response
+                .headers()
+                .get(axum::http::header::ACCESS_CONTROL_ALLOW_CREDENTIALS)
+                .is_none()
+        );
     }
 
     /// 更新確認 API は、外部 API を一度も叩けていなくても稼働バージョンを返す（Agy #408）。

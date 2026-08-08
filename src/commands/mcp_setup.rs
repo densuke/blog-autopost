@@ -509,6 +509,7 @@ mod tests {
                 cookie_secure: None,
                 login_max_attempts: None,
                 login_window_seconds: None,
+                allowed_origins: None,
             }),
             mcp: mcp_api_key.map(|k| McpConfig {
                 api_key: Some(k.to_string()),

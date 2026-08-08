@@ -187,6 +187,7 @@ mod tests {
                 cookie_secure: None,
                 login_max_attempts: None,
                 login_window_seconds: None,
+                allowed_origins: None,
             }),
             mcp,
             extra: std::collections::HashMap::new(),
