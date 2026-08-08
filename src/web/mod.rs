@@ -63,6 +63,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             put(routes::update_schedule).delete(routes::delete_schedule),
         )
         .route("/schedules/{id}/post-now", post(routes::post_now_schedule))
+        // 失敗した予約を次の空きスロットへ差し戻す（Agy #412）
+        .route("/schedules/{id}/requeue", post(routes::requeue_schedule))
         // Streamable HTTP (2025-03-26 以降)。単一エンドポイントで完結する
         .route(
             "/mcp",

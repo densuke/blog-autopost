@@ -567,6 +567,73 @@ pub async fn upload_media(
     }))
 }
 
+/// POST /api/schedules/:id/requeue
+///
+/// 失敗した予約を「次の空きスロット」へ差し戻す（Agy #412）。
+///
+/// # 背景
+///
+/// 2026-07-27 に mastodon.social 側の 5xx で投稿が「失敗」になった際、そこから先へ
+/// 進める導線が無かった。即時投稿と削除は既に用意されていたが、「時間をおいて
+/// 再試行する」だけができなかった。一時障害はこの形で拾えると復旧しやすい。
+///
+/// # 安全側の判断
+///
+/// - **投稿済みは拒否する**（409）。再キューを許すと多重投稿になる
+/// - `error_message` は**クリアする**。前回の失敗理由が成功後も残ると紛らわしいため
+/// - 次スロットが見つからない場合は、現在時刻から少し先へ置く（予約が消えるより良い）
+pub async fn requeue_schedule(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<crate::scheduled::ScheduledPost>, StatusCode> {
+    let existing = state.store.get_post_by_id(&id).await.map_err(|e| {
+        println!("Failed to find schedule {}: {:?}", id, e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let Some(mut post) = existing else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+
+    // 投稿済みを再キューすると多重投稿になるため拒否する。
+    // 旧語彙（"投稿完了" / "実行済み"）も同義として弾く（Agy #366 の compat 層）。
+    if crate::scheduled::compat::is_posted(&post.status) {
+        return Err(StatusCode::CONFLICT);
+    }
+
+    // 対象 SNS の次スロットのうち、最も早いものへ差し戻す。
+    let slots = collect_next_slots(&state, Some(&post.target_sns))
+        .await
+        .unwrap_or_default();
+    let next = slots.into_iter().filter_map(|(_, slot)| slot).min();
+
+    post.scheduled_at = next.unwrap_or_else(|| {
+        // スロットが決められない場合でも予約を失わせない。
+        // 5分後に置いてバックグラウンド実行に拾わせる。
+        chrono::Local::now() + chrono::Duration::minutes(5)
+    });
+    post.status = "予約済み".to_string();
+    post.error_message = None;
+    post.updated_at = chrono::Local::now();
+
+    let updated = state
+        .store
+        .update_post(&id, post)
+        .await
+        .map_err(|e| {
+            println!("Failed to requeue schedule {}: {:?}", id, e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    println!(
+        "Requeued schedule: ID={}, ScheduledAt={}",
+        updated.id, updated.scheduled_at
+    );
+
+    Ok(Json(updated))
+}
+
 // POST /api/schedules/:id/post-now
 pub async fn post_now_schedule(
     State(state): State<Arc<AppState>>,
@@ -2356,6 +2423,105 @@ mod tests {
 
         let response = app.router.clone().oneshot(request).await.unwrap();
 
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    // --- POST /api/schedules/{id}/requeue ---（Agy #412）
+
+    /// 失敗した予約を再キューすると、`予約済み` に戻り未来の時刻へ再設定される。
+    #[tokio::test]
+    async fn 失敗した予約を再キューできる() {
+        let app = app_with_auth();
+
+        // 過去時刻で失敗しているレコードを用意する
+        let mut post = ScheduledPost::new(
+            "送信に失敗した投稿".to_string(),
+            chrono::Local::now() - chrono::Duration::hours(3),
+            vec![],
+            vec!["bluesky".to_string()],
+        );
+        post.status = "失敗".to_string();
+        post.error_message = Some("mastodon-social: 503 Service Unavailable".to_string());
+        let id = app.state.store.create_post(post).await.unwrap().id;
+
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/api/schedules/{}/requeue", id))
+            .header("X-Api-Key", SECRET)
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let updated = app
+            .state
+            .store
+            .get_post_by_id(&id)
+            .await
+            .unwrap()
+            .expect("再キュー後もレコードは残る");
+
+        assert_eq!(updated.status, "予約済み", "再キュー後は予約済みへ戻る");
+        assert!(
+            updated.scheduled_at > chrono::Local::now(),
+            "再キュー後の予定時刻は未来であるべき: {}",
+            updated.scheduled_at
+        );
+        assert!(
+            updated.error_message.is_none(),
+            "再キュー時に前回の失敗理由はクリアする（成功後も残ると紛らわしいため）"
+        );
+        // 内容は保持される
+        assert_eq!(updated.content, "送信に失敗した投稿");
+        assert_eq!(updated.target_sns, vec!["bluesky".to_string()]);
+    }
+
+    /// 投稿済みの予約は再キューできない（多重投稿を防ぐ）。
+    #[tokio::test]
+    async fn 投稿済みの予約は再キューできない() {
+        let app = app_with_auth();
+
+        let mut post = ScheduledPost::new(
+            "既に投稿済み".to_string(),
+            chrono::Local::now() - chrono::Duration::hours(3),
+            vec![],
+            vec!["bluesky".to_string()],
+        );
+        post.status = "投稿済み".to_string();
+        let id = app.state.store.create_post(post).await.unwrap().id;
+
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/api/schedules/{}/requeue", id))
+            .header("X-Api-Key", SECRET)
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::CONFLICT,
+            "投稿済みを再キューすると多重投稿になるため拒否する"
+        );
+
+        let unchanged = app.state.store.get_post_by_id(&id).await.unwrap().unwrap();
+        assert_eq!(unchanged.status, "投稿済み");
+    }
+
+    /// 存在しない予約の再キューは404を返す。
+    #[tokio::test]
+    async fn 存在しない予約の再キューは404() {
+        let app = app_with_auth();
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/schedules/no-such-post/requeue")
+            .header("X-Api-Key", SECRET)
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
