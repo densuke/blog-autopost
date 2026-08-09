@@ -59,6 +59,14 @@ just dist
 
 `just dist` で作成したアーカイブを展開すると `blog-autopost-rs/` ディレクトリにバイナリ・`static/`・`config.yml.template` が入っています。サーバー上では **このディレクトリをカレントにして起動** してください（`static/` と `config.yml` を実行時に参照するため）。秘密情報を含む `config.yml` はアーカイブに含めないので、`config.yml.template` をコピーして設定してください。
 
+なお通常の運用では自前でビルドする必要はありません。CI がタグごとに x86_64 Linux (musl) と aarch64 macOS のアーカイブを [GitHub Releases](https://github.com/densuke/blog-autopost/releases) へ公開しています。
+
+### サーバーへの導入と更新
+
+systemd のユーザーサービスとして常駐させる手順、更新とロールバック、リバースプロキシ配下での注意点は **[docs/deploy.md](docs/deploy.md)** にまとめてあります。
+
+> **更新時はバイナリと `static/` を必ず一緒に入れ替えてください。** Web UI の HTML はバイナリ側の仕様に追従しているため、片方だけだと画面の一部が動かなくなります。
+
 ### justを使用したコマンド実行
 コマンドランナー `just` を導入している場合、定義済みのショートカットが使えます。
 
