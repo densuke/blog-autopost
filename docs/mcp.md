@@ -357,6 +357,8 @@ just run-web
 
 自宅から外部のサーバへ繋ぐ場合の注意点です。
 
+サーバーの導入・更新そのものの手順は [deploy.md](deploy.md) を参照してください。
+
 ### HTTPS を使う
 
 API キーは `X-Api-Key` または `Authorization` ヘッダの平文で送られます。HTTP で外部公開すると経路上でキーが読めます。
