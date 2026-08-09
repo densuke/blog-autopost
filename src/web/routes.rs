@@ -906,6 +906,9 @@ pub async fn login_submit(
         sessions.insert(session_id.clone(), session);
     }
 
+    // 再起動をまたいでもログインしたままにするため、ここで書き出す
+    crate::web::persist_sessions(&state).await;
+
     let secure = crate::web::session::CookieSecure::from_config(auth.cookie_secure.as_deref())
         .should_set(crate::web::session::is_https_request(&headers, &uri));
     let cookie = crate::web::session::build_session_cookie(&session_id, ttl_hours, secure);
@@ -927,6 +930,9 @@ pub async fn logout(
     {
         let mut sessions = state.sessions.write().await;
         sessions.remove(session_id);
+        drop(sessions);
+        // 消したセッションが再起動で復活しないように書き出す
+        crate::web::persist_sessions(&state).await;
     }
 
     let cookie = crate::web::session::build_expired_cookie();
@@ -1365,6 +1371,58 @@ mod tests {
                 .username,
             TEST_USERNAME
         );
+    }
+
+    /// ログインしたセッションはファイルへ保存され、再起動後も引き継げる。
+    #[tokio::test]
+    async fn ログインしたセッションはファイルへ保存される() {
+        let app = app_with_auth();
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/login")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(format!(
+                "username={}&password={}",
+                TEST_USERNAME, TEST_PASSWORD
+            )))
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+
+        let persisted = app.state.session_store.load(chrono::Utc::now());
+        assert_eq!(persisted.len(), 1);
+        let session = persisted.values().next().expect("1件ある");
+        assert_eq!(session.username, TEST_USERNAME);
+    }
+
+    /// ログアウトするとファイル上のセッションも消え、再起動で復活しない。
+    #[tokio::test]
+    async fn ログアウトするとファイルからも消える() {
+        let app = app_with_auth();
+
+        {
+            let mut sessions = app.state.sessions.write().await;
+            sessions.insert(
+                "to-remove".to_string(),
+                crate::web::session::Session::new(TEST_USERNAME.to_string(), 24),
+            );
+        }
+        crate::web::persist_sessions(&app.state).await;
+        assert_eq!(app.state.session_store.load(chrono::Utc::now()).len(), 1);
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/logout")
+            .header(header::COOKIE, "session_id=to-remove")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.router.clone().oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert!(app.state.session_store.load(chrono::Utc::now()).is_empty());
     }
 
     /// パスワードが違うと401になり、セッションは作られない。

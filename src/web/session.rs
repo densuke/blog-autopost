@@ -11,7 +11,9 @@ use std::collections::HashMap;
 pub const DEFAULT_SESSION_TTL_HOURS: u32 = 24;
 
 /// ログイン済みセッションの1件分。
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// 再起動をまたいでログイン状態を保つため、ファイルへ保存できるようにしてある。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Session {
     /// ログインしたユーザー名。
     pub username: String,
@@ -41,6 +43,27 @@ impl Session {
     /// 指定時刻の時点で期限切れかどうかを返す。
     pub fn is_expired(&self, now: DateTime<Utc>) -> bool {
         self.expires_at <= now
+    }
+
+    /// 期限を延ばすべきかどうかを返す。
+    ///
+    /// 残りが有効期間の半分を切ったときだけ真を返す。毎回延ばすと
+    /// リクエストのたびに Cookie の打ち直しと保存が走るため、
+    /// 使い続けている限り切れない状態を保てる範囲で頻度を落としている。
+    /// 期限切れは延長ではなく破棄の対象なので偽を返す。
+    pub fn should_renew(&self, now: DateTime<Utc>, ttl_hours: u32) -> bool {
+        if self.is_expired(now) {
+            return false;
+        }
+        let remaining = self.expires_at - now;
+        remaining < Duration::seconds(ttl_hours as i64 * 3600 / 2)
+    }
+
+    /// 期限を現在時刻からの有効期間ぶんだけ延ばす。
+    ///
+    /// `created_at` は最初にログインした時刻の記録として据え置く。
+    pub fn renew(&mut self, now: DateTime<Utc>, ttl_hours: u32) {
+        self.expires_at = now + Duration::hours(ttl_hours as i64);
     }
 }
 
@@ -195,6 +218,46 @@ mod tests {
 
         assert!(session.created_at >= before && session.created_at <= after);
         assert!(!session.is_expired(Utc::now()));
+    }
+
+    // --- should_renew / renew ---
+
+    #[test]
+    fn should_renewは残りが半分を切ってから真になる() {
+        let created = Utc::now();
+        let session = Session::with_created_at("admin".to_string(), 24, created);
+
+        // 発行直後は残り 24 時間なので延長しない
+        assert!(!session.should_renew(created, 24));
+        // 残り 13 時間。まだ半分を超えている
+        assert!(!session.should_renew(created + Duration::hours(11), 24));
+        // 残りちょうど 12 時間。境界では延長しない
+        assert!(!session.should_renew(created + Duration::hours(12), 24));
+        // 残り 11 時間。半分を切ったので延長する
+        assert!(session.should_renew(created + Duration::hours(13), 24));
+    }
+
+    #[test]
+    fn should_renewは期限切れなら偽を返す() {
+        let created = Utc::now();
+        let session = Session::with_created_at("admin".to_string(), 24, created);
+
+        // 期限切れは延長ではなく破棄の対象
+        assert!(!session.should_renew(created + Duration::hours(24), 24));
+        assert!(!session.should_renew(created + Duration::hours(48), 24));
+    }
+
+    #[test]
+    fn renewは期限だけを延ばし発行時刻は保つ() {
+        let created = Utc::now();
+        let mut session = Session::with_created_at("admin".to_string(), 24, created);
+        let now = created + Duration::hours(20);
+
+        session.renew(now, 24);
+
+        assert_eq!(session.created_at, created);
+        assert_eq!(session.expires_at, now + Duration::hours(24));
+        assert!(!session.is_expired(now + Duration::hours(23)));
     }
 
     // --- purge_expired ---
