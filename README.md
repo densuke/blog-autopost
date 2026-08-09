@@ -139,6 +139,14 @@ web_auth:
 
 `cookie_secure` の `auto` は、リバースプロキシの `X-Forwarded-Proto` を見て HTTPS 由来と判定できたときだけ `Secure` を付けます。素の HTTP で運用していてもログインできなくなりません。
 
+#### セッションの保持と自動延長 (0.1.8 以降)
+
+ログイン状態は `data/sessions.json` に保存されます。デーモンを再起動してもログインしたままです。ファイルはセッションIDを含むため、パーミッション `600` で書き出されます。
+
+`session_ttl_hours` はログインからの固定の期限ではありません。残りが有効期間の半分を切ったリクエストで期限が延び、Cookie も打ち直されます。**使い続けている限り期限切れになりません。** 放置したセッションは従来どおり期限を迎えます。
+
+保存に失敗しても認証そのものは動き続けます。失われるのは再起動をまたぐことだけです。
+
 ログイン失敗が上限を超えると `429 Too Many Requests` と `Retry-After` を返します。
 
 `allowed_origins` は未設定なら CORS のヘッダを返しません。Web UI は同一オリジンで動くため通常は設定不要です。curl やサーバサイドのスクリプトは CORS の対象外なので影響しません。
@@ -224,6 +232,11 @@ cargo run -- check --dry-run
 cargo run -- check --sns misskey
 cargo run -- check --sns "x,bluesky"
 cargo run -- check --sns "-x"   # X以外へ投稿
+
+# 対象フィードを限定（指定方法は --sns と同じ）
+cargo run -- check --feed main
+cargo run -- check --feed "main,zenn"
+cargo run -- check --feed "-youtube"   # YouTube以外をチェック
 
 # 本投稿
 cargo run -- check
