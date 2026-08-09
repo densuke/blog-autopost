@@ -6,14 +6,17 @@ use blog_autopost_rs::config::Config;
 use blog_autopost_rs::{article, runner, text};
 
 use crate::cli::Cli;
-use crate::commands::{build_sns_clients, feed_targets, filter_sns_clients};
+use crate::commands::{build_sns_clients, feed_targets, filter_feed_targets, filter_sns_clients};
 
-/// 全フィードを1回ずつ確認し、新着記事を投稿する。
+/// フィードを1回ずつ確認し、新着記事を投稿する。
+///
+/// `feed` に指定があればそのフィードだけを対象にする（Agy #365）。
 pub async fn run(
     config_data: Config,
     cli: &Cli,
     dry_run: bool,
     sns: Option<String>,
+    feed: Option<String>,
 ) -> anyhow::Result<()> {
     println!("Checking RSS feeds for new articles...");
     if dry_run {
@@ -32,12 +35,26 @@ pub async fn run(
         println!("[DEBUG] 投稿対象SNS: {}", names.join(", "));
     }
 
-    // 設定済みの全フィードを対象にする（Python版の通常RSS監視モード相当）
-    let feeds = feed_targets(&config_data);
-
-    if feeds.is_empty() {
+    // 設定済みのフィードを対象にする（Python版の通常RSS監視モード相当）。
+    // --feed 指定があれば絞り込む（Agy #365）
+    let all_feeds = feed_targets(&config_data);
+    if all_feeds.is_empty() {
         println!("Warning: No feed_url configured. Nothing to check.");
         return Ok(());
+    }
+
+    let feeds = filter_feed_targets(all_feeds, feed.as_deref());
+    if feeds.is_empty() {
+        // 指定名が設定に無い場合。黙って全件処理すると事故になるため明示的に止める
+        println!(
+            "Warning: --feed '{}' matched no configured feed. Nothing to check.",
+            feed.as_deref().unwrap_or("")
+        );
+        return Ok(());
+    }
+    if cli.debug && feed.is_some() {
+        let names: Vec<&str> = feeds.iter().map(|(_, n)| n.as_str()).collect();
+        println!("[DEBUG] 対象フィード: {}", names.join(", "));
     }
 
     let fetcher = article::feed_fetcher::DefaultFeedFetcher::new();
