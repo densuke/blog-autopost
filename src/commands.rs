@@ -41,6 +41,32 @@ fn feed_targets(config_data: &Config) -> Vec<(String, String)> {
         .collect()
 }
 
+/// `--feed` の指定でフィードを絞り込む（Agy #365）。
+///
+/// 書式は `--sns` と揃えてあり、`SnsSelector` をそのまま流用する。
+///
+/// - `main` — フィード名で指定
+/// - `main,zenn` — カンマ区切りで複数
+/// - `-youtube` — 先頭の `-` で除外
+/// - `all` — 全件
+///
+/// 指定が無ければ全件を返す。Python 版の `--feed`（カンマ区切りのみ）に対する
+/// 上位互換であり、除外指定と `all` が追加で使える。
+///
+/// 該当が無い場合は空を返す。存在しない名前を渡したときに全件処理してしまうと
+/// 事故になるため、黙って全件へフォールバックはしない。
+pub(crate) fn filter_feed_targets(
+    targets: Vec<(String, String)>,
+    spec: Option<&str>,
+) -> Vec<(String, String)> {
+    let selector = sns_selector::SnsSelector::parse(spec);
+    targets
+        .into_iter()
+        // フィードは種別を持たないため、種別・名前の双方に名前を渡して照合する
+        .filter(|(_, name)| selector.matches(name, name))
+        .collect()
+}
+
 /// サブコマンドを受け取り、対応するモジュールへ処理を振り分ける。
 ///
 /// グローバルオプション（`--limit` / `--debug` / `--verbose` / `--sensitive` /
@@ -49,7 +75,9 @@ pub async fn run_command(command: Commands, config_data: Config, cli: &Cli) -> a
     match command {
         Commands::Touch => touch::run(&config_data, cli).await?,
         Commands::Run { dry_run } => daemon::run(config_data, cli, dry_run).await?,
-        Commands::Check { dry_run, sns } => check::run(config_data, cli, dry_run, sns).await?,
+        Commands::Check { dry_run, sns, feed } => {
+            check::run(config_data, cli, dry_run, sns, feed).await?
+        }
         Commands::Post {
             text,
             sns,
@@ -128,6 +156,81 @@ blog:
         let targets = feed_targets(&config);
         let names: Vec<&str> = targets.iter().map(|(_, n)| n.as_str()).collect();
         assert_eq!(names, vec!["main", "youtube", "zenn"]);
+    }
+
+    // --- --feed によるフィード絞り込み（Agy #365）---
+
+    /// 検証用に3フィードの設定を返す。
+    fn three_feeds() -> Config {
+        let yaml = r#"
+blog:
+  - name: main
+    feed_url: https://example.com/main.xml
+  - name: youtube
+    feed_url: https://example.com/yt.xml
+  - name: zenn
+    feed_url: https://example.com/zenn.xml
+"#;
+        parse_config(yaml).unwrap()
+    }
+
+    fn filtered_names(config: &Config, spec: Option<&str>) -> Vec<String> {
+        filter_feed_targets(feed_targets(config), spec)
+            .into_iter()
+            .map(|(_, n)| n)
+            .collect()
+    }
+
+    #[test]
+    fn 指定なしなら全フィードが対象になる() {
+        let c = three_feeds();
+        assert_eq!(filtered_names(&c, None), vec!["main", "youtube", "zenn"]);
+    }
+
+    #[test]
+    fn 名前を指定するとそのフィードだけになる() {
+        let c = three_feeds();
+        assert_eq!(filtered_names(&c, Some("youtube")), vec!["youtube"]);
+    }
+
+    #[test]
+    fn カンマ区切りで複数指定できる() {
+        // Python 版の --feed と同じ書式
+        let c = three_feeds();
+        assert_eq!(
+            filtered_names(&c, Some("main,zenn")),
+            vec!["main", "zenn"],
+            "カンマ区切りで複数のフィードを選べる"
+        );
+    }
+
+    #[test]
+    fn マイナス接頭辞で除外できる() {
+        // --sns と同じ記法に揃えている
+        let c = three_feeds();
+        assert_eq!(filtered_names(&c, Some("-youtube")), vec!["main", "zenn"]);
+    }
+
+    #[test]
+    fn allで全件指定できる() {
+        let c = three_feeds();
+        assert_eq!(
+            filtered_names(&c, Some("all")),
+            vec!["main", "youtube", "zenn"]
+        );
+    }
+
+    #[test]
+    fn 大文字小文字を区別しない() {
+        let c = three_feeds();
+        assert_eq!(filtered_names(&c, Some("YouTube")), vec!["youtube"]);
+    }
+
+    #[test]
+    fn 該当しない名前を指定すると空になる() {
+        // 存在しないフィード名で全件処理してしまうと事故になるため、空を返す
+        let c = three_feeds();
+        assert!(filtered_names(&c, Some("no-such-feed")).is_empty());
     }
 
     #[test]

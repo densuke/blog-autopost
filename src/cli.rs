@@ -52,6 +52,10 @@ pub enum Commands {
         /// 投稿先のSNSを限定する（カンマ区切り。'-名前'で除外、'all'で全件）。省略時は全SNS
         #[arg(short, long)]
         sns: Option<String>,
+
+        /// 対象フィードを限定する（カンマ区切り。'-名前'で除外、'all'で全件）。省略時は全フィード
+        #[arg(short, long)]
+        feed: Option<String>,
     },
     /// 任意のテキストを指定したSNSへ手動投稿する
     Post {
