@@ -14,6 +14,9 @@ Linux サーバーで常駐させる手順です。systemd のユーザーサー
     ├── static/                # Web UI (バイナリと必ず一緒に更新する)
     ├── config.yml             # 設定 (更新時は触らない)
     └── data/                  # 記事の既読管理と予約 (更新時は触らない)
+        ├── articles.json      # 投稿済み記事の記録
+        ├── scheduled_posts.json  # 予約投稿
+        └── sessions.json      # ログインセッション (0.1.8 以降)
 ```
 
 `static/` を置く場所は実行時のカレントディレクトリからの相対パスです。起動スクリプトで `cd` してから実行してください。
@@ -25,7 +28,7 @@ Linux サーバーで常駐させる手順です。systemd のユーザーサー
 ```bash
 mkdir -p ~/work/blog-autopost && cd ~/work/blog-autopost
 
-VERSION=0.1.7
+VERSION=0.1.8
 BASE=https://github.com/densuke/blog-autopost/releases/download/v${VERSION}
 FILE=blog-autopost-rs-x86_64-unknown-linux-musl-${VERSION}.tar.gz
 
@@ -110,6 +113,8 @@ loginctl enable-linger $USER
 
 `config.yml` と `data/` は触りません。設定は後方互換が保たれており、新しい項目はすべて任意です。
 
+`data/sessions.json` はログイン状態の写しなので、バックアップの対象外で構いません。消えても再ログインすれば作り直されます。
+
 ### 1. バックアップを取る
 
 ```bash
@@ -127,7 +132,7 @@ echo "バックアップ: $BK"
 ```bash
 cd /tmp && rm -rf bap-upgrade && mkdir bap-upgrade && cd bap-upgrade
 
-VERSION=0.1.7
+VERSION=0.1.8
 BASE=https://github.com/densuke/blog-autopost/releases/download/v${VERSION}
 FILE=blog-autopost-rs-x86_64-unknown-linux-musl-${VERSION}.tar.gz
 
@@ -193,7 +198,11 @@ curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:9999/login
 curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:9999/api/config
 ```
 
-ブラウザでログインし直してください。**更新でセッションIDの形式が変わった場合、既存のログインは無効になります。**
+ログイン状態は `data/sessions.json` に保存されており、0.1.8 以降は更新や再起動をまたいでも引き継がれます。次のいずれかに当てはまる場合だけ、ブラウザでログインし直してください。
+
+- 0.1.7 以前から更新した (`data/sessions.json` がまだ無いため)
+- セッションIDの形式が変わる更新だった (リリースノートに明記されます)
+- `data/sessions.json` を消した
 
 ### 6. 後片付け
 

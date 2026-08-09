@@ -88,7 +88,7 @@ just dist       # 配布用tar.gz作成（バイナリ + static/ + 設定テン�
 
 ### エントリポイント
 - `src/main.rs` - 起動処理
-- `src/cli.rs` - clap によるCLI定義（サブコマンド: `run` / `check` / `post` / `touch` / `serve` / `schedule`）
+- `src/cli.rs` - clap によるCLI定義（サブコマンド: `run` / `check` / `post` / `touch` / `serve` / `schedule` / `mcp`）
 - `src/commands.rs`, `src/commands/` - 各サブコマンドの実処理
 - `src/runner.rs` - フィードチェックから投稿までの一連の流れ
 
