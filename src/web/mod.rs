@@ -3,6 +3,7 @@ pub mod media;
 pub mod ratelimit;
 pub mod routes;
 pub mod session;
+pub mod session_store;
 
 use crate::config::Config;
 use crate::scheduled::{JsonScheduledPostStore, ScheduledPostExecutor};
@@ -30,6 +31,8 @@ pub struct AppState {
     pub upload_dir: std::path::PathBuf,
     /// ログイン済みセッション。鍵はセッションID。
     pub sessions: Arc<tokio::sync::RwLock<HashMap<String, session::Session>>>,
+    /// セッションの保存先。再起動をまたいでログイン状態を保つために使う。
+    pub session_store: Arc<session_store::JsonSessionStore>,
     /// ログイン試行のレート制限器。
     pub login_rate_limiter: Arc<ratelimit::LoginRateLimiter>,
     /// MCP エンドポイントの認証方針。
@@ -210,7 +213,13 @@ pub async fn start_server(config: Config, config_path: String, port: u16) -> any
         }
     });
 
-    let sessions = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
+    // 前回稼働時のセッションを引き継ぐ。更新のたびに再ログインを強いられるのを避ける。
+    let session_store = Arc::new(session_store::JsonSessionStore::new("data/sessions.json"));
+    let restored = session_store.load(chrono::Utc::now());
+    if !restored.is_empty() {
+        println!("Restored {} login session(s) from disk.", restored.len());
+    }
+    let sessions = Arc::new(tokio::sync::RwLock::new(restored));
     let mcp_sessions = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
 
     // MCP の認証方針は起動時に一度決め、ログへ残す。
@@ -232,6 +241,7 @@ pub async fn start_server(config: Config, config_path: String, port: u16) -> any
         config_path,
         upload_dir: std::path::PathBuf::from("data/uploads"),
         sessions,
+        session_store,
         login_rate_limiter: Arc::new(ratelimit::LoginRateLimiter::from_config(
             config.web_auth.as_ref().and_then(|a| a.login_max_attempts),
             config
@@ -271,27 +281,72 @@ fn is_public_path(path: &str) -> bool {
     path == "/login" || path == "/theme.js" || path == "/theme.css"
 }
 
-/// セッションIDが有効かどうかを判定する。
+/// 現在のセッション一覧をファイルへ書き出す。
+///
+/// 保存に失敗しても認証は動き続けるため、ログに残すだけで処理を続ける。
+/// 失敗した場合に失われるのは「再起動をまたぐ」ことだけで、
+/// 稼働中のログイン状態には影響しない。
+pub(crate) async fn persist_sessions(state: &Arc<AppState>) {
+    let snapshot = state.sessions.read().await.clone();
+    if let Err(e) = state.session_store.save(&snapshot) {
+        println!("Failed to persist sessions (continuing): {e:?}");
+    }
+}
+
+/// セッションの検証結果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SessionCheck {
+    /// 該当のセッションが無いか、期限切れ。
+    Invalid,
+    /// 有効。期限の延長は不要。
+    Valid,
+    /// 有効で、期限を延長した。Cookie を打ち直す必要がある。
+    Renewed,
+}
+
+/// セッションIDが有効かどうかを判定し、必要なら期限を延長する。
 ///
 /// 期限切れのセッションはその場で取り除く。全件の掃除はログイン時に行うが、
 /// 提示された分だけでも即座に消しておくことで、期限切れのIDが
 /// 残り続けるのを防ぐ。
-async fn verify_session(state: &Arc<AppState>, session_id: &str) -> bool {
+///
+/// 残りが有効期間の半分を切っていれば期限を延長する。使い続けている限り
+/// 切れないようにするためで、放置されたセッションは従来どおり期限を迎える。
+async fn verify_session(state: &Arc<AppState>, session_id: &str) -> SessionCheck {
     let now = chrono::Utc::now();
+    let ttl_hours = state
+        .config
+        .web_auth
+        .as_ref()
+        .map(|a| a.effective_session_ttl_hours())
+        .unwrap_or(session::DEFAULT_SESSION_TTL_HOURS);
 
     {
         let sessions = state.sessions.read().await;
         match sessions.get(session_id) {
-            None => return false,
-            Some(s) if !s.is_expired(now) => return true,
+            None => return SessionCheck::Invalid,
+            // 延長がいらない大多数のリクエストは読みロックだけで済ませる
+            Some(s) if !s.is_expired(now) && !s.should_renew(now, ttl_hours) => {
+                return SessionCheck::Valid;
+            }
             Some(_) => {}
         }
     }
 
-    // ここへ来るのは期限切れだったときだけ
+    // ここへ来るのは期限切れか、延長が必要なときだけ
     let mut sessions = state.sessions.write().await;
-    sessions.remove(session_id);
-    false
+    match sessions.get_mut(session_id) {
+        // ロックを取り直す間に消えている場合がある
+        None => SessionCheck::Invalid,
+        Some(s) if s.is_expired(now) => {
+            sessions.remove(session_id);
+            SessionCheck::Invalid
+        }
+        Some(s) => {
+            s.renew(now, ttl_hours);
+            SessionCheck::Renewed
+        }
+    }
 }
 
 // 認証確認ミドルウェア
@@ -345,16 +400,60 @@ async fn auth_middleware(
     }
 
     // 2. Cookieセッションによる認証のチェック
-    if !authenticated
-        && let Some(cookie_header) = req.headers().get(axum::http::header::COOKIE)
-        && let Ok(cookie_str) = cookie_header.to_str()
-        && let Some(session_id) = session::extract_session_id(cookie_str)
-    {
-        authenticated = verify_session(&state, session_id).await;
+    //
+    // 延長が起きたときは Cookie の Max-Age も伸ばす必要がある。
+    // レスポンスへ載せる値をここで組み立てておく。
+    let mut renewed_cookie: Option<String> = None;
+
+    let presented_session_id = req
+        .headers()
+        .get(axum::http::header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(session::extract_session_id)
+        .map(|id| id.to_string());
+
+    if !authenticated && let Some(session_id) = presented_session_id {
+        match verify_session(&state, &session_id).await {
+            SessionCheck::Invalid => {}
+            SessionCheck::Valid => authenticated = true,
+            SessionCheck::Renewed => {
+                authenticated = true;
+
+                let ttl_hours = state
+                    .config
+                    .web_auth
+                    .as_ref()
+                    .map(|a| a.effective_session_ttl_hours())
+                    .unwrap_or(session::DEFAULT_SESSION_TTL_HOURS);
+                let secure = session::CookieSecure::from_config(
+                    state
+                        .config
+                        .web_auth
+                        .as_ref()
+                        .and_then(|a| a.cookie_secure.as_deref()),
+                )
+                .should_set(session::is_https_request(req.headers(), req.uri()));
+
+                renewed_cookie = Some(session::build_session_cookie(
+                    &session_id,
+                    ttl_hours,
+                    secure,
+                ));
+                persist_sessions(&state).await;
+            }
+        }
     }
 
     if authenticated {
-        Ok(next.run(req).await)
+        let mut response = next.run(req).await;
+        if let Some(cookie) = renewed_cookie
+            && let Ok(value) = axum::http::HeaderValue::from_str(&cookie)
+        {
+            response
+                .headers_mut()
+                .append(axum::http::header::SET_COOKIE, value);
+        }
+        Ok(response)
     } else {
         if path.starts_with("/api/") {
             Err(axum::http::StatusCode::UNAUTHORIZED)
@@ -466,6 +565,10 @@ mod tests {
         ));
         let sessions = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
         let mcp_sessions = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
+        // セッションの保存先も一時ディレクトリへ向け、実際の data/ には触れない
+        let session_store = Arc::new(session_store::JsonSessionStore::new(
+            dir.path().join("sessions.json"),
+        ));
 
         let state = Arc::new(AppState {
             config,
@@ -474,6 +577,7 @@ mod tests {
             config_path: dir.path().join("config.yml").to_string_lossy().into_owned(),
             upload_dir: dir.path().join("uploads"),
             sessions,
+            session_store,
             login_rate_limiter: Arc::new(ratelimit::LoginRateLimiter::from_config(
                 config_login_max_attempts,
                 config_login_window_seconds,
@@ -604,6 +708,162 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    // --- セッションの自動延長 ---
+
+    /// 応答の `Set-Cookie` のうち、セッション Cookie の値を取り出す。
+    fn session_set_cookie(response: &axum::response::Response) -> Option<String> {
+        response
+            .headers()
+            .get_all(axum::http::header::SET_COOKIE)
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .find(|v| v.starts_with("session_id="))
+            .map(|v| v.to_string())
+    }
+
+    /// 期限に余裕があるうちは Cookie を打ち直さない。
+    #[tokio::test]
+    async fn 残りが十分なセッションは延長しない() {
+        let app = setup_test_app(Some("my-secret-token".to_string()));
+        let created = chrono::Utc::now();
+
+        {
+            let mut sessions = app.state.sessions.write().await;
+            sessions.insert(
+                "fresh".to_string(),
+                session::Session::with_created_at("admin".to_string(), 24, created),
+            );
+        }
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/config")
+                    .header(axum::http::header::COOKIE, "session_id=fresh")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(session_set_cookie(&response), None);
+
+        // 期限そのものも動かない
+        let sessions = app.state.sessions.read().await;
+        assert_eq!(
+            sessions.get("fresh").expect("残っている").expires_at,
+            created + chrono::Duration::hours(24)
+        );
+    }
+
+    /// 残りが半分を切ったセッションは期限が延び、Cookie も打ち直される。
+    #[tokio::test]
+    async fn 残りが少ないセッションは延長される() {
+        let app = setup_test_app(Some("my-secret-token".to_string()));
+        // 発行から 20 時間が経ち、残り 4 時間の状態を作る
+        let created = chrono::Utc::now() - chrono::Duration::hours(20);
+
+        {
+            let mut sessions = app.state.sessions.write().await;
+            sessions.insert(
+                "aging".to_string(),
+                session::Session::with_created_at("admin".to_string(), 24, created),
+            );
+        }
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/config")
+                    .header(axum::http::header::COOKIE, "session_id=aging")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let cookie = session_set_cookie(&response).expect("Cookie を打ち直す");
+        assert!(cookie.contains("session_id=aging"));
+        assert!(cookie.contains("Max-Age=86400"));
+
+        // サーバ側の期限も伸びている
+        let sessions = app.state.sessions.read().await;
+        let renewed = sessions.get("aging").expect("残っている");
+        assert!(renewed.expires_at > created + chrono::Duration::hours(24));
+        // 発行時刻は据え置き
+        assert_eq!(renewed.created_at, created);
+    }
+
+    /// 期限切れのセッションは延長されず、取り除かれる。
+    #[tokio::test]
+    async fn 期限切れのセッションは延長されず取り除かれる() {
+        let app = setup_test_app(Some("my-secret-token".to_string()));
+        let created = chrono::Utc::now() - chrono::Duration::hours(30);
+
+        {
+            let mut sessions = app.state.sessions.write().await;
+            sessions.insert(
+                "expired".to_string(),
+                session::Session::with_created_at("admin".to_string(), 24, created),
+            );
+        }
+
+        let response = app
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/config")
+                    .header(axum::http::header::COOKIE, "session_id=expired")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(session_set_cookie(&response), None);
+        assert!(app.state.sessions.read().await.is_empty());
+    }
+
+    /// 延長したセッションはファイルへも書き出される。
+    #[tokio::test]
+    async fn 延長したセッションはファイルへ保存される() {
+        let app = setup_test_app(Some("my-secret-token".to_string()));
+        let created = chrono::Utc::now() - chrono::Duration::hours(20);
+
+        {
+            let mut sessions = app.state.sessions.write().await;
+            sessions.insert(
+                "aging".to_string(),
+                session::Session::with_created_at("admin".to_string(), 24, created),
+            );
+        }
+
+        let _ = app
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/config")
+                    .header(axum::http::header::COOKIE, "session_id=aging")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let persisted = app.state.session_store.load(chrono::Utc::now());
+        assert!(persisted.contains_key("aging"));
     }
 
     // --- CORS ---
