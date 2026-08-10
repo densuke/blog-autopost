@@ -26,7 +26,7 @@ bcrypt = "0.19.2"
 fd-lock = "4.0.2"
 tokio-stream = { version = "0.1.17", features = ["sync"] }
 # セッションIDをCSPRNGから生成するために使う
-getrandom = "0.3"
+getrandom = "0.4"
 # APIキーの比較を定時間で行うために使う
 subtle = "2"
 # Codex の config.toml を、既存のコメントと整形を保ったまま書き換えるために使う
