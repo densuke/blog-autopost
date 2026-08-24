@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Blog AutoPost は、ブログのRSS/Atomフィードを監視し、新しい記事が投稿された際に各種SNS（X、Bluesky、Misskey、Mastodon）へ自動投稿するツールです。CLIに加えてWeb UIも備えており、手動投稿と予約投稿を管理できます。
 
-実装言語は Rust (edition 2024)、クレート名は `blog-autopost-rs` です。旧Python実装は `python` ブランチに残っており、`main` はRust版のみを対象とします。
+実装言語は Rust (edition 2024)、クレート名は `blog-autopost-rs` です。旧Python実装はタグ `python-final` に凍結されており、`main` はRust版のみを対象とします。
 
 ## 開発環境とコマンド
 
