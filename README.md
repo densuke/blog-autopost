@@ -361,10 +361,10 @@ mcp:
 
 既存の Python 版 `blog-autopost` からデータ（既読記事データ・予約投稿データ・添付メディア）を Rust版へ一括で移行するためのスクリプト `scripts/migrate.py` が用意されていました。
 
-> **注意 (2026-07-22)**: Python版を `python` ブランチへ分離した際（コミット `0b4f56c`）に、`scripts/migrate.py` は `main` から削除されています。移行が必要な場合は `python` ブランチから取得してください。
+> **注意 (2026-08-25)**: Python版を `python` ブランチへ分離した際（コミット `0b4f56c`）に、`scripts/migrate.py` は `main` から削除されています。旧Python版はタグ `python-final` に凍結されており、`python` ブランチは削除されました。移行が必要な場合は `git checkout python-final` で取得してください。
 >
 > ```bash
-> git show origin/python:scripts/migrate.py > migrate.py
+> git show python-final:scripts/migrate.py > migrate.py
 > ```
 
 ### 移行手順

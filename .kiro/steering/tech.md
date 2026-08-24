@@ -4,7 +4,7 @@
 
 Rust (edition 2024) 単一クレート `blog-autopost-rs` として実装されており、
 1つのバイナリがCLIとWebサーバの両方を提供します。旧Python/FastAPI実装は
-`python` ブランチにのみ存在し、`main` には含まれません。
+タグ `python-final` に凍結されており、`main` には含まれません。
 
 主要なコンポーネントは以下の通りです。
 

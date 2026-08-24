@@ -1,7 +1,7 @@
 # プロジェクト構造 (structure.md)
 
 現行実装は Rust (edition 2024) 単一クレート `blog-autopost-rs` です。
-旧Python/FastAPI実装は `python` ブランチにのみ存在し、`main` には含まれません。
+旧Python/FastAPI実装はタグ `python-final` に凍結されており、`main` には含まれません。
 
 ## 1. ルートディレクトリ構成
 
