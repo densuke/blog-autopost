@@ -169,6 +169,9 @@
                 <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
                     <h2 class="card-title text-2xl">Scheduled Posts</h2>
                     <div class="flex flex-wrap gap-2">
+                        <!-- チェックした予約への一括操作。未選択のときは押せない -->
+                        <button id="bulk-requeue-btn" class="btn btn-sm btn-outline btn-warning" onclick="bulkRequeue()" disabled>Requeue Selected</button>
+                        <button id="bulk-delete-btn" class="btn btn-sm btn-outline btn-error" onclick="bulkDelete()" disabled>Delete Selected</button>
                         <button class="btn btn-sm btn-outline btn-accent" onclick="cleanupFinished()">Cleanup Posted</button>
                         <button class="btn btn-sm btn-outline btn-primary" onclick="loadSchedules()">Refresh</button>
                     </div>
@@ -180,6 +183,7 @@
                     <table class="table w-full text-slate-200">
                         <thead>
                             <tr class="text-slate-400 border-b border-slate-700">
+                                <th class="w-8"><input type="checkbox" id="select-all" class="checkbox checkbox-xs" onchange="toggleSelectAll(this.checked)" title="すべて選択" aria-label="すべて選択"></th>
                                 <th>Scheduled Time</th>
                                 <th>SNS</th>
                                 <th>Content</th>
@@ -189,7 +193,7 @@
                         </thead>
                         <tbody id="schedules-tbody">
                             <tr>
-                                <td colspan="5" class="text-center text-slate-500 py-8">
+                                <td colspan="6" class="text-center text-slate-500 py-8">
                                     <span class="loading loading-spinner loading-md"></span>
                                 </td>
                             </tr>
@@ -721,8 +725,10 @@
 
         async function loadSchedules() {
             const tbody = document.getElementById('schedules-tbody');
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center py-8"><span class="loading loading-spinner loading-md"></span></td></tr>';
-            
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8"><span class="loading loading-spinner loading-md"></span></td></tr>';
+            // 行を作り直すと選択は消えるので、全選択と一括ボタンも戻す
+            updateBulkButtons();
+
             try {
                 const res = await fetch('/api/schedules');
                 if (!res.ok) throw new Error("Failed to load schedules");
@@ -730,7 +736,7 @@
                 
                 tbody.innerHTML = '';
                 if (schedulesData.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-slate-500 py-8">No scheduled posts found.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-slate-500 py-8">No scheduled posts found.</td></tr>';
                     return;
                 }
                 
@@ -810,6 +816,7 @@
                     `;
                     
                     tr.innerHTML = `
+                        <td><input type="checkbox" class="checkbox checkbox-xs row-select" data-id="${post.id}" onchange="updateBulkButtons()" aria-label="選択"></td>
                         <td class="font-medium text-slate-300 text-sm whitespace-nowrap">${dtStr}</td>
                         <td><div class="flex flex-wrap gap-1">${snsBadges}</div></td>
                         <td class="max-w-[200px] truncate text-slate-300 text-sm" title="${post.content}">${contentPreview}</td>
@@ -820,7 +827,7 @@
                 });
             } catch (err) {
                 console.error(err);
-                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-red-400 py-8">Failed to load scheduled posts.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-red-400 py-8">Failed to load scheduled posts.</td></tr>';
             }
         }
 
@@ -873,6 +880,81 @@
                 showToast("再試行の予約に失敗しました", "alert-error");
                 appendLog(`Failed to requeue schedule ${id}: ${e}`, true);
             }
+        }
+
+        // チェックされている予約の id を返す
+        function selectedIds() {
+            return Array.from(document.querySelectorAll('.row-select:checked')).map(cb => cb.dataset.id);
+        }
+
+        // 選択数に合わせて一括ボタンと全選択チェックの状態を揃える
+        function updateBulkButtons() {
+            const all = document.querySelectorAll('.row-select');
+            const count = selectedIds().length;
+            document.getElementById('bulk-requeue-btn').disabled = count === 0;
+            document.getElementById('bulk-delete-btn').disabled = count === 0;
+            const selectAll = document.getElementById('select-all');
+            selectAll.checked = all.length > 0 && count === all.length;
+            selectAll.indeterminate = count > 0 && count < all.length;
+        }
+
+        function toggleSelectAll(checked) {
+            document.querySelectorAll('.row-select').forEach(cb => { cb.checked = checked; });
+            updateBulkButtons();
+        }
+
+        // 選択した予約のうち失敗したものだけを次のタイミングへ戻す。
+        // サーバーは1件ずつ空きスロットを割り当てるため、順番に呼ぶ
+        async function bulkRequeue() {
+            const ids = selectedIds();
+            const targets = schedulesData.filter(p => ids.includes(p.id) && p.status === '失敗');
+            if (targets.length === 0) {
+                showToast("再試行できるのは失敗した予約だけです", "alert-info");
+                return;
+            }
+            const skipped = ids.length - targets.length;
+            const note = skipped > 0 ? `（失敗以外の ${skipped} 件は対象外）` : '';
+            if (!confirm(`${targets.length} 件を次のタイミングで再試行しますか？${note}`)) return;
+
+            let ok = 0;
+            for (const post of targets) {
+                try {
+                    const res = await fetch(`/api/schedules/${post.id}/requeue`, { method: 'POST' });
+                    if (res.ok) {
+                        ok++;
+                    } else {
+                        appendLog(`Failed to requeue schedule ${post.id}: status ${res.status}`, true);
+                    }
+                } catch (e) {
+                    appendLog(`Failed to requeue schedule ${post.id}: ${e}`, true);
+                }
+            }
+            showToast(`${ok} / ${targets.length} 件の再試行を予約しました`, ok === targets.length ? "alert-success" : "alert-warning");
+            appendLog(`Bulk requeue finished: ${ok} / ${targets.length}.`);
+            loadSchedules();
+        }
+
+        async function bulkDelete() {
+            const ids = selectedIds();
+            if (ids.length === 0) return;
+            if (!confirm(`選択した ${ids.length} 件の予約を削除しますか？この操作は取り消せません。`)) return;
+
+            let ok = 0;
+            for (const id of ids) {
+                try {
+                    const res = await fetch(`/api/schedules/${id}`, { method: 'DELETE' });
+                    if (res.status === 204) {
+                        ok++;
+                    } else {
+                        appendLog(`Failed to delete schedule ${id}: status ${res.status}`, true);
+                    }
+                } catch (e) {
+                    appendLog(`Failed to delete schedule ${id}: ${e}`, true);
+                }
+            }
+            showToast(`${ok} / ${ids.length} 件を削除しました`, ok === ids.length ? "alert-success" : "alert-warning");
+            appendLog(`Bulk delete finished: ${ok} / ${ids.length}.`);
+            loadSchedules();
         }
 
         async function postNow(id) {
