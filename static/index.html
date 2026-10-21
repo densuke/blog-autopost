@@ -802,8 +802,9 @@
                         </button>
                     ` : '';
 
+                    // 失敗行はボタンが4個になり列幅を超えるため、はみ出さず折り返す
                     const actions = `
-                        <div class="flex justify-end gap-2">
+                        <div class="flex flex-wrap justify-end gap-1">
                             ${requeueBtn}
                             ${postNowBtn}
                             <button class="btn btn-xs btn-circle btn-ghost text-sky-400 hover:bg-sky-500/20" onclick="editPost('${post.id}')" title="Edit">
